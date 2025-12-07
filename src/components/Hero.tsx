@@ -38,13 +38,13 @@ export function Hero() {
           <motion.div
             initial={{ opacity: 0, x: -50 }}
             animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.6 }}
+            transition={{ duration: 0.5, ease: [0.25, 0.1, 0.25, 1] }}
             className="space-y-8"
           >
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              transition={{ delay: 0.2 }}
+              transition={{ delay: 0.15, duration: 0.4, ease: [0.25, 0.1, 0.25, 1] }}
               className="inline-block px-4 py-2 rounded-full glass border border-primary/20"
             >
               <div className="flex items-center gap-2">
@@ -57,7 +57,7 @@ export function Hero() {
               <motion.h1
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.3 }}
+                transition={{ delay: 0.2, duration: 0.5, ease: [0.25, 0.1, 0.25, 1] }}
                 className="text-5xl md:text-7xl font-bold leading-tight"
               >
                 Mohammad{' '}
@@ -69,7 +69,7 @@ export function Hero() {
               <motion.p
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.4 }}
+                transition={{ delay: 0.25, duration: 0.5, ease: [0.25, 0.1, 0.25, 1] }}
                 className="text-2xl md:text-4xl text-muted-foreground"
               >
                 Software Engineer
@@ -78,7 +78,7 @@ export function Hero() {
               <motion.p
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.5 }}
+                transition={{ delay: 0.3, duration: 0.5, ease: [0.25, 0.1, 0.25, 1] }}
                 className="text-lg text-muted-foreground max-w-xl"
               >
                 Over 6 years crafting innovative mobile applications in digital health, fintech, and education. 
@@ -87,12 +87,12 @@ export function Hero() {
             </div>
 
             {/* CTAs */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.6 }}
-              className="flex flex-wrap gap-4"
-            >
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.35, duration: 0.5, ease: [0.25, 0.1, 0.25, 1] }}
+                  className="flex flex-wrap gap-4"
+                >
               <motion.a
                 href="/cv.pdf"
                 download="Mohammad-Sharafi-CV.pdf"
@@ -119,12 +119,12 @@ export function Hero() {
             </motion.div>
 
             {/* Social Links */}
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.7 }}
-              className="flex gap-4"
-            >
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 0.4, duration: 0.4, ease: [0.25, 0.1, 0.25, 1] }}
+                  className="flex gap-4"
+                >
               {[
                 { Icon: Github, href: 'https://github.com/MohammadSharafi' },
                 { Icon: Linkedin, href: 'https://www.linkedin.com/in/mohammadsharafi/' },
@@ -150,17 +150,17 @@ export function Hero() {
           <motion.div
             initial={{ opacity: 0, x: 50 }}
             animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.6, delay: 0.3 }}
+            transition={{ duration: 0.5, delay: 0.2, ease: [0.25, 0.1, 0.25, 1] }}
             className="relative"
           >
             <motion.div
               animate={{
-                y: [0, -20, 0],
+                y: [0, -15, 0],
               }}
               transition={{
-                duration: 6,
+                duration: 8,
                 repeat: Infinity,
-                ease: 'easeInOut',
+                ease: [0.4, 0, 0.6, 1],
               }}
               className="relative hidden md:block"
             >
@@ -178,13 +178,13 @@ export function Hero() {
               {/* Floating Elements - Hidden on mobile for performance */}
               <motion.div
                 animate={{
-                  y: [0, -10, 0],
-                  rotate: [0, 5, 0],
+                  y: [0, -8, 0],
+                  rotate: [0, 3, 0],
                 }}
                 transition={{
-                  duration: 4,
+                  duration: 5,
                   repeat: Infinity,
-                  ease: 'easeInOut',
+                  ease: [0.4, 0, 0.6, 1],
                 }}
                 className="absolute -top-8 -right-8 px-6 py-3 rounded-2xl glass shadow-soft border border-primary/20 hidden md:block"
               >
@@ -196,13 +196,13 @@ export function Hero() {
 
               <motion.div
                 animate={{
-                  y: [0, 10, 0],
+                  y: [0, 8, 0],
                 }}
                 transition={{
-                  duration: 3.5,
+                  duration: 4.5,
                   repeat: Infinity,
-                  ease: 'easeInOut',
-                  delay: 0.5,
+                  ease: [0.4, 0, 0.6, 1],
+                  delay: 0.3,
                 }}
                 className="absolute -bottom-8 -left-8 px-6 py-3 rounded-2xl glass shadow-soft flex items-center gap-2 border border-accent/20 hidden md:block"
               >

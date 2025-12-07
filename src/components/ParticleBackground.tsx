@@ -69,7 +69,7 @@ export function ParticleBackground() {
             duration: particle.duration,
             delay: particle.delay,
             repeat: Infinity,
-            ease: 'easeInOut',
+            ease: [0.4, 0, 0.6, 1],
             // Use GPU acceleration
             type: 'tween',
           }}

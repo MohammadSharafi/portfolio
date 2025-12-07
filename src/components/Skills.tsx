@@ -58,7 +58,7 @@ export function Skills() {
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }}
-          transition={{ duration: 0.6 }}
+          transition={{ duration: 0.5, ease: [0.25, 0.1, 0.25, 1] }}
           className="text-center mb-16"
         >
           <span className="text-primary text-sm uppercase tracking-wider">Expertise</span>
@@ -75,7 +75,7 @@ export function Skills() {
               initial={{ opacity: 0, y: 20 }}
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
-              transition={{ delay: categoryIndex * 0.1 }}
+              transition={{ delay: categoryIndex * 0.05, duration: 0.4, ease: [0.25, 0.1, 0.25, 1] }}
               onHoverStart={() => setActiveCategory(categoryIndex)}
               onHoverEnd={() => setActiveCategory(null)}
               className="glass-strong rounded-3xl p-6 shadow-soft hover:shadow-xl transition-all relative overflow-hidden"
@@ -99,7 +99,7 @@ export function Skills() {
                       initial={{ opacity: 0, x: -20 }}
                       whileInView={{ opacity: 1, x: 0 }}
                       viewport={{ once: true }}
-                      transition={{ delay: categoryIndex * 0.1 + skillIndex * 0.05 }}
+                      transition={{ delay: categoryIndex * 0.05 + skillIndex * 0.03, duration: 0.35, ease: [0.25, 0.1, 0.25, 1] }}
                       whileHover={{ x: 4 }}
                       className="group"
                     >
@@ -119,9 +119,9 @@ export function Skills() {
                           whileInView={{ width: `${skill.level}%` }}
                           viewport={{ once: true }}
                           transition={{
-                            duration: 1,
-                            delay: categoryIndex * 0.1 + skillIndex * 0.05 + 0.2,
-                            ease: 'easeOut',
+                            duration: 0.8,
+                            delay: categoryIndex * 0.05 + skillIndex * 0.03 + 0.15,
+                            ease: [0.4, 0, 0.6, 1],
                           }}
                           className="h-full bg-gradient-to-r from-primary to-accent rounded-full relative"
                         >
@@ -130,9 +130,9 @@ export function Skills() {
                               x: ['-100%', '100%'],
                             }}
                             transition={{
-                              duration: 2,
+                              duration: 2.5,
                               repeat: Infinity,
-                              ease: 'linear',
+                              ease: [0.4, 0, 0.6, 1],
                             }}
                             className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent"
                           />

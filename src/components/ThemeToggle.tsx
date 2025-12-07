@@ -36,7 +36,7 @@ export function ThemeToggle() {
             initial={{ y: -20, opacity: 0, rotate: -90 }}
             animate={{ y: 0, opacity: 1, rotate: 0 }}
             exit={{ y: 20, opacity: 0, rotate: 90 }}
-            transition={{ duration: 0.3 }}
+            transition={{ duration: 0.25, ease: [0.25, 0.1, 0.25, 1] }}
           >
             <Moon className="w-4 h-4 text-primary" />
           </motion.div>
@@ -46,7 +46,7 @@ export function ThemeToggle() {
             initial={{ y: -20, opacity: 0, rotate: -90 }}
             animate={{ y: 0, opacity: 1, rotate: 0 }}
             exit={{ y: 20, opacity: 0, rotate: 90 }}
-            transition={{ duration: 0.3 }}
+            transition={{ duration: 0.25, ease: [0.25, 0.1, 0.25, 1] }}
           >
             <Sun className="w-4 h-4 text-primary" />
           </motion.div>
@@ -58,7 +58,7 @@ export function ThemeToggle() {
         className="absolute inset-0 rounded-full border border-primary/20"
         initial={{ scale: 1, opacity: 0.5 }}
         animate={isDark ? { scale: 1.2, opacity: 0 } : { scale: 1, opacity: 0.5 }}
-        transition={{ duration: 0.5 }}
+        transition={{ duration: 0.3, ease: [0.25, 0.1, 0.25, 1] }}
       />
     </motion.button>
   );

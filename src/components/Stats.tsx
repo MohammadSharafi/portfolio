@@ -39,7 +39,7 @@ function Counter({ value, suffix }: { value: number; suffix: string }) {
   const ref = useRef<HTMLSpanElement>(null);
 
   useEffect(() => {
-    const controls = animate(count, value, { duration: 2, ease: 'easeOut' });
+    const controls = animate(count, value, { duration: 1.5, ease: [0.4, 0, 0.6, 1] });
     return controls.stop;
   }, [count, value]);
 
@@ -71,7 +71,7 @@ export function Stats() {
               initial={{ opacity: 0, scale: 0.5 }}
               whileInView={{ opacity: 1, scale: 1 }}
               viewport={{ once: true }}
-              transition={{ delay: index * 0.1, duration: 0.5 }}
+              transition={{ delay: index * 0.05, duration: 0.4, ease: [0.25, 0.1, 0.25, 1] }}
               whileHover={{ scale: 1.05, y: -8 }}
               className="glass-strong rounded-3xl p-6 text-center shadow-soft hover:shadow-xl transition-all group relative overflow-hidden"
             >

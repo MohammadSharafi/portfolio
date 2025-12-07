@@ -1,4 +1,4 @@
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import { Quote, Star, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useState } from 'react';
 
@@ -47,12 +47,15 @@ const testimonials = [
 
 export function Testimonials() {
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [direction, setDirection] = useState(0); // 1 for right, -1 for left
 
   const nextTestimonial = () => {
+    setDirection(1); // Right arrow - slide from right (RTL)
     setCurrentIndex((prev) => (prev + 1) % testimonials.length);
   };
 
   const prevTestimonial = () => {
+    setDirection(-1); // Left arrow - slide from left (LTR)
     setCurrentIndex((prev) => (prev - 1 + testimonials.length) % testimonials.length);
   };
 
@@ -63,7 +66,7 @@ export function Testimonials() {
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }}
-          transition={{ duration: 0.6 }}
+          transition={{ duration: 0.5, ease: [0.25, 0.1, 0.25, 1] }}
           className="text-center mb-16"
         >
           <span className="text-primary text-sm uppercase tracking-wider">Testimonials</span>
@@ -75,14 +78,16 @@ export function Testimonials() {
 
         <div className="relative">
           {/* Main Testimonial Card */}
-          <motion.div
-            key={currentIndex}
-            initial={{ opacity: 0, x: 100 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -100 }}
-            transition={{ duration: 0.5 }}
-            className="glass-strong rounded-3xl p-8 md:p-12 shadow-soft max-w-4xl mx-auto"
-          >
+          <AnimatePresence mode="wait" custom={direction}>
+            <motion.div
+              key={currentIndex}
+              custom={direction}
+              initial={{ opacity: 0, x: direction > 0 ? 100 : -100 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: direction > 0 ? -100 : 100 }}
+              transition={{ duration: 0.4, ease: [0.25, 0.1, 0.25, 1] }}
+              className="glass-strong rounded-3xl p-8 md:p-12 shadow-soft max-w-4xl mx-auto"
+            >
             {/* Quote Icon */}
             <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mb-6">
               <Quote className="w-8 h-8 text-primary" />
@@ -102,13 +107,13 @@ export function Testimonials() {
 
             {/* Author Info */}
             <div className="flex items-center gap-4">
-                    <img
-                      src={testimonials[currentIndex].avatar}
-                      alt={testimonials[currentIndex].name}
-                      className="w-16 h-16 rounded-full object-cover border-2 border-primary/20"
-                      loading="lazy"
-                      decoding="async"
-                    />
+              <img
+                src={testimonials[currentIndex].avatar}
+                alt={testimonials[currentIndex].name}
+                className="w-16 h-16 rounded-full object-cover border-2 border-primary/20"
+                loading="lazy"
+                decoding="async"
+              />
               <div>
                 <h4 className="font-semibold">{testimonials[currentIndex].name}</h4>
                 <p className="text-sm text-muted-foreground">
@@ -117,6 +122,7 @@ export function Testimonials() {
               </div>
             </div>
           </motion.div>
+          </AnimatePresence>
 
           {/* Navigation Buttons */}
           <div className="flex justify-center gap-4 mt-8">
@@ -135,7 +141,10 @@ export function Testimonials() {
               {testimonials.map((_, index) => (
                 <button
                   key={index}
-                  onClick={() => setCurrentIndex(index)}
+                  onClick={() => {
+                    setDirection(index > currentIndex ? 1 : -1);
+                    setCurrentIndex(index);
+                  }}
                   className={`w-2 h-2 rounded-full transition-all ${
                     index === currentIndex
                       ? 'w-8 bg-primary'
@@ -181,13 +190,13 @@ export function Testimonials() {
                 >
                   <div className="glass rounded-2xl p-6 w-64 shadow-soft blur-sm">
                     <div className="flex items-center gap-3 mb-3">
-                          <img
-                            src={testimonial.avatar}
-                            alt={testimonial.name}
-                            className="w-10 h-10 rounded-full object-cover"
-                            loading="lazy"
-                            decoding="async"
-                          />
+                      <img
+                        src={testimonial.avatar}
+                        alt={testimonial.name}
+                        className="w-10 h-10 rounded-full object-cover"
+                        loading="lazy"
+                        decoding="async"
+                      />
                       <div className="text-sm">
                         <p>{testimonial.name}</p>
                       </div>
@@ -200,6 +209,7 @@ export function Testimonials() {
               );
             })}
           </div>
+
         </div>
       </div>
     </section>

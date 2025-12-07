@@ -236,6 +236,16 @@ html {
   scroll-behavior: auto !important;
 }
 
+/* Scrollbar hide utility */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
 /* Mobile optimizations */
 @media (max-width: 768px) {
   /* Disable blur effects on mobile for better performance */
@@ -280,9 +290,9 @@ html {
   background: linear-gradient(135deg, #a855f7 0%, #ff006e 100%);
 }
 
-/* Smooth transitions */
+/* Smooth transitions with optimized easing */
 * {
   transition-property: background-color, border-color, color, fill, stroke, opacity, box-shadow, transform;
   transition-duration: 200ms;
-  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-timing-function: cubic-bezier(0.25, 0.1, 0.25, 1);
 }

@@ -22,7 +22,7 @@ export function LoadingScreen() {
         <motion.div
           initial={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          transition={{ duration: 0.5 }}
+          transition={{ duration: 0.4, ease: [0.25, 0.1, 0.25, 1] }}
           className="fixed inset-0 z-[100] bg-background flex items-center justify-center"
         >
           <div className="text-center">
@@ -30,7 +30,7 @@ export function LoadingScreen() {
             <motion.div
               initial={{ scale: 0.5, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
-              transition={{ duration: 0.5 }}
+              transition={{ duration: 0.4, ease: [0.25, 0.1, 0.25, 1] }}
               className="mb-8"
             >
               <motion.h1
@@ -57,7 +57,7 @@ export function LoadingScreen() {
                 className="h-full bg-gradient-to-r from-primary to-accent"
                 initial={{ width: '0%' }}
                 animate={{ width: '100%' }}
-                transition={{ duration: 1.8, ease: 'easeInOut' }}
+                transition={{ duration: 1.5, ease: [0.4, 0, 0.6, 1] }}
               />
             </div>
 
@@ -65,7 +65,7 @@ export function LoadingScreen() {
             <motion.p
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              transition={{ delay: 0.5 }}
+              transition={{ delay: 0.3, duration: 0.4, ease: [0.25, 0.1, 0.25, 1] }}
               className="mt-6 text-muted-foreground"
             >
               Loading Experience...
