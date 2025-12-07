@@ -102,11 +102,13 @@ export function Testimonials() {
 
             {/* Author Info */}
             <div className="flex items-center gap-4">
-              <img
-                src={testimonials[currentIndex].avatar}
-                alt={testimonials[currentIndex].name}
-                className="w-16 h-16 rounded-full object-cover border-2 border-primary/20"
-              />
+                    <img
+                      src={testimonials[currentIndex].avatar}
+                      alt={testimonials[currentIndex].name}
+                      className="w-16 h-16 rounded-full object-cover border-2 border-primary/20"
+                      loading="lazy"
+                      decoding="async"
+                    />
               <div>
                 <h4 className="font-semibold">{testimonials[currentIndex].name}</h4>
                 <p className="text-sm text-muted-foreground">
@@ -179,11 +181,13 @@ export function Testimonials() {
                 >
                   <div className="glass rounded-2xl p-6 w-64 shadow-soft blur-sm">
                     <div className="flex items-center gap-3 mb-3">
-                      <img
-                        src={testimonial.avatar}
-                        alt={testimonial.name}
-                        className="w-10 h-10 rounded-full object-cover"
-                      />
+                          <img
+                            src={testimonial.avatar}
+                            alt={testimonial.name}
+                            className="w-10 h-10 rounded-full object-cover"
+                            loading="lazy"
+                            decoding="async"
+                          />
                       <div className="text-sm">
                         <p>{testimonial.name}</p>
                       </div>

@@ -212,6 +212,45 @@ html {
   scroll-behavior: smooth;
 }
 
+/* Performance optimizations */
+* {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Optimize animations for GPU acceleration */
+[data-motion] {
+  will-change: transform, opacity;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  perspective: 1000px;
+}
+
+/* Reduce motion for accessibility and performance */
+.reduce-motion *,
+.reduce-motion *::before,
+.reduce-motion *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
+/* Mobile optimizations */
+@media (max-width: 768px) {
+  /* Disable blur effects on mobile for better performance */
+  .glass,
+  .glass-strong {
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+
+  /* Reduce animation complexity on mobile */
+  [data-motion] {
+    will-change: auto;
+  }
+}
+
 /* Glassmorphism utility */
 .glass {
   background: var(--glass-bg);

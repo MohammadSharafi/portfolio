@@ -12,32 +12,47 @@ interface Particle {
 
 export function ParticleBackground() {
   const [particles, setParticles] = useState<Particle[]>([]);
+  const [isMobile, setIsMobile] = useState(false);
 
   useEffect(() => {
+    // Detect mobile devices
+    const checkMobile = () => {
+      const isMobileDevice = window.innerWidth < 768 || 
+        /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      setIsMobile(isMobileDevice);
+    };
+
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+
     const generateParticles = () => {
       const newParticles: Particle[] = [];
-      for (let i = 0; i < 30; i++) {
+      // Disable particles on mobile, reduce on desktop
+      const particleCount = isMobile ? 0 : 8;
+      
+      for (let i = 0; i < particleCount; i++) {
         newParticles.push({
           id: i,
           x: Math.random() * 100,
           y: Math.random() * 100,
-          size: Math.random() * 4 + 2,
-          duration: Math.random() * 20 + 10,
-          delay: Math.random() * 5,
+          size: Math.random() * 2 + 1,
+          duration: Math.random() * 12 + 6,
+          delay: Math.random() * 2,
         });
       }
       setParticles(newParticles);
     };
 
     generateParticles();
-  }, []);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, [isMobile]);
 
   return (
-    <div className="fixed inset-0 pointer-events-none overflow-hidden -z-10 opacity-40">
+    <div className="fixed inset-0 pointer-events-none overflow-hidden -z-10 opacity-30">
       {particles.map((particle) => (
         <motion.div
           key={particle.id}
-          className="absolute rounded-full bg-gradient-to-r from-primary to-accent blur-sm"
+          className="absolute rounded-full bg-gradient-to-r from-primary to-accent blur-sm will-change-transform"
           style={{
             left: `${particle.x}%`,
             top: `${particle.y}%`,
@@ -45,16 +60,18 @@ export function ParticleBackground() {
             height: particle.size,
           }}
           animate={{
-            y: [0, -100, 0],
-            x: [0, Math.random() * 50 - 25, 0],
-            opacity: [0.2, 0.8, 0.2],
-            scale: [1, 1.5, 1],
+            y: [0, -80, 0],
+            x: [0, Math.random() * 30 - 15, 0],
+            opacity: [0.1, 0.5, 0.1],
+            scale: [1, 1.2, 1],
           }}
           transition={{
             duration: particle.duration,
             delay: particle.delay,
             repeat: Infinity,
             ease: 'easeInOut',
+            // Use GPU acceleration
+            type: 'tween',
           }}
         />
       ))}

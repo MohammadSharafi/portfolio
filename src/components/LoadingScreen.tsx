@@ -5,9 +5,13 @@ export function LoadingScreen() {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
+    // Reduced loading time - even faster on mobile
+    const isMobile = window.innerWidth < 768;
+    const loadingTime = isMobile ? 500 : 1000;
+    
     const timer = setTimeout(() => {
       setIsLoading(false);
-    }, 2000);
+    }, loadingTime);
 
     return () => clearTimeout(timer);
   }, []);

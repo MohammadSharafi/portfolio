@@ -5,25 +5,47 @@ export function CursorFollower() {
   const cursorX = useMotionValue(-100);
   const cursorY = useMotionValue(-100);
 
-  const springConfig = { damping: 25, stiffness: 200 };
+  const springConfig = { damping: 30, stiffness: 300 };
   const cursorXSpring = useSpring(cursorX, springConfig);
   const cursorYSpring = useSpring(cursorY, springConfig);
 
   useEffect(() => {
+    let rafId: number;
+    let lastX = 0;
+    let lastY = 0;
+
     const moveCursor = (e: MouseEvent) => {
-      cursorX.set(e.clientX - 16);
-      cursorY.set(e.clientY - 16);
+      // Throttle updates using requestAnimationFrame
+      if (rafId) {
+        cancelAnimationFrame(rafId);
+      }
+      
+      rafId = requestAnimationFrame(() => {
+        const deltaX = Math.abs(e.clientX - lastX);
+        const deltaY = Math.abs(e.clientY - lastY);
+        
+        // Only update if movement is significant (reduces updates)
+        if (deltaX > 2 || deltaY > 2) {
+          cursorX.set(e.clientX - 16);
+          cursorY.set(e.clientY - 16);
+          lastX = e.clientX;
+          lastY = e.clientY;
+        }
+      });
     };
 
-    window.addEventListener('mousemove', moveCursor);
-    return () => window.removeEventListener('mousemove', moveCursor);
+    window.addEventListener('mousemove', moveCursor, { passive: true });
+    return () => {
+      window.removeEventListener('mousemove', moveCursor);
+      if (rafId) cancelAnimationFrame(rafId);
+    };
   }, [cursorX, cursorY]);
 
   return (
     <>
       {/* Main cursor */}
       <motion.div
-        className="fixed w-8 h-8 pointer-events-none z-[9999] mix-blend-difference hidden lg:block"
+        className="fixed w-8 h-8 pointer-events-none z-[9999] mix-blend-difference hidden lg:block will-change-transform"
         style={{
           left: cursorXSpring,
           top: cursorYSpring,
@@ -34,7 +56,7 @@ export function CursorFollower() {
 
       {/* Trailing cursor */}
       <motion.div
-        className="fixed w-2 h-2 pointer-events-none z-[9999] mix-blend-difference hidden lg:block"
+        className="fixed w-2 h-2 pointer-events-none z-[9999] mix-blend-difference hidden lg:block will-change-transform"
         style={{
           left: cursorX,
           top: cursorY,

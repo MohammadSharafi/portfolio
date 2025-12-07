@@ -4,30 +4,32 @@ import { Download, Mail, Github, Linkedin, Twitter, ArrowRight, Sparkles } from 
 export function Hero() {
   return (
     <section id="home" className="min-h-screen flex items-center justify-center px-4 pt-32 pb-16 relative overflow-hidden">
-      {/* Animated Background Gradients */}
+      {/* Animated Background Gradients - Reduced animation on mobile */}
       <motion.div
         animate={{
-          scale: [1, 1.2, 1],
+          scale: [1, 1.1, 1],
           rotate: [0, 90, 0],
         }}
         transition={{
-          duration: 20,
+          duration: 30,
           repeat: Infinity,
           ease: 'linear',
+          type: 'tween',
         }}
-        className="absolute top-0 right-0 w-[600px] h-[600px] bg-primary/20 rounded-full blur-3xl -z-10"
+        className="absolute top-0 right-0 w-[400px] h-[400px] md:w-[600px] md:h-[600px] bg-primary/20 rounded-full blur-3xl -z-10 will-change-transform hidden md:block"
       />
       <motion.div
         animate={{
-          scale: [1.2, 1, 1.2],
+          scale: [1.1, 1, 1.1],
           rotate: [90, 0, 90],
         }}
         transition={{
-          duration: 15,
+          duration: 25,
           repeat: Infinity,
           ease: 'linear',
+          type: 'tween',
         }}
-        className="absolute bottom-0 left-0 w-[500px] h-[500px] bg-accent/20 rounded-full blur-3xl -z-10"
+        className="absolute bottom-0 left-0 w-[300px] h-[300px] md:w-[500px] md:h-[500px] bg-accent/20 rounded-full blur-3xl -z-10 will-change-transform hidden md:block"
       />
 
       <div className="max-w-7xl mx-auto w-full">
@@ -156,11 +158,11 @@ export function Hero() {
                 y: [0, -20, 0],
               }}
               transition={{
-                duration: 4,
+                duration: 6,
                 repeat: Infinity,
                 ease: 'easeInOut',
               }}
-              className="relative"
+              className="relative hidden md:block"
             >
               {/* Main Glass Card */}
               <div className="glass-strong rounded-3xl p-8 shadow-soft">
@@ -168,21 +170,23 @@ export function Hero() {
                   src="https://images.unsplash.com/photo-1764303017761-2f94cb677efe?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxtb2Rlcm4lMjB0ZWNoJTIwYWJzdHJhY3QlMjBibHVlfGVufDF8fHx8MTc2NTA0NDMyNHww&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral"
                   alt="Tech illustration"
                   className="w-full h-full object-cover rounded-2xl"
+                  loading="lazy"
+                  decoding="async"
                 />
               </div>
 
-              {/* Floating Elements */}
+              {/* Floating Elements - Hidden on mobile for performance */}
               <motion.div
                 animate={{
                   y: [0, -10, 0],
                   rotate: [0, 5, 0],
                 }}
                 transition={{
-                  duration: 3,
+                  duration: 4,
                   repeat: Infinity,
                   ease: 'easeInOut',
                 }}
-                className="absolute -top-8 -right-8 px-6 py-3 rounded-2xl glass shadow-soft border border-primary/20"
+                className="absolute -top-8 -right-8 px-6 py-3 rounded-2xl glass shadow-soft border border-primary/20 hidden md:block"
               >
                 <div className="flex items-center gap-2">
                   <div className="w-3 h-3 rounded-full bg-green-500 animate-pulse shadow-lg shadow-green-500/50" />
@@ -195,21 +199,21 @@ export function Hero() {
                   y: [0, 10, 0],
                 }}
                 transition={{
-                  duration: 2.5,
+                  duration: 3.5,
                   repeat: Infinity,
                   ease: 'easeInOut',
                   delay: 0.5,
                 }}
-                className="absolute -bottom-8 -left-8 px-6 py-3 rounded-2xl glass shadow-soft flex items-center gap-2 border border-accent/20"
+                className="absolute -bottom-8 -left-8 px-6 py-3 rounded-2xl glass shadow-soft flex items-center gap-2 border border-accent/20 hidden md:block"
               >
                 <ArrowRight className="w-4 h-4 text-accent" />
                 <span className="text-sm font-medium">50+ Projects</span>
               </motion.div>
             </motion.div>
 
-            {/* Background Gradient Blur */}
-            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-primary/20 rounded-full blur-3xl -z-10" />
-            <div className="absolute top-1/3 right-0 w-64 h-64 bg-accent/20 rounded-full blur-3xl -z-10" />
+            {/* Background Gradient Blur - Reduced on mobile */}
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 md:w-96 md:h-96 bg-primary/20 rounded-full blur-2xl md:blur-3xl -z-10 hidden md:block" />
+            <div className="absolute top-1/3 right-0 w-48 h-48 md:w-64 md:h-64 bg-accent/20 rounded-full blur-2xl md:blur-3xl -z-10 hidden md:block" />
           </motion.div>
         </div>
       </div>

@@ -33,11 +33,13 @@ export function About() {
             className="relative"
           >
             <div className="relative rounded-3xl overflow-hidden shadow-soft">
-              <img
-                src="https://images.unsplash.com/photo-1660810731526-0720827cbd38?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxzb2Z0d2FyZSUyMGVuZ2luZWVyJTIwd29ya3NwYWNlfGVufDF8fHx8MTc2NDk3ODYwNnww&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral"
-                alt="Mohammad Sharafi"
-                className="w-full h-[500px] object-cover"
-              />
+                <img
+                  src="https://images.unsplash.com/photo-1660810731526-0720827cbd38?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxzb2Z0d2FyZSUyMGVuZ2luZWVyJTIwd29ya3NwYWNlfGVufDF8fHx8MTc2NDk3ODYwNnww&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral"
+                  alt="Mohammad Sharafi"
+                  className="w-full h-[500px] object-cover"
+                  loading="lazy"
+                  decoding="async"
+                />
               <div className="absolute inset-0 bg-gradient-to-t from-background/80 to-transparent" />
             </div>
 
