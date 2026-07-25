@@ -8,7 +8,7 @@ export const CAREER_START_YEAR = 2018;
 export const yearsOfExperience = (now: Date = new Date()): number =>
   Math.max(1, now.getFullYear() - CAREER_START_YEAR);
 
-export const SITE_URL = 'https://mohammadsharafi.vercel.app';
+export { SITE_URL } from '@/lib/site';
 
 export interface SocialLink {
   label: string;

@@ -76,6 +76,14 @@ Vercel, configured in `vercel.json` (build output goes to `build/`). Any static
 host works — the output is plain files. CI runs formatting, lint, typecheck,
 tests and a build on every push and pull request.
 
+### Changing the domain
+
+The deployed origin lives in one place, `src/lib/site.ts`. A Vite plugin reads it
+to fill the `%SITE_URL%` placeholders in `index.html` (canonical, Open Graph,
+Twitter, JSON-LD) and to generate `robots.txt` and `sitemap.xml` at build time,
+so pointing the site at a custom domain is a one-line edit with no stale URLs
+left behind.
+
 ## Licence
 
 MIT for the source. The written content, CV and photographs are © Mohammad Sharafi.
