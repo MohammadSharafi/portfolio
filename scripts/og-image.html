@@ -1,0 +1,83 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@600;700&display=swap">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html { width:1200px; height:630px; background:#12141c; }
+  body {
+    width:1200px; height:630px; overflow:hidden;
+    background:
+      radial-gradient(900px 500px at 88% -8%, rgba(59,100,245,.34), transparent 62%),
+      radial-gradient(760px 460px at 4% 108%, rgba(168,85,247,.30), transparent 60%),
+      #12141c;
+    color:#f6f7fb;
+    font-family:'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    position:relative;
+  }
+  .dots {
+    position:absolute; inset:0;
+    background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,.10) 1px, transparent 0);
+    background-size:34px 34px;
+    -webkit-mask-image: radial-gradient(ellipse 78% 88% at 46% 42%, #000 32%, transparent 100%);
+  }
+  .wrap { position:relative; padding:60px 80px; height:100%; display:flex; flex-direction:column; justify-content:center; gap:52px; }
+  .top { display:flex; align-items:center; gap:20px; }
+  .mark {
+    width:72px; height:72px; border-radius:20px;
+    background:linear-gradient(135deg,#3b64f5,#a855f7);
+    display:flex; align-items:center; justify-content:center;
+    font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:31px; letter-spacing:-1px;
+    box-shadow:0 14px 40px rgba(59,100,245,.42);
+  }
+  .avail {
+    display:inline-flex; align-items:center; gap:11px;
+    padding:11px 20px; border-radius:999px;
+    background:rgba(255,255,255,.065); border:1px solid rgba(255,255,255,.13);
+    font-size:19px; color:#d3d8e6;
+  }
+  .avail i { width:10px; height:10px; border-radius:50%; background:#2fd07d; box-shadow:0 0 0 5px rgba(47,208,125,.20); }
+  h1 {
+    font-family:'Space Grotesk',sans-serif; font-weight:700;
+    font-size:88px; line-height:1.03; letter-spacing:-2.6px;
+  }
+  h1 span { background:linear-gradient(100deg,#6f92ff,#c99bff); -webkit-background-clip:text; background-clip:text; color:transparent; }
+  h2 { font-size:35px; font-weight:600; color:#aeb6ca; margin-top:20px; letter-spacing:-.6px; }
+  p.desc { font-size:24px; color:#8d95a9; margin-top:18px; max-width:900px; line-height:1.45; }
+  .tags { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+  .tag {
+    padding:11px 20px; border-radius:999px; font-size:20px; font-weight:500;
+    background:rgba(255,255,255,.055); border:1px solid rgba(255,255,255,.12); color:#c6cdde;
+  }
+  .url { position:absolute; left:80px; bottom:38px; font-size:19px; color:#6d7488; letter-spacing:.2px; z-index:5; }
+</style>
+</head>
+<body>
+  <div class="dots"></div>
+  <div class="wrap">
+    <div class="top">
+      <div class="mark">MS</div>
+      <div class="avail"><i></i> Open to senior engineering roles</div>
+    </div>
+
+    <div class="mid">
+    <h1>Mohammad <span>Sharafi</span></h1>
+    <h2>Software Engineer</h2>
+    <p class="desc">Flutter apps and backend services for regulated healthcare — HIPAA-compliant systems, clinical AI, and mobile shipped to production.</p>
+    </div>
+
+    <div class="tags">
+      <div class="tag">Flutter</div>
+      <div class="tag">Dart</div>
+      <div class="tag">Python</div>
+      <div class="tag">Spring Boot</div>
+      <div class="tag">SMART on FHIR</div>
+      <div class="tag">Applied AI</div>
+      
+    </div>
+  </div>
+  <div class="url">github.com/MohammadSharafi&nbsp; ·&nbsp; linkedin.com/in/mohammadsharafi</div>
+</body>
+</html>

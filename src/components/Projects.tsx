@@ -1,235 +1,168 @@
-import { motion, AnimatePresence } from 'motion/react';
-import { ExternalLink, Github, Filter } from 'lucide-react';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
+import { ArrowUpRight, Github, Star } from 'lucide-react';
+import {
+  githubProfileUrl,
+  projectCategories,
+  projects,
+  type ProjectCategory,
+} from '@/data/projects';
+import { cn } from '@/lib/utils';
+import { useReducedMotion } from '@/hooks/useReducedMotion';
+import { Section } from './ui/Section';
+import { Reveal } from './ui/Reveal';
+import { ProjectArtwork } from './ui/ProjectArtwork';
 
-const projects = [
-  {
-    title: 'NeuroChain Orchestrator',
-    description:
-      'A distributed local-AI workflow engine combining Flutter, Spring Boot, and Python to run intelligent automation pipelines fully offline using on-device LLMs, vision models, and event-driven orchestration. Features visual workflow builder, plugin system, and multi-device execution support.',
-    image: 'https://images.unsplash.com/photo-1764303017761-2f94cb677efe?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxtb2Rlcm4lMjB0ZWNoJTIwYWJzdHJhY3QlMjBibHVlfGVufDF8fHx8MTc2NTA0NDMyNHww&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral',
-    tags: ['Flutter', 'Spring Boot', 'Python', 'LLM', 'Docker', 'GraphQL', 'Workflow Engine'],
-    github: 'https://github.com/MohammadSharafi/neurochain-orchestrator',
-    category: 'AI/ML',
-  },
-  {
-    title: 'NodeFlow AI - Distributed Automation',
-    description:
-      'A Java-powered distributed automation engine that runs AI models locally using a node-based workflow system, gRPC communication, dynamic plugins, and event-driven orchestration.',
-    image: 'https://images.unsplash.com/photo-1644088379091-d574269d422f?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxhYnN0cmFjdCUyMHRlY2hub2xvZ3klMjBuZXR3b3JrfGVufDF8fHx8MTc2NDk0MTc1Nnww&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral',
-    tags: ['Java', 'gRPC', 'Event-Driven', 'Plugin System', 'Distributed'],
-    github: 'https://github.com/MohammadSharafi/NodeFlow-AI-Distributed-Automation-System',
-    category: 'Backend',
-  },
-  {
-    title: 'Adaptive Productivity Engine',
-    description:
-      'Privacy-first AI productivity assistant with behavioral analytics, task management, and personalized recommendations. Built with Flutter, Spring Boot, and Python. Fully offline with local AI models for complete data privacy.',
-    image: 'https://images.unsplash.com/photo-1660810731526-0720827cbd38?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxzb2Z0d2FyZSUyMGVuZ2luZWVyJTIwd29ya3NwYWNlfGVufDF8fHx8MTc2NDk3ODYwNnww&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral',
-    tags: ['Flutter', 'Spring Boot', 'Python', 'AI', 'Privacy-First', 'Local AI'],
-    github: 'https://github.com/MohammadSharafi/adaptive-productivity-engine',
-    category: 'AI/ML',
-  },
-  {
-    title: 'PocketMind Knowledge Engine',
-    description:
-      'AI-assisted personal knowledge engine with local AI processing. Built with Flutter, Spring Boot, and Python to organize, retrieve, and connect information using advanced search and AI-powered insights while keeping all data local.',
-    image: 'https://images.unsplash.com/photo-1717996563514-e3519f9ef9f7?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxtb2Rlcm4lMjB3ZWIlMjBhcHBsaWNhdGlvbnxlbnwxfHx8fDE3NjQ5NzI3NTB8MA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral',
-    tags: ['Flutter', 'Spring Boot', 'Python', 'AI', 'Knowledge Management', 'Local Processing'],
-    github: 'https://github.com/MohammadSharafi/pocketmind-knowledge-engine',
-    category: 'AI/ML',
-  },
-  {
-    title: 'Generalized Dispersion Problem',
-    description:
-      'A mathematical optimization solution for solving generalized dispersion problems with efficient algorithms and computational methods.',
-    image: 'https://images.unsplash.com/photo-1644088379091-d574269d422f?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxhYnN0cmFjdCUyMHRlY2hub2xvZ3klMjBuZXR3b3JrfGVufDF8fHx8MTc2NDk0MTc1Nnww&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral',
-    tags: ['Algorithms', 'Optimization', 'Mathematics', 'Computational'],
-    github: 'https://github.com/MohammadSharafi/GeneralizedDispersionProblem',
-    category: 'Backend',
-  },
-  {
-    title: 'Role Chooser',
-    description:
-      'An application for managing and selecting roles with intelligent matching and recommendation capabilities.',
-    image: 'https://images.unsplash.com/photo-1764303017761-2f94cb677efe?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxtb2Rlcm4lMjB0ZWNoJTIwYWJzdHJhY3QlMjBibHVlfGVufDF8fHx8MTc2NTA0NDMyNHww&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral',
-    tags: ['Role Management', 'Matching', 'Recommendation'],
-    github: 'https://github.com/MohammadSharafi/rolechosser',
-    category: 'Frontend',
-  },
-  {
-    title: 'Doctor Voice Flutter',
-    description:
-      'A voice analysis application built with Flutter using BLoC state management pattern for cross-platform voice recording and analysis capabilities.',
-    image: 'https://images.unsplash.com/photo-1660810731526-0720827cbd38?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxzb2Z0d2FyZSUyMGVuZ2luZWVyJTIwd29ya3NwYWNlfGVufDF8fHx8MTc2NDk3ODYwNnww&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral',
-    tags: ['Flutter', 'BLoC', 'Voice Analysis', 'Mobile', 'Dart'],
-    github: 'https://github.com/MohammadSharafi/doctor-voice-flutter',
-    category: 'Frontend',
-  },
+type Filter = 'All' | ProjectCategory;
+
+// Only offer categories that actually match a project — the previous filter bar
+// advertised categories that returned nothing.
+const availableCategories: readonly Filter[] = [
+  'All',
+  ...projectCategories.filter((category) =>
+    projects.some((project) => project.category === category)
+  ),
 ];
 
-const categories = ['All', 'AI/ML', 'Backend', 'DevOps', 'Frontend'];
-
 export function Projects() {
-  const [selectedCategory, setSelectedCategory] = useState('All');
-  const [filteredProjects, setFilteredProjects] = useState(projects);
+  const [filter, setFilter] = useState<Filter>('All');
+  const prefersReducedMotion = useReducedMotion();
 
-  const handleCategoryChange = (category: string) => {
-    setSelectedCategory(category);
-    if (category === 'All') {
-      setFilteredProjects(projects);
-    } else {
-      setFilteredProjects(projects.filter(project => project.category === category));
-    }
-  };
+  const visibleProjects = useMemo(
+    () => (filter === 'All' ? projects : projects.filter((p) => p.category === filter)),
+    [filter]
+  );
 
   return (
-    <section id="projects" className="py-32 px-4">
-      <div className="max-w-7xl mx-auto">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          transition={{ duration: 0.5, ease: [0.25, 0.1, 0.25, 1] }}
-          className="text-center mb-16"
+    <Section
+      id="projects"
+      eyebrow="Projects"
+      title="Things I have built"
+      description="Mostly systems work: distributed orchestration, local AI, and the mobile clients that sit on top of them."
+    >
+      <Reveal className="mb-10">
+        <div
+          role="group"
+          aria-label="Filter projects by category"
+          className="flex flex-wrap justify-center gap-2"
         >
-          <span className="text-primary text-sm uppercase tracking-wider">Portfolio</span>
-          <h2 className="text-4xl md:text-5xl mt-2">Featured Projects</h2>
-          <p className="text-muted-foreground mt-4 max-w-2xl mx-auto">
-            A showcase of my recent work and technical achievements
-          </p>
-        </motion.div>
+          {availableCategories.map((category) => {
+            const isActive = filter === category;
+            const count =
+              category === 'All'
+                ? projects.length
+                : projects.filter((p) => p.category === category).length;
 
-        {/* Category Filter */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          className="flex flex-wrap justify-center gap-3 mb-12"
-        >
-          <div className="flex items-center gap-2 px-4 py-2 rounded-full glass">
-            <Filter className="w-4 h-4 text-primary" />
-            <span className="text-sm">Filter:</span>
-          </div>
-          {categories.map((category) => (
-            <motion.button
-              key={category}
-              onClick={() => handleCategoryChange(category)}
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              className={`px-6 py-2 rounded-full transition-all ${
-                selectedCategory === category
-                  ? 'bg-primary text-white shadow-lg'
-                  : 'glass hover:bg-primary/10'
-              }`}
-            >
-              {category}
-            </motion.button>
-          ))}
-        </motion.div>
-
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={selectedCategory}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            transition={{ duration: 0.25, ease: [0.25, 0.1, 0.25, 1] }}
-            className="grid md:grid-cols-2 lg:grid-cols-3 gap-8"
-          >
-            {filteredProjects.map((project, index) => (
-              <motion.div
-                key={index}
-                initial={{ opacity: 0, y: 20 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ delay: index * 0.05, duration: 0.4, ease: [0.25, 0.1, 0.25, 1] }}
-                whileHover={{ y: -8 }}
-                className="glass-strong rounded-3xl overflow-hidden shadow-soft hover:shadow-xl transition-all group"
+            return (
+              <button
+                key={category}
+                type="button"
+                onClick={() => setFilter(category)}
+                aria-pressed={isActive}
+                className={cn(
+                  'rounded-full px-4 py-2 text-sm font-medium transition-colors',
+                  isActive
+                    ? 'bg-primary text-primary-foreground'
+                    : 'glass text-muted-foreground hover:text-foreground'
+                )}
               >
-                {/* Project Image */}
-                <div className="relative h-56 overflow-hidden">
-                  <img
-                    src={project.image}
-                    alt={project.title}
-                    className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
-                    loading="lazy"
-                    decoding="async"
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-t from-background via-background/50 to-transparent opacity-60" />
+                {category}
+                <span className="ml-2 opacity-70">{count}</span>
+              </button>
+            );
+          })}
+        </div>
+      </Reveal>
 
-                  {/* Hover Actions */}
-                  <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <motion.a
-                      href={project.github}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="w-10 h-10 rounded-full bg-background/80 backdrop-blur-sm flex items-center justify-center hover:bg-primary hover:text-white transition-colors"
-                      whileHover={{ scale: 1.1 }}
-                      whileTap={{ scale: 0.9 }}
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <Github className="w-5 h-5" />
-                    </motion.a>
-                  </div>
+      <motion.ul layout className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+        <AnimatePresence mode="popLayout">
+          {visibleProjects.map((project) => (
+            <motion.li
+              key={project.slug}
+              layout={!prefersReducedMotion}
+              initial={prefersReducedMotion ? false : { opacity: 0, scale: 0.96 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, scale: 0.96 }}
+              transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+              className="group"
+            >
+              <article className="glass-strong relative flex h-full flex-col overflow-hidden rounded-2xl shadow-soft transition-shadow hover:shadow-lift">
+                <div className="relative h-40 overflow-hidden">
+                  <ProjectArtwork
+                    pattern={project.pattern}
+                    hue={project.hue}
+                    seed={project.slug}
+                    className="size-full transition-transform duration-500 group-hover:scale-105"
+                  />
+                  {project.featured ? (
+                    <span className="absolute right-3 top-3 inline-flex items-center gap-1 rounded-full bg-black/55 px-2.5 py-1 text-xs font-medium text-white backdrop-blur">
+                      <Star className="size-3 fill-current" aria-hidden="true" />
+                      Featured
+                    </span>
+                  ) : null}
+                  <span className="absolute bottom-3 left-3 rounded-full bg-black/55 px-2.5 py-1 text-xs font-medium text-white backdrop-blur">
+                    {project.category}
+                  </span>
                 </div>
 
-                {/* Project Info */}
-                <div className="p-6 space-y-4">
-                  <h3 className="text-xl">{project.title}</h3>
-                  <p className="text-sm text-muted-foreground leading-relaxed">
-                    {project.description}
+                <div className="flex flex-1 flex-col gap-4 p-6">
+                  <div>
+                    <h3 className="font-display text-lg font-semibold">
+                      <a
+                        href={project.repo}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="after:absolute after:inset-0 after:content-['']"
+                      >
+                        {project.title}
+                      </a>
+                    </h3>
+                    <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+                      {project.summary}
+                    </p>
+                  </div>
+
+                  <p className="border-l-2 border-primary/40 pl-3 text-sm italic leading-relaxed text-muted-foreground">
+                    {project.angle}
                   </p>
 
-                  {/* Tech Stack Tags */}
-                  <div className="flex flex-wrap gap-2">
+                  <ul className="mt-auto flex flex-wrap gap-1.5">
                     {project.tags.map((tag) => (
-                      <span
+                      <li
                         key={tag}
-                        className="px-3 py-1 rounded-full text-xs bg-primary/10 text-primary border border-primary/20"
+                        className="rounded-full border border-primary/20 bg-primary/8 px-2.5 py-1 text-xs text-primary"
                       >
                         {tag}
-                      </span>
+                      </li>
                     ))}
-                  </div>
+                  </ul>
 
-                  {/* View Project Button */}
-                  <motion.a
-                    href={project.github}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    whileHover={{ x: 4 }}
-                    className="flex items-center gap-2 text-primary group/btn"
-                  >
-                    <span className="text-sm">View on GitHub</span>
-                    <ExternalLink className="w-4 h-4 group-hover/btn:translate-x-1 transition-transform" />
-                  </motion.a>
+                  <span className="inline-flex items-center gap-2 text-sm font-medium text-primary">
+                    <Github className="size-4" aria-hidden="true" />
+                    View source
+                    <ArrowUpRight
+                      className="size-4 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5"
+                      aria-hidden="true"
+                    />
+                  </span>
                 </div>
-              </motion.div>
-            ))}
-          </motion.div>
+              </article>
+            </motion.li>
+          ))}
         </AnimatePresence>
+      </motion.ul>
 
-        {/* View All Projects CTA */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          transition={{ delay: 0.6 }}
-          className="text-center mt-12"
+      <Reveal delay={0.1} className="mt-12 text-center">
+        <a
+          href={githubProfileUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="glass inline-flex items-center gap-2 rounded-full px-6 py-3 font-medium transition-colors hover:bg-primary hover:text-primary-foreground"
         >
-          <motion.a
-            href="https://github.com/MohammadSharafi?tab=repositories"
-            target="_blank"
-            rel="noopener noreferrer"
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            className="inline-block px-8 py-4 rounded-full glass hover:bg-primary hover:text-white transition-colors"
-          >
-            View All Projects on GitHub
-          </motion.a>
-        </motion.div>
-      </div>
-    </section>
+          <Github className="size-4" aria-hidden="true" />
+          Browse everything on GitHub
+        </a>
+      </Reveal>
+    </Section>
   );
 }

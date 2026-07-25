@@ -1,15 +1,118 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-  <!DOCTYPE html>
-  <html lang="en">
-    <head>
-      <meta charset="UTF-8" />
-      <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-      <title>Personal Portfolio Website Design</title>
-    </head>
+    <title>Mohammad Sharafi — Software Engineer | Flutter, Digital Health & Applied AI</title>
+    <meta
+      name="description"
+      content="Software engineer building Flutter apps and backend services for digital health, fintech and education. Award-winning work on HIPAA-compliant clinical AI at March Health."
+    />
+    <meta name="author" content="Mohammad Sharafi" />
+    <link rel="canonical" href="https://mohammadsharafi.vercel.app/" />
 
-    <body>
-      <div id="root"></div>
-      <script type="module" src="/src/main.tsx"></script>
-    </body>
-  </html>
-  
+    <meta name="theme-color" content="#fafafa" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#14161f" media="(prefers-color-scheme: dark)" />
+    <meta name="color-scheme" content="light dark" />
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="profile" />
+    <meta property="og:site_name" content="Mohammad Sharafi" />
+    <meta property="og:title" content="Mohammad Sharafi — Software Engineer" />
+    <meta
+      property="og:description"
+      content="Flutter, digital health and applied AI. Award-winning HIPAA-compliant clinical software, shipped to production."
+    />
+    <meta property="og:url" content="https://mohammadsharafi.vercel.app/" />
+    <meta property="og:image" content="https://mohammadsharafi.vercel.app/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Mohammad Sharafi — Software Engineer" />
+    <meta property="profile:first_name" content="Mohammad" />
+    <meta property="profile:last_name" content="Sharafi" />
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:creator" content="@moe_sharafi" />
+    <meta name="twitter:title" content="Mohammad Sharafi — Software Engineer" />
+    <meta
+      name="twitter:description"
+      content="Flutter, digital health and applied AI. Award-winning HIPAA-compliant clinical software, shipped to production."
+    />
+    <meta name="twitter:image" content="https://mohammadsharafi.vercel.app/og-image.png" />
+
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="manifest" href="/site.webmanifest" />
+
+    <!-- Fonts are linked here rather than @imported from CSS so the browser can
+         start fetching them during HTML parse instead of after the stylesheet. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap"
+    />
+
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "Person",
+        "name": "Mohammad Sharafi",
+        "url": "https://mohammadsharafi.vercel.app/",
+        "jobTitle": "Software Engineer",
+        "email": "mailto:mohammadsharafi.official@gmail.com",
+        "address": { "@type": "PostalAddress", "addressCountry": "TR" },
+        "alumniOf": {
+          "@type": "CollegeOrUniversity",
+          "name": "Isfahan University of Technology"
+        },
+        "knowsLanguage": ["en", "fa"],
+        "knowsAbout": [
+          "Flutter",
+          "Dart",
+          "Android",
+          "Python",
+          "FastAPI",
+          "Spring Boot",
+          "HIPAA compliance",
+          "SMART on FHIR",
+          "Machine learning"
+        ],
+        "sameAs": [
+          "https://github.com/MohammadSharafi",
+          "https://www.linkedin.com/in/mohammadsharafi/",
+          "https://x.com/moe_sharafi"
+        ]
+      }
+    </script>
+
+    <script>
+      // Applies the stored theme before first paint so a dark-mode visitor never
+      // sees a white flash. Kept inline and dependency-free on purpose.
+      (function () {
+        try {
+          var stored = localStorage.getItem('portfolio-theme');
+          var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+          var isDark = stored === 'dark' || ((!stored || stored === 'system') && prefersDark);
+          document.documentElement.classList.toggle('dark', isDark);
+          document.documentElement.style.colorScheme = isDark ? 'dark' : 'light';
+        } catch (error) {
+          /* Storage unavailable — fall back to the CSS default. */
+        }
+      })();
+    </script>
+  </head>
+
+  <body>
+    <div id="root"></div>
+    <noscript>
+      <p style="padding: 2rem; font-family: sans-serif">
+        This portfolio needs JavaScript enabled. You can also reach Mohammad Sharafi at
+        <a href="mailto:mohammadsharafi.official@gmail.com">mohammadsharafi.official@gmail.com</a>
+        or on <a href="https://www.linkedin.com/in/mohammadsharafi/">LinkedIn</a>.
+      </p>
+    </noscript>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

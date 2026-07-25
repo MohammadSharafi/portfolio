@@ -1,45 +1,42 @@
-import { motion, AnimatePresence } from 'motion/react';
-import { ArrowUp } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
+import { ArrowUp } from 'lucide-react';
+import { useReducedMotion } from '@/hooks/useReducedMotion';
 
 export function BackToTop() {
   const [isVisible, setIsVisible] = useState(false);
+  const prefersReducedMotion = useReducedMotion();
 
   useEffect(() => {
-    const toggleVisibility = () => {
-      if (window.pageYOffset > 500) {
-        setIsVisible(true);
-      } else {
-        setIsVisible(false);
-      }
-    };
-
-    window.addEventListener('scroll', toggleVisibility);
-    return () => window.removeEventListener('scroll', toggleVisibility);
+    const onScroll = () => setIsVisible(window.scrollY > 600);
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
   }, []);
 
   const scrollToTop = () => {
     window.scrollTo({
       top: 0,
-      behavior: 'smooth',
+      behavior: prefersReducedMotion ? 'auto' : 'smooth',
     });
   };
 
   return (
     <AnimatePresence>
-      {isVisible && (
+      {isVisible ? (
         <motion.button
-          initial={{ opacity: 0, scale: 0 }}
-          animate={{ opacity: 1, scale: 1 }}
-          exit={{ opacity: 0, scale: 0 }}
+          type="button"
           onClick={scrollToTop}
-          className="fixed bottom-8 left-8 z-40 w-14 h-14 rounded-full glass-strong flex items-center justify-center hover:bg-primary hover:text-white transition-colors shadow-lg group"
-          whileHover={{ scale: 1.1, y: -4 }}
-          whileTap={{ scale: 0.9 }}
+          initial={{ opacity: 0, scale: 0.8 }}
+          animate={{ opacity: 1, scale: 1 }}
+          exit={{ opacity: 0, scale: 0.8 }}
+          transition={{ duration: 0.2 }}
+          className="no-print glass-strong fixed bottom-6 right-6 z-40 flex size-12 items-center justify-center rounded-full shadow-soft transition-colors hover:bg-primary hover:text-primary-foreground"
+          aria-label="Back to top"
         >
-          <ArrowUp className="w-6 h-6 group-hover:animate-bounce" />
+          <ArrowUp className="size-5" aria-hidden="true" />
         </motion.button>
-      )}
+      ) : null}
     </AnimatePresence>
   );
 }

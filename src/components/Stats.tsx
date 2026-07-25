@@ -1,98 +1,52 @@
-import { motion, useMotionValue, useTransform, animate } from 'motion/react';
-import { useEffect, useRef } from 'react';
-import { Code2, Users, Award, Coffee } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { animate, useInView } from 'motion/react';
+import { stats } from '@/data/stats';
+import { useReducedMotion } from '@/hooks/useReducedMotion';
+import { Reveal } from './ui/Reveal';
 
-const stats = [
-  {
-    icon: Code2,
-    value: 50,
-    suffix: '+',
-    label: 'Projects Completed',
-    color: 'from-blue-500 to-cyan-500',
-  },
-  {
-    icon: Users,
-    value: 30,
-    suffix: '+',
-    label: 'Happy Clients',
-    color: 'from-purple-500 to-pink-500',
-  },
-  {
-    icon: Award,
-    value: 15,
-    suffix: '+',
-    label: 'Awards Won',
-    color: 'from-orange-500 to-red-500',
-  },
-  {
-    icon: Coffee,
-    value: 1000,
-    suffix: '+',
-    label: 'Cups of Tea',
-    color: 'from-green-500 to-emerald-500',
-  },
-];
-
-function Counter({ value, suffix }: { value: number; suffix: string }) {
-  const count = useMotionValue(0);
-  const rounded = useTransform(count, Math.round);
-  const ref = useRef<HTMLSpanElement>(null);
+function Counter({ value, inView }: { value: number; inView: boolean }) {
+  const prefersReducedMotion = useReducedMotion();
+  const [display, setDisplay] = useState(prefersReducedMotion ? value : 0);
 
   useEffect(() => {
-    const controls = animate(count, value, { duration: 1.5, ease: [0.4, 0, 0.6, 1] });
-    return controls.stop;
-  }, [count, value]);
+    if (!inView || prefersReducedMotion) {
+      setDisplay(value);
+      return;
+    }
 
-  useEffect(() => {
-    const unsubscribe = rounded.on('change', (latest) => {
-      if (ref.current) {
-        ref.current.textContent = latest.toString();
-      }
+    const controls = animate(0, value, {
+      duration: 1.2,
+      ease: [0.22, 1, 0.36, 1],
+      onUpdate: (latest) => setDisplay(Math.round(latest)),
     });
-    return () => unsubscribe();
-  }, [rounded]);
 
-  return (
-    <span className="inline-flex items-baseline">
-      <span ref={ref}>0</span>
-      <span>{suffix}</span>
-    </span>
-  );
+    return () => controls.stop();
+  }, [inView, prefersReducedMotion, value]);
+
+  return <>{display}</>;
 }
 
 export function Stats() {
+  const ref = useRef<HTMLDivElement>(null);
+  const inView = useInView(ref, { once: true, margin: '-60px' });
+
   return (
-    <section className="py-20 px-4 bg-gradient-to-b from-background to-muted/30">
-      <div className="max-w-7xl mx-auto">
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-8">
-          {stats.map((stat, index) => (
-            <motion.div
-              key={index}
-              initial={{ opacity: 0, scale: 0.5 }}
-              whileInView={{ opacity: 1, scale: 1 }}
-              viewport={{ once: true }}
-              transition={{ delay: index * 0.05, duration: 0.4, ease: [0.25, 0.1, 0.25, 1] }}
-              whileHover={{ scale: 1.05, y: -8 }}
-              className="glass-strong rounded-3xl p-6 text-center shadow-soft hover:shadow-xl transition-all group relative overflow-hidden"
-            >
-              {/* Background Gradient */}
-              <div className={`absolute inset-0 bg-gradient-to-br ${stat.color} opacity-0 group-hover:opacity-10 transition-opacity`} />
-
-              {/* Icon */}
-              <div className={`w-16 h-16 mx-auto mb-4 rounded-2xl bg-gradient-to-br ${stat.color} flex items-center justify-center shadow-lg`}>
-                <stat.icon className="w-8 h-8 text-white" />
-              </div>
-
-              {/* Counter */}
-              <div className={`text-4xl font-bold mb-2 bg-gradient-to-r ${stat.color} bg-clip-text text-transparent`}>
-                <Counter value={stat.value} suffix={stat.suffix} />
-              </div>
-
-              {/* Label */}
-              <p className="text-sm text-muted-foreground">{stat.label}</p>
-            </motion.div>
-          ))}
-        </div>
+    <section aria-label="Career highlights" className="px-4 py-10">
+      <div ref={ref} className="mx-auto grid max-w-6xl gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {stats.map((stat, index) => (
+          <Reveal key={stat.label} delay={index * 0.06}>
+            <div className="glass-strong h-full rounded-2xl p-6 shadow-soft">
+              <stat.icon className="size-6 text-primary" aria-hidden="true" />
+              <p className="mt-4 font-display text-3xl font-bold sm:text-4xl">
+                {stat.prefix}
+                <Counter value={stat.value} inView={inView} />
+                {stat.suffix}
+              </p>
+              <p className="mt-1 font-medium">{stat.label}</p>
+              <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{stat.detail}</p>
+            </div>
+          </Reveal>
+        ))}
       </div>
     </section>
   );

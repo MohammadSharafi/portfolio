@@ -1,65 +1,37 @@
+import { AnimatePresence, motion } from 'motion/react';
 import { Moon, Sun } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
-import { useEffect, useState } from 'react';
+import { useTheme } from '@/hooks/useTheme';
+import { useReducedMotion } from '@/hooks/useReducedMotion';
 
 export function ThemeToggle() {
-  const [isDark, setIsDark] = useState(false);
-
-  useEffect(() => {
-    const isDarkMode = document.documentElement.classList.contains('dark');
-    setIsDark(isDarkMode);
-  }, []);
-
-  const toggleTheme = () => {
-    const newIsDark = !isDark;
-    setIsDark(newIsDark);
-    document.documentElement.classList.toggle('dark', newIsDark);
-  };
+  const { resolvedTheme, toggleTheme } = useTheme();
+  const prefersReducedMotion = useReducedMotion();
+  const isDark = resolvedTheme === 'dark';
 
   return (
-    <motion.button
+    <button
+      type="button"
       onClick={toggleTheme}
-      className="relative w-8 h-8 rounded-full glass flex items-center justify-center hover:shadow-lg overflow-hidden group border border-border/50 hover:border-primary/50 transition-all"
-      whileHover={{ scale: 1.05 }}
-      whileTap={{ scale: 0.95 }}
-      aria-label="Toggle theme"
+      className="glass relative flex size-9 items-center justify-center overflow-hidden rounded-full transition-colors hover:border-primary/40"
+      aria-label={`Switch to ${isDark ? 'light' : 'dark'} theme`}
+      title={`Switch to ${isDark ? 'light' : 'dark'} theme`}
     >
-      {/* Background gradient on hover */}
-      <motion.div
-        className="absolute inset-0 bg-gradient-to-r from-primary to-accent opacity-0 group-hover:opacity-10 transition-opacity"
-      />
-      
-      <AnimatePresence mode="wait">
-        {isDark ? (
-          <motion.div
-            key="moon"
-            initial={{ y: -20, opacity: 0, rotate: -90 }}
-            animate={{ y: 0, opacity: 1, rotate: 0 }}
-            exit={{ y: 20, opacity: 0, rotate: 90 }}
-            transition={{ duration: 0.25, ease: [0.25, 0.1, 0.25, 1] }}
-          >
-            <Moon className="w-4 h-4 text-primary" />
-          </motion.div>
-        ) : (
-          <motion.div
-            key="sun"
-            initial={{ y: -20, opacity: 0, rotate: -90 }}
-            animate={{ y: 0, opacity: 1, rotate: 0 }}
-            exit={{ y: 20, opacity: 0, rotate: 90 }}
-            transition={{ duration: 0.25, ease: [0.25, 0.1, 0.25, 1] }}
-          >
-            <Sun className="w-4 h-4 text-primary" />
-          </motion.div>
-        )}
+      <AnimatePresence mode="wait" initial={false}>
+        <motion.span
+          key={isDark ? 'moon' : 'sun'}
+          initial={prefersReducedMotion ? false : { y: -14, opacity: 0, rotate: -60 }}
+          animate={{ y: 0, opacity: 1, rotate: 0 }}
+          exit={prefersReducedMotion ? { opacity: 0 } : { y: 14, opacity: 0, rotate: 60 }}
+          transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+          className="flex items-center justify-center"
+        >
+          {isDark ? (
+            <Moon className="size-4 text-primary" aria-hidden="true" />
+          ) : (
+            <Sun className="size-4 text-primary" aria-hidden="true" />
+          )}
+        </motion.span>
       </AnimatePresence>
-      
-      {/* Subtle border ring */}
-      <motion.div
-        className="absolute inset-0 rounded-full border border-primary/20"
-        initial={{ scale: 1, opacity: 0.5 }}
-        animate={isDark ? { scale: 1.2, opacity: 0 } : { scale: 1, opacity: 0.5 }}
-        transition={{ duration: 0.3, ease: [0.25, 0.1, 0.25, 1] }}
-      />
-    </motion.button>
+    </button>
   );
 }
