@@ -53,35 +53,69 @@ falls back to the OS preference.
 transition durations, and `useReducedMotion` lets components skip entrance
 animations outright rather than playing a faster version of them.
 
-## The 3D room
+## The journey
 
-The hero renders an explorable workspace built with Three.js: a desk, three
-monitors, and the clutter around them. The monitors are not decoration — they
-render the same data the page does, drawn to canvas textures, so the project
-grid, the Dart snippet and the metrics terminal all stay in sync with
-`src/data/`.
+The hero is a scroll-driven journey through six 3D chapters — a village in Iran,
+the exam years, Isfahan University of Technology, Tehran, the crossing to
+Türkiye, and the desk the work happens at today. They are not six scenes: they
+are one world, laid out along the +X axis with the workspace at the origin, and
+scroll drives a single camera down it. Scrolling forward is literally travelling
+toward the present.
 
 ```
 src/three/
-├── experience.ts   Renderer, lighting, camera choreography, render loop
-├── room.ts         Procedural geometry for the room and everything in it
+├── experience.ts   Renderer, camera rail, travelling light rig, render loop
+├── journey.ts      Procedural geometry and camera stop for each chapter
+├── room.ts         The workspace — the last chapter, at the origin
+├── environment.ts  Procedural HDR environment, prefiltered by PMREMGenerator
 ├── screens.ts      Canvas textures for the three monitors
-└── palette.ts      Shared colours, so the space reads as one lit room
+├── primitives.ts   Shared material and mesh helpers
+└── palette.ts      Every colour in the world, so it reads as one film
 ```
 
-Scroll drives the camera between fixed viewpoints while the section is pinned;
-the pointer adds parallax. The whole thing is an enhancement layer:
+The narrative copy lives in `src/data/journey.ts` and renders in the DOM, not on
+the canvas — as a cross-faded caption over the scene, and as a plain vertical
+timeline when there is no WebGL to travel through. `src/data/journey.test.ts`
+asserts one 3D stage per written chapter, so adding copy without adding a stage
+fails the build rather than narrating an empty frame.
+
+Some things worth knowing about how it is built:
+
+- **Three lights carry all six chapters.** Each stage declares its own ambient,
+  key and accent rig, and the renderer eases between them as the camera travels.
+  A light per chapter would mean twenty of them and a shader recompile at every
+  transition; this way the transitions read as one continuous change in the time
+  of day. Small warm sources — a lit window, a bare bulb, an office floor, an
+  arcade — are emissive materials picked up by the bloom pass instead.
+- **The shadow camera follows the camera.** A directional shadow frustum wide
+  enough to cover a hundred and sixty units would turn every shadow into a
+  staircase, so it tracks the active chapter at fourteen units across.
+- **The environment map is generated, not loaded.** `environment.ts` builds a
+  cold sky dome, a warm ground bounce and a bright horizon band, then prefilters
+  it with `PMREMGenerator` at genuinely high dynamic range. Three's stock
+  `RoomEnvironment` is a white studio box — correct for a product shot, wrong for
+  every chapter here, where it made metal reflect a ceiling that does not exist.
+- **The horizontal field of view is held constant.** Every shot is composed
+  horizontally, and `fov` is vertical, so a portrait phone would otherwise crop
+  the sides off exactly the part that was composed.
+- **Camera easing is frame-rate independent.** The scroll smoothing folds in the
+  frame time, so the journey takes the same wall-clock time to travel on a 120Hz
+  display as on a 60Hz one.
+
+The whole thing is an enhancement layer:
 
 - `React.lazy` keeps Three.js out of the initial bundle entirely
-- No WebGL → the flat hero renders instead, and nothing else changes
-- `detectQuality()` scales shadows and pixel ratio rather than excluding devices
+- No WebGL → the flat hero and the written timeline render instead
+- `detectQuality()` scales shadows, pixel ratio and post-processing rather than
+  excluding devices
 - `prefers-reduced-motion` disables idle motion and parallax
-- The canvas is `aria-hidden`; every fact it shows also exists in the DOM
+- The canvas is `aria-hidden`; every chapter it renders also exists in the DOM,
+  in order, whether or not the camera has reached it
 - Rendering pauses when the canvas scrolls off-screen or the tab is hidden
 
-The room is procedural rather than a modelled asset. If you export a baked
-`.glb` from Blender, load it in `experience.ts` and drop the `buildRoom()` call
-— the camera, lighting hooks and scroll wiring stay as they are.
+Every chapter is procedural rather than a modelled asset. If you export baked
+`.glb` scenes from Blender, load them in `experience.ts` and drop the matching
+`build*()` calls — the camera rail, light rig and scroll wiring stay as they are.
 
 ## Project artwork
 

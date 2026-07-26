@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useState } from 'react';
 import { AnimatePresence, m } from 'motion/react';
 import { ArrowDown, Clock, Download, MapPin, Sparkles } from 'lucide-react';
 import { profile, socialLinks } from '@/data/profile';
+import { Journey } from './Journey';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
 import type { useRoom } from '@/hooks/useRoom';
 import { cn } from '@/lib/utils';
@@ -119,10 +120,13 @@ function CodeCard() {
 export function Hero({ room }: { room: ReturnType<typeof useRoom> }) {
   const prefersReducedMotion = useReducedMotion();
   const { showRoom, quality, progress, roomReady, onRoomReady, sceneRef } = room;
+  const [chapter, setChapter] = useState(0);
 
-  // The copy hands the frame over to the room early: it is fully legible while
-  // the camera is wide, then clears out as the camera pushes in on the desk.
-  const copyOpacity = showRoom ? Math.max(0, 1 - Math.max(0, progress - 0.18) / 0.3) : 1;
+  // The title card holds through the opening chapter and then hands the frame
+  // over to the journey's own captions, which take it from there.
+  const copyOpacity = showRoom ? Math.max(0, 1 - Math.max(0, progress - 0.05) / 0.07) : 1;
+  // Chapter captions only once the title card is out of the way.
+  const captionOpacity = showRoom ? Math.min(1, Math.max(0, (progress - 0.11) / 0.05)) : 1;
 
   return (
     <section
@@ -130,10 +134,10 @@ export function Hero({ room }: { room: ReturnType<typeof useRoom> }) {
       ref={sceneRef}
       className={cn(
         'relative',
-        // The room is a lit, dark space. Scoping `dark` here re-binds the colour
-        // tokens for the subtree, so the hero reads as one scene in either site
-        // theme while the rest of the page still follows the toggle.
-        showRoom ? 'dark h-[260vh] text-foreground' : 'overflow-hidden px-4 pb-20 pt-32 sm:pt-40'
+        // The journey is a lit, dark world. Scoping `dark` here re-binds the
+        // colour tokens for the subtree, so the hero reads as one scene in
+        // either site theme while the rest of the page follows the toggle.
+        showRoom ? 'dark h-[620vh] text-foreground' : 'overflow-hidden px-4 pb-20 pt-32 sm:pt-40'
       )}
     >
       <div
@@ -153,16 +157,20 @@ export function Hero({ room }: { room: ReturnType<typeof useRoom> }) {
                   reducedMotion={prefersReducedMotion}
                   quality={quality}
                   onReady={onRoomReady}
+                  onChapter={setChapter}
                 />
               </Suspense>
             </div>
-            {/* Scrim: keeps the overlaid copy at AA contrast over a lit 3D scene. */}
+            {/* Scrim: keeps the overlaid copy at AA contrast over a lit 3D scene.
+              Runs bottom-up on a phone, where the captions sit under the frame
+              and a side gradient leaves a visible vertical seam across it, and
+              left-to-right once there is room for copy beside the scene. */}
             <div
-              className="absolute inset-0 -z-10 bg-gradient-to-r from-[#0b0e15] via-[#0b0e15]/80 to-transparent lg:via-[#0b0e15]/55"
+              className="absolute inset-0 -z-10 bg-gradient-to-t from-[#0b0e15] via-[#0b0e15]/70 to-transparent sm:bg-gradient-to-r sm:via-[#0b0e15]/80 lg:via-[#0b0e15]/55"
               aria-hidden="true"
             />
             <div
-              className="absolute inset-x-0 bottom-0 -z-10 h-48 bg-gradient-to-t from-[#0b0e15] via-[#0b0e15]/70 to-transparent"
+              className="absolute inset-x-0 bottom-0 -z-10 h-72 bg-gradient-to-t from-[#0b0e15] via-[#0b0e15]/80 to-transparent"
               aria-hidden="true"
             />
           </>
@@ -279,15 +287,32 @@ export function Hero({ room }: { room: ReturnType<typeof useRoom> }) {
         </div>
 
         {showRoom ? (
-          <m.p
-            initial={prefersReducedMotion ? false : { opacity: 0 }}
-            animate={{ opacity: roomReady ? copyOpacity : 0 }}
-            transition={{ duration: 0.8, delay: 0.4 }}
-            className="pointer-events-none absolute inset-x-0 bottom-6 text-center text-xs uppercase tracking-[0.2em] text-muted-foreground"
-          >
-            Scroll to look around
-          </m.p>
-        ) : null}
+          <>
+            {/* The narrative. Always in the document and in the accessibility
+              tree — only its visibility follows the camera. */}
+            <m.div
+              className="pointer-events-none absolute inset-0"
+              initial={false}
+              animate={{ opacity: captionOpacity }}
+              transition={{ duration: 0.25 }}
+            >
+              <Journey activeIndex={chapter} variant="overlay" />
+            </m.div>
+
+            <m.p
+              initial={prefersReducedMotion ? false : { opacity: 0 }}
+              animate={{ opacity: roomReady ? copyOpacity : 0 }}
+              transition={{ duration: 0.8, delay: 0.4 }}
+              className="pointer-events-none absolute inset-x-0 bottom-6 text-center text-xs uppercase tracking-[0.2em] text-muted-foreground"
+            >
+              Scroll to begin the journey
+            </m.p>
+          </>
+        ) : (
+          <div className="mx-auto w-full max-w-6xl">
+            <Journey activeIndex={chapter} variant="static" />
+          </div>
+        )}
       </div>
     </section>
   );

@@ -28,6 +28,21 @@ export const experience: readonly Role[] = [
     tech: ['Flutter', 'FastAPI', 'Spring Boot', 'GCP Cloud Run', 'SMART on FHIR', 'OAuth2'],
   },
   {
+    company: 'Capgroup',
+    role: 'Software Engineering Team Lead',
+    period: 'May 2021 — Jan 2025',
+    location: 'California, USA · Remote',
+    description:
+      'Directed an engineering team building scalable mobile and web applications for financial services, serving 10,000+ users in the U.S. market.',
+    highlights: [
+      'Led a team of 8 engineers across mobile and web delivery',
+      'Implemented clean architecture patterns, improving system maintainability by 35% and reducing technical debt',
+      'Reached a 98% sprint delivery success rate, improving platform stability through Agile practice',
+      'Managed REST API integrations, keeping feature parity across Android and iOS',
+    ],
+    tech: ['Flutter', 'Dart', 'Clean Architecture', 'REST APIs', 'Android', 'iOS'],
+  },
+  {
     company: 'March Health',
     role: 'Data Scientist (Part-time)',
     period: 'May 2024 — Nov 2024',
@@ -41,22 +56,6 @@ export const experience: readonly Role[] = [
       'Maintained strict HIPAA compliance and data governance inside a secure cloud enclave',
     ],
     tech: ['Python', 'pandas', 'Polars', 'SQL', 'ICD/LOINC/SNOMED', 'HIPAA'],
-  },
-  {
-    company: 'March Health',
-    role: 'Software Engineering Team Lead',
-    period: 'May 2021 — Jan 2024',
-    location: 'Remote · Türkiye',
-    description:
-      'Led mobile development in Flutter and Dart using BLoC state management, freezed and a functional core. Integrated RESTful APIs with Dio, Firebase and AWS S3.',
-    highlights: [
-      'Reduced API response time by 50% and improved app performance by 30%',
-      'Raised user engagement by 20% through UI/UX work built on Flutter Hooks',
-      'Cut fraudulent activity by 40% via secure payment flows and end-to-end encryption',
-      'Contributed to a health app modelling an extremely large space of condition combinations',
-      'Managed Play Store and App Store releases, versioning and CI/CD pipelines',
-    ],
-    tech: ['Flutter', 'Dart', 'BLoC', 'freezed', 'Firebase', 'AWS S3'],
   },
   {
     company: 'Robintel',
