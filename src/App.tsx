@@ -1,10 +1,12 @@
 import { lazy, Suspense } from 'react';
+import { LazyMotion, domAnimation } from 'motion/react';
 import { Navbar } from './components/Navbar';
 import { Hero } from './components/Hero';
 import { Stats } from './components/Stats';
 import { ScrollProgress } from './components/ScrollProgress';
 import { BackToTop } from './components/BackToTop';
 import { useReducedMotion } from './hooks/useReducedMotion';
+import { useRoom } from './hooks/useRoom';
 
 // Everything below the fold is split out; the first screen ships without it.
 const About = lazy(() => import('./components/About').then((m) => ({ default: m.About })));
@@ -30,9 +32,16 @@ function SectionFallback() {
 export default function App() {
   // Keeps the `.reduce-motion` class on <html> in sync with the OS preference.
   useReducedMotion();
+  // Owned here so the navbar can switch to dark styling while it floats over
+  // the lit 3D scene, and the hero can drive the camera from the same state.
+  const room = useRoom();
 
   return (
-    <>
+    // Components use the tree-shakeable `m` primitives; LazyMotion supplies the
+    // feature set once. `domAnimation` omits Motion's layout-animation engine,
+    // which cuts 13KB gzip from the critical path — the one effect that needed
+    // it (the navbar indicator) is now a CSS transform instead.
+    <LazyMotion features={domAnimation} strict>
       <a
         href="#main"
         className="sr-only z-[70] focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:rounded-full focus:bg-primary focus:px-5 focus:py-3 focus:font-medium focus:text-primary-foreground"
@@ -41,10 +50,10 @@ export default function App() {
       </a>
 
       <ScrollProgress />
-      <Navbar />
+      <Navbar overScene={room.showRoom && room.progress < 0.99} />
 
       <main id="main">
-        <Hero />
+        <Hero room={room} />
         <Stats />
 
         <Suspense fallback={<SectionFallback />}>
@@ -63,6 +72,6 @@ export default function App() {
       </Suspense>
 
       <BackToTop />
-    </>
+    </LazyMotion>
   );
 }

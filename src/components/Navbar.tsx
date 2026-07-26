@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { AnimatePresence, motion } from 'motion/react';
+import { AnimatePresence, m } from 'motion/react';
 import { Download, Menu, X } from 'lucide-react';
 import { navItems } from '@/data/navigation';
 import { profile } from '@/data/profile';
@@ -9,11 +9,37 @@ import { ThemeToggle } from './ThemeToggle';
 
 const sectionIds = navItems.map((item) => item.id);
 
-export function Navbar() {
+export function Navbar({ overScene = false }: { overScene?: boolean }) {
   const [isOpen, setIsOpen] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
   const activeSection = useActiveSection(sectionIds);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const navListRef = useRef<HTMLUListElement>(null);
+  const [indicator, setIndicator] = useState({ left: 0, width: 0, height: 0 });
+
+  // Position the sliding pill over the active link. Re-measured on resize
+  // because the nav is centred and its items shift with the viewport.
+  useEffect(() => {
+    const measure = () => {
+      const list = navListRef.current;
+      const active = list?.querySelector<HTMLElement>(`[data-nav-id="${activeSection}"]`);
+
+      if (!list || !active) {
+        setIndicator((current) => ({ ...current, width: 0 }));
+        return;
+      }
+
+      setIndicator({
+        left: active.offsetLeft,
+        width: active.offsetWidth,
+        height: active.offsetHeight,
+      });
+    };
+
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, [activeSection]);
 
   useEffect(() => {
     const onScroll = () => setIsScrolled(window.scrollY > 24);
@@ -43,7 +69,10 @@ export function Navbar() {
         aria-label="Main"
         className={cn(
           'mx-auto max-w-6xl rounded-2xl transition-all duration-300',
-          isScrolled ? 'glass-strong shadow-soft' : 'glass'
+          isScrolled ? 'glass-strong shadow-soft' : 'glass',
+          // While floating over the lit room the bar borrows the dark tokens,
+          // otherwise a light-theme pill sits on a dark scene.
+          overScene && 'dark'
         )}
       >
         <div className="flex items-center justify-between gap-3 px-4 py-3">
@@ -55,27 +84,35 @@ export function Navbar() {
             {profile.initials}
           </a>
 
-          <ul className="hidden items-center gap-1 lg:flex">
+          <ul ref={navListRef} className="relative hidden items-center gap-1 lg:flex">
+            {/* One pill slides between items on a CSS transform. This replaces a
+                Motion `layoutId`, whose layout-animation feature set costs 13KB
+                gzip on the critical path for an effect CSS reproduces exactly. */}
+            <span
+              aria-hidden="true"
+              className="absolute left-0 top-0 rounded-full bg-primary/12 transition-all duration-300 ease-out"
+              style={{
+                width: indicator.width,
+                height: indicator.height,
+                transform: `translateX(${indicator.left}px)`,
+                opacity: indicator.width > 0 ? 1 : 0,
+              }}
+            />
+
             {navItems.map((item) => {
               const isActive = activeSection === item.id;
               return (
                 <li key={item.id}>
                   <a
                     href={`#${item.id}`}
+                    data-nav-id={item.id}
                     aria-current={isActive ? 'true' : undefined}
                     className={cn(
-                      'relative rounded-full px-3 py-2 text-sm transition-colors',
+                      'relative block rounded-full px-3 py-2 text-sm transition-colors',
                       isActive ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
                     )}
                   >
-                    {isActive ? (
-                      <motion.span
-                        layoutId="nav-active"
-                        className="absolute inset-0 rounded-full bg-primary/12"
-                        transition={{ type: 'spring', stiffness: 380, damping: 32 }}
-                      />
-                    ) : null}
-                    <span className="relative">{item.label}</span>
+                    {item.label}
                   </a>
                 </li>
               );
@@ -114,7 +151,7 @@ export function Navbar() {
 
         <AnimatePresence initial={false}>
           {isOpen ? (
-            <motion.div
+            <m.div
               id="mobile-menu"
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: 'auto' }}
@@ -154,7 +191,7 @@ export function Navbar() {
                   </a>
                 </li>
               </ul>
-            </motion.div>
+            </m.div>
           ) : null}
         </AnimatePresence>
       </nav>

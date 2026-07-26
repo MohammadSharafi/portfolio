@@ -53,6 +53,36 @@ falls back to the OS preference.
 transition durations, and `useReducedMotion` lets components skip entrance
 animations outright rather than playing a faster version of them.
 
+## The 3D room
+
+The hero renders an explorable workspace built with Three.js: a desk, three
+monitors, and the clutter around them. The monitors are not decoration — they
+render the same data the page does, drawn to canvas textures, so the project
+grid, the Dart snippet and the metrics terminal all stay in sync with
+`src/data/`.
+
+```
+src/three/
+├── experience.ts   Renderer, lighting, camera choreography, render loop
+├── room.ts         Procedural geometry for the room and everything in it
+├── screens.ts      Canvas textures for the three monitors
+└── palette.ts      Shared colours, so the space reads as one lit room
+```
+
+Scroll drives the camera between fixed viewpoints while the section is pinned;
+the pointer adds parallax. The whole thing is an enhancement layer:
+
+- `React.lazy` keeps Three.js out of the initial bundle entirely
+- No WebGL → the flat hero renders instead, and nothing else changes
+- `detectQuality()` scales shadows and pixel ratio rather than excluding devices
+- `prefers-reduced-motion` disables idle motion and parallax
+- The canvas is `aria-hidden`; every fact it shows also exists in the DOM
+- Rendering pauses when the canvas scrolls off-screen or the tab is hidden
+
+The room is procedural rather than a modelled asset. If you export a baked
+`.glb` from Blender, load it in `experience.ts` and drop the `buildRoom()` call
+— the camera, lighting hooks and scroll wiring stay as they are.
+
 ## Project artwork
 
 Project cards render generated SVG rather than photography. Each project declares

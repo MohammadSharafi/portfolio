@@ -1,8 +1,13 @@
-import { useEffect, useState } from 'react';
-import { AnimatePresence, motion } from 'motion/react';
+import { lazy, Suspense, useEffect, useState } from 'react';
+import { AnimatePresence, m } from 'motion/react';
 import { ArrowDown, Clock, Download, MapPin, Sparkles } from 'lucide-react';
 import { profile, socialLinks } from '@/data/profile';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
+import type { useRoom } from '@/hooks/useRoom';
+import { cn } from '@/lib/utils';
+
+// The Three.js scene and the room geometry stay out of the initial bundle.
+const RoomScene = lazy(() => import('./RoomScene'));
 
 function RoleRotator({ roles }: { roles: readonly string[] }) {
   const prefersReducedMotion = useReducedMotion();
@@ -21,7 +26,7 @@ function RoleRotator({ roles }: { roles: readonly string[] }) {
   return (
     <span className="relative block h-[1.4em] overflow-hidden" aria-live="polite">
       <AnimatePresence mode="wait" initial={false}>
-        <motion.span
+        <m.span
           key={roles[index]}
           initial={prefersReducedMotion ? false : { y: '100%', opacity: 0 }}
           animate={{ y: '0%', opacity: 1 }}
@@ -30,7 +35,7 @@ function RoleRotator({ roles }: { roles: readonly string[] }) {
           className="absolute inset-x-0 block"
         >
           {roles[index]}
-        </motion.span>
+        </m.span>
       </AnimatePresence>
     </span>
   );
@@ -111,104 +116,178 @@ function CodeCard() {
   );
 }
 
-export function Hero() {
+export function Hero({ room }: { room: ReturnType<typeof useRoom> }) {
   const prefersReducedMotion = useReducedMotion();
+  const { showRoom, quality, progress, roomReady, onRoomReady, sceneRef } = room;
+
+  // The copy hands the frame over to the room early: it is fully legible while
+  // the camera is wide, then clears out as the camera pushes in on the desk.
+  const copyOpacity = showRoom ? Math.max(0, 1 - Math.max(0, progress - 0.18) / 0.3) : 1;
 
   return (
-    <section id="top" className="relative overflow-hidden px-4 pb-20 pt-32 sm:pt-40">
-      <div className="bg-grid absolute inset-0 -z-10 opacity-40 [mask-image:radial-gradient(ellipse_at_center,black,transparent_75%)]" />
-      <div className="absolute -right-32 -top-32 -z-10 size-[32rem] rounded-full bg-primary/20 blur-3xl" />
-      <div className="absolute -bottom-40 -left-32 -z-10 size-[28rem] rounded-full bg-accent/20 blur-3xl" />
+    <section
+      id="top"
+      ref={sceneRef}
+      className={cn(
+        'relative',
+        // The room is a lit, dark space. Scoping `dark` here re-binds the colour
+        // tokens for the subtree, so the hero reads as one scene in either site
+        // theme while the rest of the page still follows the toggle.
+        showRoom ? 'dark h-[260vh] text-foreground' : 'overflow-hidden px-4 pb-20 pt-32 sm:pt-40'
+      )}
+    >
+      <div
+        className={cn(
+          showRoom &&
+            'sticky top-0 flex h-screen flex-col justify-center overflow-hidden px-4 pt-24'
+        )}
+      >
+        {showRoom ? (
+          <>
+            {/* The room sits behind the content and is purely decorative — every
+              fact it renders also exists in the DOM. */}
+            <div className="absolute inset-0 -z-20">
+              <Suspense fallback={null}>
+                <RoomScene
+                  progress={progress}
+                  reducedMotion={prefersReducedMotion}
+                  quality={quality}
+                  onReady={onRoomReady}
+                />
+              </Suspense>
+            </div>
+            {/* Scrim: keeps the overlaid copy at AA contrast over a lit 3D scene. */}
+            <div
+              className="absolute inset-0 -z-10 bg-gradient-to-r from-[#0b0e15] via-[#0b0e15]/80 to-transparent lg:via-[#0b0e15]/55"
+              aria-hidden="true"
+            />
+            <div
+              className="absolute inset-x-0 bottom-0 -z-10 h-48 bg-gradient-to-t from-[#0b0e15] via-[#0b0e15]/70 to-transparent"
+              aria-hidden="true"
+            />
+          </>
+        ) : (
+          <>
+            <div className="bg-grid absolute inset-0 -z-10 opacity-40 [mask-image:radial-gradient(ellipse_at_center,black,transparent_75%)]" />
+            <div className="absolute -right-32 -top-32 -z-10 size-[32rem] rounded-full bg-primary/20 blur-3xl" />
+            <div className="absolute -bottom-40 -left-32 -z-10 size-[28rem] rounded-full bg-accent/20 blur-3xl" />
+          </>
+        )}
 
-      <div className="mx-auto grid max-w-6xl items-center gap-12 lg:grid-cols-[1.1fr_0.9fr]">
-        <motion.div
-          initial={prefersReducedMotion ? false : { opacity: 0, y: 24 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
-          className="space-y-7"
+        <div
+          className={cn(
+            'mx-auto grid max-w-6xl items-center gap-12',
+            showRoom ? 'lg:grid-cols-[minmax(0,34rem)_1fr]' : 'lg:grid-cols-[1.1fr_0.9fr]'
+          )}
         >
-          <p className="glass inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm">
-            <span className="relative flex size-2">
-              <span className="animate-pulse-ring absolute inline-flex size-full rounded-full bg-success" />
-              <span className="relative inline-flex size-2 rounded-full bg-success" />
-            </span>
-            {profile.availability}
-          </p>
-
-          <div className="space-y-3">
-            <h1 className="font-display text-4xl font-bold leading-[1.1] sm:text-6xl lg:text-7xl">
-              {profile.firstName} <span className="text-gradient">{profile.lastName}</span>
-            </h1>
-            <p className="font-display text-xl text-muted-foreground sm:text-3xl">
-              <RoleRotator roles={profile.roleRotation} />
+          <m.div
+            initial={prefersReducedMotion ? false : { opacity: 0, y: 24 }}
+            // Motion owns `opacity` on this node, so the scroll fade is driven
+            // through `animate` rather than a style prop it would overwrite.
+            animate={{ opacity: copyOpacity, y: 0 }}
+            transition={{
+              duration: 0.6,
+              ease: [0.22, 1, 0.36, 1],
+              opacity: { duration: 0.2 },
+            }}
+            className={cn('space-y-7', copyOpacity === 0 && 'pointer-events-none')}
+          >
+            <p className="glass inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm">
+              <span className="relative flex size-2">
+                <span className="animate-pulse-ring absolute inline-flex size-full rounded-full bg-success" />
+                <span className="relative inline-flex size-2 rounded-full bg-success" />
+              </span>
+              {profile.availability}
             </p>
-          </div>
 
-          <p className="max-w-xl text-base leading-relaxed text-muted-foreground sm:text-lg">
-            {profile.tagline}
-          </p>
+            <div className="space-y-3">
+              <h1 className="font-display text-4xl font-bold leading-[1.1] sm:text-6xl lg:text-7xl">
+                {profile.firstName} <span className="text-gradient">{profile.lastName}</span>
+              </h1>
+              <p className="font-display text-xl text-muted-foreground sm:text-3xl">
+                <RoleRotator roles={profile.roleRotation} />
+              </p>
+            </div>
 
-          <dl className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-muted-foreground">
-            <div className="flex items-center gap-2">
-              <dt className="sr-only">Location</dt>
-              <MapPin className="size-4 text-primary" aria-hidden="true" />
-              <dd>{profile.location}</dd>
-            </div>
-            <div className="flex items-center gap-2">
-              <dt className="sr-only">Timezone</dt>
-              <Clock className="size-4 text-primary" aria-hidden="true" />
-              <dd>{profile.timezone}</dd>
-            </div>
-            <div className="flex items-center gap-2">
-              <dt className="sr-only">Focus</dt>
-              <Sparkles className="size-4 text-primary" aria-hidden="true" />
-              <dd>Healthcare & applied AI</dd>
-            </div>
-          </dl>
+            <p className="max-w-xl text-base leading-relaxed text-muted-foreground sm:text-lg">
+              {profile.tagline}
+            </p>
 
-          <div className="flex flex-wrap gap-3">
-            <a
-              href="#projects"
-              className="inline-flex items-center gap-2 rounded-full bg-primary px-6 py-3 font-medium text-primary-foreground shadow-soft transition-transform hover:scale-[1.03]"
+            <dl className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-muted-foreground">
+              <div className="flex items-center gap-2">
+                <dt className="sr-only">Location</dt>
+                <MapPin className="size-4 text-primary" aria-hidden="true" />
+                <dd>{profile.location}</dd>
+              </div>
+              <div className="flex items-center gap-2">
+                <dt className="sr-only">Timezone</dt>
+                <Clock className="size-4 text-primary" aria-hidden="true" />
+                <dd>{profile.timezone}</dd>
+              </div>
+              <div className="flex items-center gap-2">
+                <dt className="sr-only">Focus</dt>
+                <Sparkles className="size-4 text-primary" aria-hidden="true" />
+                <dd>Healthcare & applied AI</dd>
+              </div>
+            </dl>
+
+            <div className="flex flex-wrap gap-3">
+              <a
+                href="#projects"
+                className="inline-flex items-center gap-2 rounded-full bg-primary px-6 py-3 font-medium text-primary-foreground shadow-soft transition-transform hover:scale-[1.03]"
+              >
+                View my work
+                <ArrowDown className="size-4" aria-hidden="true" />
+              </a>
+              <a
+                href={profile.cvPath}
+                download={profile.cvFileName}
+                className="glass inline-flex items-center gap-2 rounded-full px-6 py-3 font-medium transition-transform hover:scale-[1.03]"
+              >
+                <Download className="size-4" aria-hidden="true" />
+                Download résumé
+              </a>
+            </div>
+
+            <ul className="flex gap-3">
+              {socialLinks.map(({ label, href, icon: Icon }) => (
+                <li key={label}>
+                  <a
+                    href={href}
+                    target={href.startsWith('mailto:') ? undefined : '_blank'}
+                    rel="noopener noreferrer"
+                    className="glass flex size-11 items-center justify-center rounded-full transition-colors hover:bg-primary hover:text-primary-foreground"
+                    aria-label={label}
+                  >
+                    <Icon className="size-5" aria-hidden="true" />
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </m.div>
+
+          {showRoom ? null : (
+            <m.div
+              initial={prefersReducedMotion ? false : { opacity: 0, y: 32 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6, delay: 0.15, ease: [0.22, 1, 0.36, 1] }}
+              className="hidden lg:block"
             >
-              View my work
-              <ArrowDown className="size-4" aria-hidden="true" />
-            </a>
-            <a
-              href={profile.cvPath}
-              download={profile.cvFileName}
-              className="glass inline-flex items-center gap-2 rounded-full px-6 py-3 font-medium transition-transform hover:scale-[1.03]"
-            >
-              <Download className="size-4" aria-hidden="true" />
-              Download résumé
-            </a>
-          </div>
+              <CodeCard />
+            </m.div>
+          )}
+        </div>
 
-          <ul className="flex gap-3">
-            {socialLinks.map(({ label, href, icon: Icon }) => (
-              <li key={label}>
-                <a
-                  href={href}
-                  target={href.startsWith('mailto:') ? undefined : '_blank'}
-                  rel="noopener noreferrer"
-                  className="glass flex size-11 items-center justify-center rounded-full transition-colors hover:bg-primary hover:text-primary-foreground"
-                  aria-label={label}
-                >
-                  <Icon className="size-5" aria-hidden="true" />
-                </a>
-              </li>
-            ))}
-          </ul>
-        </motion.div>
-
-        <motion.div
-          initial={prefersReducedMotion ? false : { opacity: 0, y: 32 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.15, ease: [0.22, 1, 0.36, 1] }}
-          className="hidden lg:block"
-        >
-          <CodeCard />
-        </motion.div>
+        {showRoom ? (
+          <m.p
+            initial={prefersReducedMotion ? false : { opacity: 0 }}
+            animate={{ opacity: roomReady ? copyOpacity : 0 }}
+            transition={{ duration: 0.8, delay: 0.4 }}
+            className="pointer-events-none absolute inset-x-0 bottom-6 text-center text-xs uppercase tracking-[0.2em] text-muted-foreground"
+          >
+            Scroll to look around
+          </m.p>
+        ) : null}
       </div>
     </section>
   );

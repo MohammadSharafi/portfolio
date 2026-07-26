@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { AnimatePresence, motion } from 'motion/react';
+import { AnimatePresence, m } from 'motion/react';
 import { ArrowUp } from 'lucide-react';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
 
@@ -24,7 +24,7 @@ export function BackToTop() {
   return (
     <AnimatePresence>
       {isVisible ? (
-        <motion.button
+        <m.button
           type="button"
           onClick={scrollToTop}
           initial={{ opacity: 0, scale: 0.8 }}
@@ -35,7 +35,7 @@ export function BackToTop() {
           aria-label="Back to top"
         >
           <ArrowUp className="size-5" aria-hidden="true" />
-        </motion.button>
+        </m.button>
       ) : null}
     </AnimatePresence>
   );

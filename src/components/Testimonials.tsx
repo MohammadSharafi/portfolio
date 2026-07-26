@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { AnimatePresence, motion } from 'motion/react';
+import { AnimatePresence, m } from 'motion/react';
 import { ChevronLeft, ChevronRight, Quote } from 'lucide-react';
 import { testimonials } from '@/data/testimonials';
 import { cn } from '@/lib/utils';
@@ -54,7 +54,7 @@ export function Testimonials() {
 
           <div className="min-h-[16rem] sm:min-h-[13rem]">
             <AnimatePresence mode="wait" initial={false}>
-              <motion.figure
+              <m.figure
                 key={current.name}
                 initial={{ opacity: 0, x: slideOffset }}
                 animate={{ opacity: 1, x: 0 }}
@@ -84,7 +84,7 @@ export function Testimonials() {
                     <p className="mt-0.5 text-xs text-muted-foreground">{current.source}</p>
                   </div>
                 </figcaption>
-              </motion.figure>
+              </m.figure>
             </AnimatePresence>
           </div>
 

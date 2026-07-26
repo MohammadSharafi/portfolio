@@ -36,8 +36,13 @@ export function useActiveSection(sectionIds: readonly string[]): string {
       }
 
       // Near the very bottom the last section may never cross the line, so pin
-      // it explicitly rather than leaving the previous one highlighted.
-      const atBottom = window.innerHeight + window.scrollY >= document.body.scrollHeight - 2;
+      // it explicitly rather than leaving the previous one highlighted. Only
+      // when the page actually scrolls — otherwise a page shorter than the
+      // viewport reads as "at the bottom" and pins the last section forever.
+      const pageHeight = document.body.scrollHeight;
+      const scrollable = pageHeight > window.innerHeight + 4;
+      const atBottom = scrollable && window.innerHeight + window.scrollY >= pageHeight - 2;
+
       if (atBottom) {
         const last = sectionIds[sectionIds.length - 1];
         if (last && document.getElementById(last)) current = last;

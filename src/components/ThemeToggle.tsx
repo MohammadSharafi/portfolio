@@ -1,4 +1,4 @@
-import { AnimatePresence, motion } from 'motion/react';
+import { AnimatePresence, m } from 'motion/react';
 import { Moon, Sun } from 'lucide-react';
 import { useTheme } from '@/hooks/useTheme';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
@@ -17,7 +17,7 @@ export function ThemeToggle() {
       title={`Switch to ${isDark ? 'light' : 'dark'} theme`}
     >
       <AnimatePresence mode="wait" initial={false}>
-        <motion.span
+        <m.span
           key={isDark ? 'moon' : 'sun'}
           initial={prefersReducedMotion ? false : { y: -14, opacity: 0, rotate: -60 }}
           animate={{ y: 0, opacity: 1, rotate: 0 }}
@@ -30,7 +30,7 @@ export function ThemeToggle() {
           ) : (
             <Sun className="size-4 text-primary" aria-hidden="true" />
           )}
-        </motion.span>
+        </m.span>
       </AnimatePresence>
     </button>
   );

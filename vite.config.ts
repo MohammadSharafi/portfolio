@@ -61,6 +61,9 @@ export default defineConfig({
         drop_debugger: true,
       },
     },
+    // The Three.js chunk is intentionally large and lazy-loaded; it never
+    // reaches the initial bundle, so the default 500KB warning is noise here.
+    chunkSizeWarningLimit: 700,
     rollupOptions: {
       output: {
         // Keep React and the animation runtime in stable, separately cached

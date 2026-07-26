@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { motion } from 'motion/react';
+import { m } from 'motion/react';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
 
 type Direction = 'up' | 'left' | 'right' | 'none';
@@ -31,7 +31,7 @@ export function Reveal({
   as = 'div',
 }: RevealProps) {
   const prefersReducedMotion = useReducedMotion();
-  const MotionTag = motion[as];
+  const MotionTag = m[as];
 
   if (prefersReducedMotion) {
     const Tag = as;
