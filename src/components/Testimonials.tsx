@@ -1,217 +1,138 @@
-import { motion, AnimatePresence } from 'motion/react';
-import { Quote, Star, ChevronLeft, ChevronRight } from 'lucide-react';
-import { useState } from 'react';
-
-const testimonials = [
-  {
-    name: 'Mahdi Hamidi',
-    role: 'Head of Growth & Marketing | HealthTech & AI | Business Development, Partnerships & Fundraising',
-    content:
-      'I am pleased to recommend Mohammad, who is an outstanding professional and a remarkable individual. He is highly motivated, adaptable, and incredibly reliable in all his endeavors. Mohammad\'s thoughtful approach and professionalism make him an asset to any team. I am confident that he will bring immense value to any candidate he chooses to hire, and I wholeheartedly support his efforts.',
-    rating: 5,
-    avatar: '/testimonials/mahdi-hamidi.jpg',
-  },
-  {
-    name: 'Masoome Hadiyan K.',
-    role: 'Senior Product Designer & Product Owner | 7+ yrs in UX/UI, Product Strategy & Agile | Driving Growth in Tech & Digital Health',
-    content:
-      'I had the pleasure of working with Mohammad at March Health. He is a highly skilled engineer and consistently delivers high-quality, user-focused solutions. Beyond his technical expertise, Mohammad is a proactive problem-solver and a great collaborator. His dedication and drive make him an invaluable teammate, and I wholeheartedly recommend him.',
-    rating: 5,
-    avatar: '/testimonials/masoome-hadiyan.jpg',
-  },
-  {
-    name: 'Mahoor Jahanbani',
-    role: 'User Experience Specialist | UX & Product Researcher',
-    content:
-      'I am thrilled to recommend Mohammad for his exceptional skills and dedication as a front-end developer. Beyond his technical abilities, Mohammad is a fantastic team player. He actively collaborates with designers, back-end developers, and other stakeholders to ensure seamless integration and delivery of projects.',
-    rating: 5,
-    avatar: '/testimonials/mahoor-jahanbani.jpg',
-  },
-  {
-    name: 'Amirali Hariri',
-    role: 'Researcher | Data Scientist | Medical Olympiad Gold medalist | PharmD',
-    content:
-      'I\'ve had the pleasure of working alongside Mohammad for 2 years at March Health. As our Team Lead Software Engineer, Mohammad consistently demonstrates exceptional leadership and technical prowess. His ability to drive team success through effective communication and problem-solving is commendable. Mohammad would undoubtedly be a valuable asset to any organization seeking a skilled and dedicated leader.',
-    rating: 5,
-    avatar: '/testimonials/amirali-hariri.jpg',
-  },
-  {
-    name: 'Farzad Sobhani Kazemi',
-    role: 'Senior Backend Engineer & Data Science Professional | JavaScript (Node.js), Python, C#, Java',
-    content:
-      'I highly recommend Mohammad for a Flutter Developer position. He\'s a skilled developer with strong technical abilities in Flutter, Java, and Swift. Mohammad is a problem-solver, a team player, and a fast learner who consistently delivers high-quality, responsive apps.',
-    rating: 5,
-    avatar: '/testimonials/farzad-sobhani.jpg',
-  },
-];
+import { useCallback, useState } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
+import { ChevronLeft, ChevronRight, Quote } from 'lucide-react';
+import { testimonials } from '@/data/testimonials';
+import { cn } from '@/lib/utils';
+import { useReducedMotion } from '@/hooks/useReducedMotion';
+import { Section } from './ui/Section';
+import { Reveal } from './ui/Reveal';
 
 export function Testimonials() {
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [direction, setDirection] = useState(0); // 1 for right, -1 for left
+  const [index, setIndex] = useState(0);
+  const [direction, setDirection] = useState(1);
+  const prefersReducedMotion = useReducedMotion();
 
-  const nextTestimonial = () => {
-    setDirection(1); // Right arrow - slide from right (RTL)
-    setCurrentIndex((prev) => (prev + 1) % testimonials.length);
+  const goTo = useCallback((next: number, from: number) => {
+    const total = testimonials.length;
+    setDirection(next > from ? 1 : -1);
+    setIndex(((next % total) + total) % total);
+  }, []);
+
+  // Arrow keys are bound to the controls themselves rather than a focusable
+  // wrapper, so the shortcut lives on elements that are genuinely interactive.
+  const onKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
+    if (event.key === 'ArrowRight') {
+      event.preventDefault();
+      goTo(index + 1, index);
+    } else if (event.key === 'ArrowLeft') {
+      event.preventDefault();
+      goTo(index - 1, index);
+    }
   };
 
-  const prevTestimonial = () => {
-    setDirection(-1); // Left arrow - slide from left (LTR)
-    setCurrentIndex((prev) => (prev - 1 + testimonials.length) % testimonials.length);
-  };
+  const current = testimonials[index];
+  if (!current) return null;
+
+  const slideOffset = prefersReducedMotion ? 0 : 40 * direction;
 
   return (
-    <section id="testimonials" className="py-32 px-4">
-      <div className="max-w-6xl mx-auto">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          transition={{ duration: 0.5, ease: [0.25, 0.1, 0.25, 1] }}
-          className="text-center mb-16"
+    <Section
+      id="testimonials"
+      eyebrow="References"
+      title="What colleagues say"
+      description="Recommendations written by people I have shipped with, quoted from LinkedIn."
+      width="narrow"
+    >
+      <Reveal>
+        <div
+          role="group"
+          aria-roledescription="carousel"
+          aria-label="Colleague recommendations"
+          className="glass-strong relative rounded-2xl p-6 shadow-soft sm:p-10"
         >
-          <span className="text-primary text-sm uppercase tracking-wider">Testimonials</span>
-          <h2 className="text-4xl md:text-5xl mt-2">What People Say</h2>
-          <p className="text-muted-foreground mt-4 max-w-2xl mx-auto">
-            Feedback from colleagues and clients I&apos;ve had the pleasure to work with
-          </p>
-        </motion.div>
+          <Quote className="absolute right-6 top-6 size-10 text-primary/15" aria-hidden="true" />
 
-        <div className="relative">
-          {/* Main Testimonial Card */}
-          <AnimatePresence mode="wait" custom={direction}>
-            <motion.div
-              key={currentIndex}
-              custom={direction}
-              initial={{ opacity: 0, x: direction > 0 ? 100 : -100 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: direction > 0 ? -100 : 100 }}
-              transition={{ duration: 0.4, ease: [0.25, 0.1, 0.25, 1] }}
-              className="glass-strong rounded-3xl p-8 md:p-12 shadow-soft max-w-4xl mx-auto"
-            >
-            {/* Quote Icon */}
-            <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mb-6">
-              <Quote className="w-8 h-8 text-primary" />
-            </div>
+          <div className="min-h-[16rem] sm:min-h-[13rem]">
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.figure
+                key={current.name}
+                initial={{ opacity: 0, x: slideOffset }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -slideOffset }}
+                transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+              >
+                <blockquote className="text-base leading-relaxed sm:text-lg">
+                  “{current.quote}”
+                </blockquote>
 
-            {/* Testimonial Content */}
-            <p className="text-xl md:text-2xl leading-relaxed mb-8 text-foreground/90">
-              &quot;{testimonials[currentIndex].content}&quot;
-            </p>
-
-            {/* Rating */}
-            <div className="flex gap-1 mb-6">
-              {Array.from({ length: testimonials[currentIndex].rating }).map((_, i) => (
-                <Star key={i} className="w-5 h-5 fill-primary text-primary" />
-              ))}
-            </div>
-
-            {/* Author Info */}
-            <div className="flex items-center gap-4">
-              <img
-                src={testimonials[currentIndex].avatar}
-                alt={testimonials[currentIndex].name}
-                className="w-16 h-16 rounded-full object-cover border-2 border-primary/20"
-                loading="lazy"
-                decoding="async"
-              />
-              <div>
-                <h4 className="font-semibold">{testimonials[currentIndex].name}</h4>
-                <p className="text-sm text-muted-foreground">
-                  {testimonials[currentIndex].role}
-                </p>
-              </div>
-            </div>
-          </motion.div>
-          </AnimatePresence>
-
-          {/* Navigation Buttons */}
-          <div className="flex justify-center gap-4 mt-8">
-            <motion.button
-              onClick={prevTestimonial}
-              whileHover={{ scale: 1.1 }}
-              whileTap={{ scale: 0.9 }}
-              className="w-12 h-12 rounded-full glass flex items-center justify-center hover:bg-primary hover:text-white transition-colors"
-              aria-label="Previous testimonial"
-            >
-              <ChevronLeft className="w-5 h-5" />
-            </motion.button>
-
-            {/* Dots Indicator */}
-            <div className="flex items-center gap-2">
-              {testimonials.map((_, index) => (
-                <button
-                  key={index}
-                  onClick={() => {
-                    setDirection(index > currentIndex ? 1 : -1);
-                    setCurrentIndex(index);
-                  }}
-                  className={`w-2 h-2 rounded-full transition-all ${
-                    index === currentIndex
-                      ? 'w-8 bg-primary'
-                      : 'bg-muted-foreground/30 hover:bg-muted-foreground/50'
-                  }`}
-                  aria-label={`Go to testimonial ${index + 1}`}
-                />
-              ))}
-            </div>
-
-            <motion.button
-              onClick={nextTestimonial}
-              whileHover={{ scale: 1.1 }}
-              whileTap={{ scale: 0.9 }}
-              className="w-12 h-12 rounded-full glass flex items-center justify-center hover:bg-primary hover:text-white transition-colors"
-              aria-label="Next testimonial"
-            >
-              <ChevronRight className="w-5 h-5" />
-            </motion.button>
-          </div>
-
-          {/* Background Thumbnails - Hidden on Mobile */}
-          <div className="hidden lg:block">
-            {testimonials.map((testimonial, index) => {
-              if (index === currentIndex) return null;
-              const offset = index - currentIndex;
-              const isLeft = offset < 0;
-
-              return (
-                <motion.div
-                  key={index}
-                  initial={{ opacity: 0 }}
-                  animate={{
-                    opacity: 0.3,
-                    x: isLeft ? -200 : 200,
-                    y: Math.abs(offset) * 50,
-                    scale: 0.8,
-                  }}
-                  className="absolute top-1/2 -translate-y-1/2 pointer-events-none"
-                  style={{
-                    [isLeft ? 'left' : 'right']: '0',
-                  }}
-                >
-                  <div className="glass rounded-2xl p-6 w-64 shadow-soft blur-sm">
-                    <div className="flex items-center gap-3 mb-3">
-                      <img
-                        src={testimonial.avatar}
-                        alt={testimonial.name}
-                        className="w-10 h-10 rounded-full object-cover"
-                        loading="lazy"
-                        decoding="async"
-                      />
-                      <div className="text-sm">
-                        <p>{testimonial.name}</p>
-                      </div>
-                    </div>
-                    <p className="text-xs text-muted-foreground line-clamp-3">
-                      {testimonial.content}
+                <figcaption className="mt-6 flex items-center gap-4">
+                  <img
+                    src={current.avatar}
+                    alt=""
+                    width={48}
+                    height={48}
+                    loading="lazy"
+                    decoding="async"
+                    className="size-12 rounded-full object-cover ring-2 ring-primary/20"
+                  />
+                  <div className="min-w-0">
+                    <p className="font-medium">{current.name}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {current.role}
+                      {current.company ? ` · ${current.company}` : ''}
                     </p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">{current.source}</p>
                   </div>
-                </motion.div>
-              );
-            })}
+                </figcaption>
+              </motion.figure>
+            </AnimatePresence>
           </div>
 
+          <div className="mt-8 flex items-center justify-between gap-4">
+            <button
+              type="button"
+              onClick={() => goTo(index - 1, index)}
+              onKeyDown={onKeyDown}
+              className="glass flex size-10 items-center justify-center rounded-full transition-colors hover:bg-primary hover:text-primary-foreground"
+              aria-label="Previous recommendation"
+            >
+              <ChevronLeft className="size-5" aria-hidden="true" />
+            </button>
+
+            <ol className="flex items-center gap-2">
+              {testimonials.map((testimonial, dotIndex) => (
+                <li key={testimonial.name}>
+                  <button
+                    type="button"
+                    onClick={() => goTo(dotIndex, index)}
+                    onKeyDown={onKeyDown}
+                    aria-label={`Show recommendation from ${testimonial.name}`}
+                    aria-current={dotIndex === index ? 'true' : undefined}
+                    className={cn(
+                      'block h-2 rounded-full transition-all',
+                      dotIndex === index ? 'w-6 bg-primary' : 'w-2 bg-border hover:bg-primary/50'
+                    )}
+                  />
+                </li>
+              ))}
+            </ol>
+
+            <button
+              type="button"
+              onClick={() => goTo(index + 1, index)}
+              onKeyDown={onKeyDown}
+              className="glass flex size-10 items-center justify-center rounded-full transition-colors hover:bg-primary hover:text-primary-foreground"
+              aria-label="Next recommendation"
+            >
+              <ChevronRight className="size-5" aria-hidden="true" />
+            </button>
+          </div>
+
+          <p className="sr-only" aria-live="polite">
+            Recommendation {index + 1} of {testimonials.length}, from {current.name}.
+          </p>
         </div>
-      </div>
-    </section>
+      </Reveal>
+    </Section>
   );
 }

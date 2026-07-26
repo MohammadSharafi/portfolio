@@ -1,81 +1,68 @@
-import { useEffect, lazy, Suspense } from 'react';
-import { LoadingScreen } from './components/LoadingScreen';
-import { ScrollProgress } from './components/ScrollProgress';
-import { ParticleBackground } from './components/ParticleBackground';
-import { FloatingActionButton } from './components/FloatingActionButton';
-import { BackToTop } from './components/BackToTop';
-import { CursorFollower } from './components/CursorFollower';
+import { lazy, Suspense } from 'react';
 import { Navbar } from './components/Navbar';
 import { Hero } from './components/Hero';
+import { Stats } from './components/Stats';
+import { ScrollProgress } from './components/ScrollProgress';
+import { BackToTop } from './components/BackToTop';
+import { useReducedMotion } from './hooks/useReducedMotion';
 
-// Lazy load heavy components
-const About = lazy(() => import('./components/About').then(m => ({ default: m.About })));
-const Stats = lazy(() => import('./components/Stats').then(m => ({ default: m.Stats })));
-const Skills = lazy(() => import('./components/Skills').then(m => ({ default: m.Skills })));
-const Achievements = lazy(() => import('./components/Achievements').then(m => ({ default: m.Achievements })));
-const Projects = lazy(() => import('./components/Projects').then(m => ({ default: m.Projects })));
-const Experience = lazy(() => import('./components/Experience').then(m => ({ default: m.Experience })));
-const Testimonials = lazy(() => import('./components/Testimonials').then(m => ({ default: m.Testimonials })));
-const Contact = lazy(() => import('./components/Contact').then(m => ({ default: m.Contact })));
-const Footer = lazy(() => import('./components/Footer').then(m => ({ default: m.Footer })));
+// Everything below the fold is split out; the first screen ships without it.
+const About = lazy(() => import('./components/About').then((m) => ({ default: m.About })));
+const Skills = lazy(() => import('./components/Skills').then((m) => ({ default: m.Skills })));
+const Projects = lazy(() => import('./components/Projects').then((m) => ({ default: m.Projects })));
+const Experience = lazy(() =>
+  import('./components/Experience').then((m) => ({ default: m.Experience }))
+);
+const Recognition = lazy(() =>
+  import('./components/Recognition').then((m) => ({ default: m.Recognition }))
+);
+const Testimonials = lazy(() =>
+  import('./components/Testimonials').then((m) => ({ default: m.Testimonials }))
+);
+const Contact = lazy(() => import('./components/Contact').then((m) => ({ default: m.Contact })));
+const Footer = lazy(() => import('./components/Footer').then((m) => ({ default: m.Footer })));
+
+/** Reserves vertical space while a lazy section loads so the page does not jump. */
+function SectionFallback() {
+  return <div className="h-96" aria-hidden="true" />;
+}
 
 export default function App() {
-  useEffect(() => {
-    // Set initial theme based on user preference
-    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-    if (prefersDark) {
-      document.documentElement.classList.add('dark');
-    }
-
-    // Detect reduced motion preference
-    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    if (prefersReducedMotion) {
-      document.documentElement.classList.add('reduce-motion');
-    }
-  }, []);
+  // Keeps the `.reduce-motion` class on <html> in sync with the OS preference.
+  useReducedMotion();
 
   return (
     <>
-      <LoadingScreen />
+      <a
+        href="#main"
+        className="sr-only z-[70] focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:rounded-full focus:bg-primary focus:px-5 focus:py-3 focus:font-medium focus:text-primary-foreground"
+      >
+        Skip to content
+      </a>
+
       <ScrollProgress />
-      <ParticleBackground />
-      <FloatingActionButton />
-      <BackToTop />
-      <CursorFollower />
-      
-      <div className="min-h-screen bg-background text-foreground overflow-x-hidden">
-        <Navbar />
-        <main>
-          <Hero />
-          <Suspense fallback={<div className="h-32" />}>
-            <Stats />
-          </Suspense>
-          <Suspense fallback={<div className="h-32" />}>
-            <About />
-          </Suspense>
-          <Suspense fallback={<div className="h-32" />}>
-            <Skills />
-          </Suspense>
-          <Suspense fallback={<div className="h-32" />}>
-            <Achievements />
-          </Suspense>
-          <Suspense fallback={<div className="h-32" />}>
-            <Projects />
-          </Suspense>
-          <Suspense fallback={<div className="h-32" />}>
-            <Experience />
-          </Suspense>
-          <Suspense fallback={<div className="h-32" />}>
-            <Testimonials />
-          </Suspense>
-          <Suspense fallback={<div className="h-32" />}>
-            <Contact />
-          </Suspense>
-        </main>
-        <Suspense fallback={null}>
-          <Footer />
+      <Navbar />
+
+      <main id="main">
+        <Hero />
+        <Stats />
+
+        <Suspense fallback={<SectionFallback />}>
+          <About />
+          <Skills />
+          <Projects />
+          <Experience />
+          <Recognition />
+          <Testimonials />
+          <Contact />
         </Suspense>
-      </div>
+      </main>
+
+      <Suspense fallback={null}>
+        <Footer />
+      </Suspense>
+
+      <BackToTop />
     </>
   );
 }

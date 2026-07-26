@@ -1,79 +1,74 @@
-import { motion } from 'motion/react';
-import { Heart } from 'lucide-react';
+import { profile, socialLinks } from '@/data/profile';
+import { navItems } from '@/data/navigation';
 
 export function Footer() {
-  const currentYear = new Date().getFullYear();
+  const year = new Date().getFullYear();
 
   return (
-    <footer className="py-12 px-4 border-t border-border">
-      <div className="max-w-7xl mx-auto">
-        {/* Footer Content */}
-        <div className="flex flex-col md:flex-row justify-between items-center gap-6">
-          {/* Logo/Name */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            className="text-center md:text-left"
-          >
-            <h3 className="text-xl font-bold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
-              Mohammad Sharafi
-            </h3>
-            <p className="text-sm text-muted-foreground mt-1">Software Engineer</p>
-          </motion.div>
+    <footer className="no-print border-t border-border px-4 py-12">
+      <div className="mx-auto max-w-6xl">
+        <div className="flex flex-col gap-8 md:flex-row md:justify-between">
+          <div>
+            <p className="font-display text-lg font-bold text-gradient">{profile.name}</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {profile.role} · {profile.location}
+            </p>
+            <a
+              href={`mailto:${profile.email}`}
+              className="mt-2 inline-block text-sm text-primary hover:underline"
+            >
+              {profile.email}
+            </a>
+          </div>
 
-          {/* Quick Links */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ delay: 0.1 }}
-            className="flex flex-wrap justify-center gap-6"
-          >
-            {['Home', 'About', 'Projects', 'Contact'].map((link) => (
-              <a
-                key={link}
-                href={`#${link.toLowerCase()}`}
-                className="text-sm text-muted-foreground hover:text-primary transition-colors"
-              >
-                {link}
-              </a>
+          <nav aria-label="Footer">
+            <ul className="grid grid-cols-2 gap-x-8 gap-y-2 text-sm sm:grid-cols-3 md:grid-cols-2">
+              {navItems.map((item) => (
+                <li key={item.id}>
+                  <a
+                    href={`#${item.id}`}
+                    className="text-muted-foreground transition-colors hover:text-primary"
+                  >
+                    {item.label}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </nav>
+
+          <ul className="flex gap-3">
+            {socialLinks.map(({ label, href, icon: Icon }) => (
+              <li key={label}>
+                <a
+                  href={href}
+                  target={href.startsWith('mailto:') ? undefined : '_blank'}
+                  rel="noopener noreferrer"
+                  className="glass flex size-10 items-center justify-center rounded-full transition-colors hover:bg-primary hover:text-primary-foreground"
+                  aria-label={label}
+                >
+                  <Icon className="size-4" aria-hidden="true" />
+                </a>
+              </li>
             ))}
-          </motion.div>
-
-          {/* Copyright */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ delay: 0.2 }}
-            className="flex items-center gap-2 text-sm text-muted-foreground"
-          >
-            <span>&copy; {currentYear} Made with</span>
-            <Heart className="w-4 h-4 text-primary fill-primary animate-pulse" />
-            <span>by Mohammad Sharafi</span>
-          </motion.div>
+          </ul>
         </div>
 
-        {/* Divider */}
-        <motion.div
-          initial={{ scaleX: 0 }}
-          whileInView={{ scaleX: 1 }}
-          viewport={{ once: true }}
-          transition={{ delay: 0.3, duration: 0.8 }}
-          className="h-px bg-gradient-to-r from-transparent via-border to-transparent mt-8"
-        />
-
-        {/* Bottom Text */}
-        <motion.p
-          initial={{ opacity: 0 }}
-          whileInView={{ opacity: 1 }}
-          viewport={{ once: true }}
-          transition={{ delay: 0.4 }}
-          className="text-center text-xs text-muted-foreground mt-6"
-        >
-          Built with React, TypeScript, Tailwind CSS, and Motion
-        </motion.p>
+        <div className="mt-10 flex flex-col items-center gap-2 border-t border-border pt-6 text-xs text-muted-foreground sm:flex-row sm:justify-between">
+          <p>
+            © {year} {profile.name}. All rights reserved.
+          </p>
+          <p>
+            Built with React, TypeScript, Tailwind CSS and Motion.{' '}
+            <a
+              href="https://github.com/MohammadSharafi/portfolio"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-primary underline underline-offset-2"
+            >
+              Source on GitHub
+            </a>
+          </p>
+        </div>
       </div>
     </footer>
   );

@@ -1,221 +1,214 @@
-import { motion } from 'motion/react';
-import { Download, Mail, Github, Linkedin, Twitter, ArrowRight, Sparkles } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
+import { ArrowDown, Clock, Download, MapPin, Sparkles } from 'lucide-react';
+import { profile, socialLinks } from '@/data/profile';
+import { useReducedMotion } from '@/hooks/useReducedMotion';
+
+function RoleRotator({ roles }: { roles: readonly string[] }) {
+  const prefersReducedMotion = useReducedMotion();
+  const [index, setIndex] = useState(0);
+
+  useEffect(() => {
+    if (prefersReducedMotion || roles.length < 2) return;
+    const timer = window.setInterval(() => {
+      setIndex((current) => (current + 1) % roles.length);
+    }, 2800);
+    return () => window.clearInterval(timer);
+  }, [prefersReducedMotion, roles.length]);
+
+  // The live region announces each change; the fixed height stops the headline
+  // below from reflowing as phrases of different lengths cycle through.
+  return (
+    <span className="relative block h-[1.4em] overflow-hidden" aria-live="polite">
+      <AnimatePresence mode="wait" initial={false}>
+        <motion.span
+          key={roles[index]}
+          initial={prefersReducedMotion ? false : { y: '100%', opacity: 0 }}
+          animate={{ y: '0%', opacity: 1 }}
+          exit={prefersReducedMotion ? { opacity: 0 } : { y: '-100%', opacity: 0 }}
+          transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
+          className="absolute inset-x-0 block"
+        >
+          {roles[index]}
+        </motion.span>
+      </AnimatePresence>
+    </span>
+  );
+}
+
+const codeLines: ReadonlyArray<ReadonlyArray<{ text: string; tone: string }>> = [
+  [
+    { text: 'class ', tone: 'text-accent' },
+    { text: 'Engineer ', tone: 'text-foreground' },
+    { text: 'extends ', tone: 'text-accent' },
+    { text: 'Human {', tone: 'text-foreground' },
+  ],
+  [
+    { text: '  final ', tone: 'text-accent' },
+    { text: 'domain = ', tone: 'text-foreground' },
+    { text: "'digital health'", tone: 'text-success' },
+    { text: ';', tone: 'text-foreground' },
+  ],
+  [
+    { text: '  final ', tone: 'text-accent' },
+    { text: 'stack = [', tone: 'text-foreground' },
+    { text: "'Flutter'", tone: 'text-success' },
+    { text: ', ', tone: 'text-foreground' },
+    { text: "'Python'", tone: 'text-success' },
+    { text: '];', tone: 'text-foreground' },
+  ],
+  [],
+  [{ text: '  @override', tone: 'text-muted-foreground' }],
+  [
+    { text: '  Future', tone: 'text-primary' },
+    { text: '<', tone: 'text-foreground' },
+    { text: 'Product', tone: 'text-primary' },
+    { text: '> ', tone: 'text-foreground' },
+    { text: 'build', tone: 'text-foreground' },
+    { text: '(Problem p) ', tone: 'text-foreground' },
+    { text: 'async ', tone: 'text-accent' },
+    { text: '{', tone: 'text-foreground' },
+  ],
+  [
+    { text: '    await ', tone: 'text-accent' },
+    { text: 'understand(p);', tone: 'text-foreground' },
+  ],
+  [
+    { text: '    return ', tone: 'text-accent' },
+    { text: 'ship(measure: ', tone: 'text-foreground' },
+    { text: 'true', tone: 'text-primary' },
+    { text: ');', tone: 'text-foreground' },
+  ],
+  [{ text: '  }', tone: 'text-foreground' }],
+  [{ text: '}', tone: 'text-foreground' }],
+];
+
+function CodeCard() {
+  return (
+    <div className="glass-strong overflow-hidden rounded-2xl shadow-soft">
+      <div className="flex items-center gap-2 border-b border-border px-4 py-3">
+        <span className="size-3 rounded-full bg-[#ff5f57]" />
+        <span className="size-3 rounded-full bg-[#febc2e]" />
+        <span className="size-3 rounded-full bg-[#28c840]" />
+        <span className="ml-2 font-mono text-xs text-muted-foreground">engineer.dart</span>
+      </div>
+      <pre className="overflow-x-auto p-5 font-mono text-[13px] leading-relaxed">
+        <code>
+          {codeLines.map((line, lineIndex) => (
+            <span key={lineIndex} className="block">
+              {line.length === 0
+                ? ' '
+                : line.map((token, tokenIndex) => (
+                    <span key={tokenIndex} className={token.tone}>
+                      {token.text}
+                    </span>
+                  ))}
+            </span>
+          ))}
+        </code>
+      </pre>
+    </div>
+  );
+}
 
 export function Hero() {
+  const prefersReducedMotion = useReducedMotion();
+
   return (
-    <section id="home" className="min-h-screen flex items-center justify-center px-4 pt-32 pb-16 relative overflow-hidden">
-      {/* Animated Background Gradients - Reduced animation on mobile */}
-      <motion.div
-        animate={{
-          scale: [1, 1.1, 1],
-          rotate: [0, 90, 0],
-        }}
-        transition={{
-          duration: 30,
-          repeat: Infinity,
-          ease: 'linear',
-          type: 'tween',
-        }}
-        className="absolute top-0 right-0 w-[400px] h-[400px] md:w-[600px] md:h-[600px] bg-primary/20 rounded-full blur-3xl -z-10 will-change-transform hidden md:block"
-      />
-      <motion.div
-        animate={{
-          scale: [1.1, 1, 1.1],
-          rotate: [90, 0, 90],
-        }}
-        transition={{
-          duration: 25,
-          repeat: Infinity,
-          ease: 'linear',
-          type: 'tween',
-        }}
-        className="absolute bottom-0 left-0 w-[300px] h-[300px] md:w-[500px] md:h-[500px] bg-accent/20 rounded-full blur-3xl -z-10 will-change-transform hidden md:block"
-      />
+    <section id="top" className="relative overflow-hidden px-4 pb-20 pt-32 sm:pt-40">
+      <div className="bg-grid absolute inset-0 -z-10 opacity-40 [mask-image:radial-gradient(ellipse_at_center,black,transparent_75%)]" />
+      <div className="absolute -right-32 -top-32 -z-10 size-[32rem] rounded-full bg-primary/20 blur-3xl" />
+      <div className="absolute -bottom-40 -left-32 -z-10 size-[28rem] rounded-full bg-accent/20 blur-3xl" />
 
-      <div className="max-w-7xl mx-auto w-full">
-        <div className="grid lg:grid-cols-2 gap-12 items-center">
-          {/* Left Column - Text Content */}
-          <motion.div
-            initial={{ opacity: 0, x: -50 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.5, ease: [0.25, 0.1, 0.25, 1] }}
-            className="space-y-8"
-          >
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.15, duration: 0.4, ease: [0.25, 0.1, 0.25, 1] }}
-              className="inline-block px-4 py-2 rounded-full glass border border-primary/20"
-            >
-              <div className="flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-primary animate-pulse" />
-                <span className="text-sm text-primary">Available for new opportunities</span>
-              </div>
-            </motion.div>
+      <div className="mx-auto grid max-w-6xl items-center gap-12 lg:grid-cols-[1.1fr_0.9fr]">
+        <motion.div
+          initial={prefersReducedMotion ? false : { opacity: 0, y: 24 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
+          className="space-y-7"
+        >
+          <p className="glass inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm">
+            <span className="relative flex size-2">
+              <span className="animate-pulse-ring absolute inline-flex size-full rounded-full bg-success" />
+              <span className="relative inline-flex size-2 rounded-full bg-success" />
+            </span>
+            {profile.availability}
+          </p>
 
-            <div className="space-y-4">
-              <motion.h1
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.2, duration: 0.5, ease: [0.25, 0.1, 0.25, 1] }}
-                className="text-5xl md:text-7xl font-bold leading-tight"
-              >
-                Mohammad{' '}
-                <span className="bg-gradient-to-r from-primary via-accent to-primary bg-clip-text text-transparent">
-                  Sharafi
-                </span>
-              </motion.h1>
+          <div className="space-y-3">
+            <h1 className="font-display text-4xl font-bold leading-[1.1] sm:text-6xl lg:text-7xl">
+              {profile.firstName} <span className="text-gradient">{profile.lastName}</span>
+            </h1>
+            <p className="font-display text-xl text-muted-foreground sm:text-3xl">
+              <RoleRotator roles={profile.roleRotation} />
+            </p>
+          </div>
 
-              <motion.p
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.25, duration: 0.5, ease: [0.25, 0.1, 0.25, 1] }}
-                className="text-2xl md:text-4xl text-muted-foreground"
-              >
-                Software Engineer
-              </motion.p>
+          <p className="max-w-xl text-base leading-relaxed text-muted-foreground sm:text-lg">
+            {profile.tagline}
+          </p>
 
-              <motion.p
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.3, duration: 0.5, ease: [0.25, 0.1, 0.25, 1] }}
-                className="text-lg text-muted-foreground max-w-xl"
-              >
-                Over 6 years crafting innovative mobile applications in digital health, fintech, and education. 
-                Led award-winning AI-powered solutions with expertise in Flutter, AI integration, and cloud technologies.
-              </motion.p>
+          <dl className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-muted-foreground">
+            <div className="flex items-center gap-2">
+              <dt className="sr-only">Location</dt>
+              <MapPin className="size-4 text-primary" aria-hidden="true" />
+              <dd>{profile.location}</dd>
             </div>
+            <div className="flex items-center gap-2">
+              <dt className="sr-only">Timezone</dt>
+              <Clock className="size-4 text-primary" aria-hidden="true" />
+              <dd>{profile.timezone}</dd>
+            </div>
+            <div className="flex items-center gap-2">
+              <dt className="sr-only">Focus</dt>
+              <Sparkles className="size-4 text-primary" aria-hidden="true" />
+              <dd>Healthcare & applied AI</dd>
+            </div>
+          </dl>
 
-            {/* CTAs */}
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.35, duration: 0.5, ease: [0.25, 0.1, 0.25, 1] }}
-                  className="flex flex-wrap gap-4"
-                >
-              <motion.a
-                href="/cv.pdf"
-                download="Mohammad-Sharafi-CV.pdf"
-                className="px-8 py-4 rounded-full bg-primary text-white hover:bg-primary/90 flex items-center gap-2 shadow-soft"
-                whileHover={{ 
-                  scale: 1.05, 
-                  boxShadow: '0 20px 60px rgba(0, 102, 255, 0.4)' 
-                }}
-                whileTap={{ scale: 0.95 }}
-              >
-                <Download className="w-5 h-5" />
-                Download CV
-              </motion.a>
-
-              <motion.a
-                href="#contact"
-                className="px-8 py-4 rounded-full glass hover:shadow-soft flex items-center gap-2"
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-              >
-                <Mail className="w-5 h-5" />
-                Contact Me
-              </motion.a>
-            </motion.div>
-
-            {/* Social Links */}
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ delay: 0.4, duration: 0.4, ease: [0.25, 0.1, 0.25, 1] }}
-                  className="flex gap-4"
-                >
-              {[
-                { Icon: Github, href: 'https://github.com/MohammadSharafi' },
-                { Icon: Linkedin, href: 'https://www.linkedin.com/in/mohammadsharafi/' },
-                { Icon: Twitter, href: 'https://x.com/moe_sharafi' },
-                { Icon: Mail, href: 'mailto:mohammadsharafi.official@gmail.com' },
-              ].map(({ Icon, href }, index) => (
-                <motion.a
-                  key={index}
-                  href={href}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="w-12 h-12 rounded-full glass flex items-center justify-center hover:bg-primary hover:text-white transition-colors"
-                  whileHover={{ scale: 1.1, rotate: 5 }}
-                  whileTap={{ scale: 0.9 }}
-                >
-                  <Icon className="w-5 h-5" />
-                </motion.a>
-              ))}
-            </motion.div>
-          </motion.div>
-
-          {/* Right Column - 3D Visual */}
-          <motion.div
-            initial={{ opacity: 0, x: 50 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.5, delay: 0.2, ease: [0.25, 0.1, 0.25, 1] }}
-            className="relative"
-          >
-            <motion.div
-              animate={{
-                y: [0, -15, 0],
-              }}
-              transition={{
-                duration: 8,
-                repeat: Infinity,
-                ease: [0.4, 0, 0.6, 1],
-              }}
-              className="relative hidden md:block"
+          <div className="flex flex-wrap gap-3">
+            <a
+              href="#projects"
+              className="inline-flex items-center gap-2 rounded-full bg-primary px-6 py-3 font-medium text-primary-foreground shadow-soft transition-transform hover:scale-[1.03]"
             >
-              {/* Main Glass Card */}
-              <div className="glass-strong rounded-3xl p-8 shadow-soft">
-                <img
-                  src="https://images.unsplash.com/photo-1764303017761-2f94cb677efe?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxtb2Rlcm4lMjB0ZWNoJTIwYWJzdHJhY3QlMjBibHVlfGVufDF8fHx8MTc2NTA0NDMyNHww&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral"
-                  alt="Tech illustration"
-                  className="w-full h-full object-cover rounded-2xl"
-                  loading="lazy"
-                  decoding="async"
-                />
-              </div>
+              View my work
+              <ArrowDown className="size-4" aria-hidden="true" />
+            </a>
+            <a
+              href={profile.cvPath}
+              download={profile.cvFileName}
+              className="glass inline-flex items-center gap-2 rounded-full px-6 py-3 font-medium transition-transform hover:scale-[1.03]"
+            >
+              <Download className="size-4" aria-hidden="true" />
+              Download résumé
+            </a>
+          </div>
 
-              {/* Floating Elements - Hidden on mobile for performance */}
-              <motion.div
-                animate={{
-                  y: [0, -8, 0],
-                  rotate: [0, 3, 0],
-                }}
-                transition={{
-                  duration: 5,
-                  repeat: Infinity,
-                  ease: [0.4, 0, 0.6, 1],
-                }}
-                className="absolute -top-8 -right-8 px-6 py-3 rounded-2xl glass shadow-soft border border-primary/20 hidden md:block"
-              >
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded-full bg-green-500 animate-pulse shadow-lg shadow-green-500/50" />
-                  <span className="text-sm font-medium">Available Now</span>
-                </div>
-              </motion.div>
+          <ul className="flex gap-3">
+            {socialLinks.map(({ label, href, icon: Icon }) => (
+              <li key={label}>
+                <a
+                  href={href}
+                  target={href.startsWith('mailto:') ? undefined : '_blank'}
+                  rel="noopener noreferrer"
+                  className="glass flex size-11 items-center justify-center rounded-full transition-colors hover:bg-primary hover:text-primary-foreground"
+                  aria-label={label}
+                >
+                  <Icon className="size-5" aria-hidden="true" />
+                </a>
+              </li>
+            ))}
+          </ul>
+        </motion.div>
 
-              <motion.div
-                animate={{
-                  y: [0, 8, 0],
-                }}
-                transition={{
-                  duration: 4.5,
-                  repeat: Infinity,
-                  ease: [0.4, 0, 0.6, 1],
-                  delay: 0.3,
-                }}
-                className="absolute -bottom-8 -left-8 px-6 py-3 rounded-2xl glass shadow-soft flex items-center gap-2 border border-accent/20 hidden md:block"
-              >
-                <ArrowRight className="w-4 h-4 text-accent" />
-                <span className="text-sm font-medium">50+ Projects</span>
-              </motion.div>
-            </motion.div>
-
-            {/* Background Gradient Blur - Reduced on mobile */}
-            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 md:w-96 md:h-96 bg-primary/20 rounded-full blur-2xl md:blur-3xl -z-10 hidden md:block" />
-            <div className="absolute top-1/3 right-0 w-48 h-48 md:w-64 md:h-64 bg-accent/20 rounded-full blur-2xl md:blur-3xl -z-10 hidden md:block" />
-          </motion.div>
-        </div>
+        <motion.div
+          initial={prefersReducedMotion ? false : { opacity: 0, y: 32 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, delay: 0.15, ease: [0.22, 1, 0.36, 1] }}
+          className="hidden lg:block"
+        >
+          <CodeCard />
+        </motion.div>
       </div>
     </section>
   );
