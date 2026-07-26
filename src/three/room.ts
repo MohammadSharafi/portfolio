@@ -1,3 +1,4 @@
+import type { Color } from 'three';
 import {
   BoxGeometry,
   ConeGeometry,
@@ -12,51 +13,8 @@ import {
   TorusGeometry,
   type Texture,
 } from 'three';
-import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { palette } from './palette';
-
-type Vec3 = [number, number, number];
-
-const standard = (
-  color: THREE_Color,
-  options: {
-    roughness?: number;
-    metalness?: number;
-    emissive?: THREE_Color;
-    emissiveIntensity?: number;
-  } = {}
-) =>
-  new MeshStandardMaterial({
-    color,
-    roughness: options.roughness ?? 0.85,
-    metalness: options.metalness ?? 0.05,
-    ...(options.emissive ? { emissive: options.emissive } : {}),
-    ...(options.emissiveIntensity ? { emissiveIntensity: options.emissiveIntensity } : {}),
-  });
-
-type THREE_Color = (typeof palette)[keyof typeof palette];
-
-/**
- * Every solid in the room is a rounded box rather than a hard-edged one.
- * A real object has a small chamfer that catches a specular highlight along
- * each edge; without it a procedural scene reads instantly as raw primitives.
- * The radius is clamped so thin panels do not collapse into pills.
- */
-function box(size: Vec3, position: Vec3, material: MeshStandardMaterial, rotationY = 0) {
-  const smallest = Math.min(...size);
-  const radius = Math.min(0.012, smallest * 0.35);
-  const geometry =
-    smallest > 0.006
-      ? new RoundedBoxGeometry(size[0], size[1], size[2], 2, radius)
-      : new BoxGeometry(...size);
-
-  const mesh = new Mesh(geometry, material);
-  mesh.position.set(...position);
-  mesh.rotation.y = rotationY;
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-  return mesh;
-}
+import { box, standard, type Vec3 } from './primitives';
 
 /** Desk, its frame and the objects sitting on it. */
 function buildDesk() {
@@ -261,7 +219,7 @@ function buildFrames() {
   const group = new Group();
   const frameMat = standard(palette.darkMetal, { roughness: 0.5, metalness: 0.3 });
 
-  const specs: Array<{ w: number; h: number; x: number; y: number; tint: THREE_Color }> = [
+  const specs: Array<{ w: number; h: number; x: number; y: number; tint: Color }> = [
     { w: 0.4, h: 0.52, x: 0, y: 0, tint: palette.rug },
     { w: 0.3, h: 0.24, x: 0.46, y: 0.1, tint: palette.deskMat },
     { w: 0.26, h: 0.2, x: 0.44, y: -0.2, tint: palette.wallTrim },

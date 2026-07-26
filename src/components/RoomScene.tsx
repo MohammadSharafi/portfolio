@@ -27,16 +27,29 @@ interface RoomSceneProps {
   reducedMotion: boolean;
   quality: SceneQuality;
   onReady?: () => void;
+  /** Fires with the index of the chapter the camera has reached. */
+  onChapter?: (index: number) => void;
 }
 
 /**
- * Mounts the Three.js room. Kept as a leaf component behind React.lazy so the
- * whole 3D chunk stays out of the initial bundle.
+ * Mounts the Three.js journey. Kept as a leaf component behind React.lazy so
+ * the whole 3D chunk stays out of the initial bundle.
  */
-export default function RoomScene({ progress, reducedMotion, quality, onReady }: RoomSceneProps) {
+export default function RoomScene({
+  progress,
+  reducedMotion,
+  quality,
+  onReady,
+  onChapter,
+}: RoomSceneProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const experienceRef = useRef<Experience | null>(null);
   const [failed, setFailed] = useState(false);
+
+  // Held in a ref so a new caption callback on every render never tears down
+  // and rebuilds the whole scene.
+  const chapterRef = useRef(onChapter);
+  chapterRef.current = onChapter;
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -54,6 +67,7 @@ export default function RoomScene({ progress, reducedMotion, quality, onReady }:
           terminalLines,
           reducedMotion,
           quality,
+          onChapter: (index) => chapterRef.current?.(index),
         });
         experienceRef.current = experience;
         onReady?.();
