@@ -12,6 +12,7 @@ import {
   TorusGeometry,
   type Texture,
 } from 'three';
+import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { palette } from './palette';
 
 type Vec3 = [number, number, number];
@@ -35,8 +36,21 @@ const standard = (
 
 type THREE_Color = (typeof palette)[keyof typeof palette];
 
+/**
+ * Every solid in the room is a rounded box rather than a hard-edged one.
+ * A real object has a small chamfer that catches a specular highlight along
+ * each edge; without it a procedural scene reads instantly as raw primitives.
+ * The radius is clamped so thin panels do not collapse into pills.
+ */
 function box(size: Vec3, position: Vec3, material: MeshStandardMaterial, rotationY = 0) {
-  const mesh = new Mesh(new BoxGeometry(...size), material);
+  const smallest = Math.min(...size);
+  const radius = Math.min(0.012, smallest * 0.35);
+  const geometry =
+    smallest > 0.006
+      ? new RoundedBoxGeometry(size[0], size[1], size[2], 2, radius)
+      : new BoxGeometry(...size);
+
+  const mesh = new Mesh(geometry, material);
   mesh.position.set(...position);
   mesh.rotation.y = rotationY;
   mesh.castShadow = true;
@@ -76,7 +90,7 @@ function buildMonitor(
       map: screenTexture,
       emissiveMap: screenTexture,
       emissive: palette.screenGlow,
-      emissiveIntensity: 1.15,
+      emissiveIntensity: 0.95,
       roughness: 0.35,
       metalness: 0,
     })
@@ -242,6 +256,29 @@ function buildChair() {
   return group;
 }
 
+/** Framed prints, so the back wall is not a blank plane. */
+function buildFrames() {
+  const group = new Group();
+  const frameMat = standard(palette.darkMetal, { roughness: 0.5, metalness: 0.3 });
+
+  const specs: Array<{ w: number; h: number; x: number; y: number; tint: THREE_Color }> = [
+    { w: 0.4, h: 0.52, x: 0, y: 0, tint: palette.rug },
+    { w: 0.3, h: 0.24, x: 0.46, y: 0.1, tint: palette.deskMat },
+    { w: 0.26, h: 0.2, x: 0.44, y: -0.2, tint: palette.wallTrim },
+  ];
+
+  for (const spec of specs) {
+    group.add(box([spec.w, spec.h, 0.03], [spec.x, spec.y, 0], frameMat));
+    const art = new Mesh(
+      new PlaneGeometry(spec.w - 0.06, spec.h - 0.06),
+      new MeshStandardMaterial({ color: spec.tint, roughness: 0.9 })
+    );
+    art.position.set(spec.x, spec.y, 0.02);
+    group.add(art);
+  }
+  return group;
+}
+
 function buildShelf() {
   const group = new Group();
   const shelfMat = standard(palette.deskTop, { roughness: 0.7 });
@@ -335,6 +372,15 @@ export function buildRoom(textures: {
     if (screen) screens.push(screen);
   });
 
+  const deskMat = new Mesh(
+    new PlaneGeometry(1.5, 0.5),
+    standard(palette.deskMat, { roughness: 0.95 })
+  );
+  deskMat.rotation.x = -Math.PI / 2;
+  deskMat.position.set(0.05, 0.778, -1.16);
+  deskMat.receiveShadow = true;
+  root.add(deskMat);
+
   const keyboard = buildKeyboard();
   keyboard.position.set(-0.05, 0.79, -1.15);
   root.add(keyboard);
@@ -375,13 +421,19 @@ export function buildRoom(textures: {
   root.add(plant.group);
 
   const chair = buildChair();
-  chair.position.set(0, 0, -0.35);
-  chair.rotation.y = 0.15;
+  // Pushed left and turned: parked in front of the desk it read as a dark slab
+  // occluding the screens rather than as a chair.
+  chair.position.set(-0.95, 0, -0.15);
+  chair.rotation.y = 0.55;
   root.add(chair);
 
   const shelf = buildShelf();
   shelf.group.position.set(-1.5, 1.95, -2.05);
   root.add(shelf.group);
+
+  const frames = buildFrames();
+  frames.position.set(-2.5, 1.75, -2.16);
+  root.add(frames);
 
   return {
     root,
