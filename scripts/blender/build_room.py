@@ -208,6 +208,97 @@ def join(name: str, objects: list[bpy.types.Object]) -> bpy.types.Object:
 # --------------------------------------------------------------------------
 
 
+def _wall_with_opening(wall_mat: bpy.types.Material) -> bpy.types.Object:
+    """
+    The back wall, with the window aperture cut out by a boolean rather than
+    faked with a lit panel. A painted-on view cannot be looked *through*: the
+    parallax between the frame and the skyline as the camera moves is the whole
+    reason the window reads as an opening and not as a poster.
+    """
+    wall = cube("wall_back", (6.4, 0.12, 3.2), (0, -2.6, 1.6), wall_mat, bevel=0)
+
+    bpy.ops.mesh.primitive_cube_add(size=1, location=(2.05, -2.6, 1.7))
+    cutter = bpy.context.object
+    cutter.name = "window_cutter"
+    cutter.scale = (1.42, 0.4, 1.24)
+    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+
+    mod = wall.modifiers.new("Opening", "BOOLEAN")
+    mod.operation = "DIFFERENCE"
+    mod.object = cutter
+    bpy.context.view_layer.objects.active = wall
+    bpy.ops.object.modifier_apply(modifier="Opening")
+    bpy.data.objects.remove(cutter, do_unlink=True)
+
+    bpy.context.view_layer.objects.active = wall
+    return wall
+
+
+def build_toronto() -> list[bpy.types.Object]:
+    """
+    The view through the window: Toronto at night, seen from high up.
+
+    Built at real distance rather than as a backdrop card so it parallaxes
+    correctly. The whole thing sits inside the window's view cone, which is the
+    only reason a few dozen boxes can stand in for a skyline — everything
+    outside that cone is never on screen and is not modelled.
+    """
+    random_state = [20240726]
+
+    def rand() -> float:
+        random_state[0] = (random_state[0] * 1103515245 + 12345) & 0x7FFFFFFF
+        return random_state[0] / 0x7FFFFFFF
+
+    tower_mat = material("sky_tower", "plastic", roughness=0.8, metallic=0.1)
+    lit_mat = material("sky_lit", "warm", roughness=0.4, emission=2.2)
+    cool_lit = material("sky_lit_cool", "cyan", roughness=0.4, emission=1.8)
+
+    parts: list[bpy.types.Object] = []
+
+    # The sky. A single emissive plane far enough back to sit behind everything.
+    parts_sky = cube(
+        "sky", (60, 0.2, 34), (2.05, -34, 8), material("sky", "screen", roughness=1.0, emission=0.35), bevel=0
+    )
+
+    # Lake Ontario, flat and dark, catching the city above it.
+    lake = cube("lake", (60, 26, 0.2), (2.05, -28, -1.6), material("lake", "screen", roughness=0.65, metallic=0.0), bevel=0)
+
+    # The CN Tower. Unmistakable, and the one object that fixes the city.
+    cn: list[bpy.types.Object] = [
+        cylinder("cn_shaft", 0.5, 15, (2.6, -14, 4.5), tower_mat, vertices=12),
+        cylinder("cn_pod", 1.5, 1.5, (2.6, -14, 10.4), tower_mat, vertices=16),
+        cylinder("cn_pod_lit", 1.55, 0.42, (2.6, -14, 10.6), lit_mat, vertices=16),
+        cylinder("cn_upper", 0.85, 1.6, (2.6, -14, 12.6), tower_mat, vertices=14),
+        cylinder("cn_mast", 0.16, 7.0, (2.6, -14, 16.6), tower_mat, vertices=8),
+    ]
+    beacon = cylinder("cn_beacon", 0.2, 0.2, (2.6, -14, 20.2), material("beacon", "red", roughness=0.3, emission=8.0), vertices=8)
+    parts.append(join("cn_tower", cn + [beacon]))
+
+    # The bank towers behind and beside it.
+    blocks: list[bpy.types.Object] = []
+    lights: list[bpy.types.Object] = []
+    for i in range(26):
+        x = -7 + rand() * 20
+        y = -18 - rand() * 16
+        w = 1.1 + rand() * 2.2
+        d = 1.1 + rand() * 2.2
+        h = 3 + rand() * rand() * 17
+        blocks.append(cube(f"sky_block_{i}", (w, d, h), (x, y, h / 2 - 1.2), tower_mat, bevel=0))
+        for band in range(1 + int(rand() * 3)):
+            z = 0.8 + rand() * (h - 1.6)
+            lights.append(
+                cube(
+                    f"sky_light_{i}_{band}",
+                    (w + 0.04, d + 0.04, 0.1 + rand() * 0.14),
+                    (x, y, z),
+                    lit_mat if rand() > 0.35 else cool_lit,
+                    bevel=0,
+                )
+            )
+    parts.append(join("ix_window", [parts_sky, lake] + blocks + lights))
+    return parts
+
+
 def build_shell() -> list[bpy.types.Object]:
     """Floor, two walls and skirting. An open box, so the camera can see in."""
     wall = material("wall", "wall", roughness=0.95)
@@ -218,7 +309,7 @@ def build_shell() -> list[bpy.types.Object]:
         plane("floor", (6.4, 6.4), (0, 0, 0), floor_mat),
         # Floorboards, as shallow insets rather than a texture: they survive a
         # bake and cost a handful of triangles each.
-        cube("wall_back", (6.4, 0.12, 3.2), (0, -2.6, 1.6), wall, bevel=0),
+        _wall_with_opening(wall),
         cube("wall_left", (0.12, 5.2, 3.2), (-3.2, 0, 1.6), accent, bevel=0),
         cube("skirting_back", (6.4, 0.05, 0.11), (0, -2.52, 0.055), material("skirt", "dark_metal")),
         cube("skirting_left", (0.05, 5.2, 0.11), (-3.12, 0, 0.055), material("skirt", "dark_metal")),
@@ -526,14 +617,18 @@ def build_window() -> list[bpy.types.Object]:
         cube("win_right", (0.09, 0.1, 1.3), (2.75, -2.53, 1.7), frame_mat),
         cube("win_mullion", (0.03, 0.06, 1.25), (2.05, -2.53, 1.7), frame_mat),
     ]
-    view = cube(
-        "ix_window",
-        (1.36, 0.02, 1.22),
-        (2.05, -2.56, 1.7),
-        material("win_view", "cyan", roughness=0.4, emission=1.6),
+    # A sill, and glass with almost no roughness so it catches a reflection.
+    parts.append(cube("win_sill", (1.6, 0.22, 0.06), (2.05, -2.46, 1.08), frame_mat))
+    glass = cube(
+        "win_glass",
+        (1.34, 0.012, 1.2),
+        (2.05, -2.58, 1.7),
+        material("glass", "cyan", roughness=0.05, metallic=0.1),
         bevel=0,
     )
-    return [join("window_frame", parts), view]
+    glass.data.materials[0].blend_method = "BLEND" if hasattr(glass.data.materials[0], "blend_method") else None
+    glass.data.materials[0].node_tree.nodes["Principled BSDF"].inputs["Alpha"].default_value = 0.12
+    return [join("window_frame", parts + [glass])]
 
 
 def build_certificates() -> list[bpy.types.Object]:
@@ -656,6 +751,7 @@ def main() -> None:
     build_whiteboard()
     build_server_rack()
     build_window()
+    build_toronto()
     build_certificates()
     build_chair_and_plant()
     add_lighting()
