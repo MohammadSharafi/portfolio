@@ -220,9 +220,17 @@ export const roomObjects: readonly RoomObject[] = [
     stop: { position: [0.9, 1.75, 0.9], target: [2.1, 1.75, 0.2], duration: 1.6 },
     panel: {
       kicker: 'Outside',
-      title: `${profile.location}`,
-      body: 'Antalya, on the Mediterranean coast — the other end of a journey that started in a village in Iran. Click again to move the sun.',
-      items: [`${profile.timezone}`, 'Remote, with U.S. overlap most days'],
+      title: 'Toronto — next',
+      // Deliberately forward-looking rather than a claim about the present.
+      // The desk is in Türkiye today; the skyline is where the next move goes.
+      // A room that quietly implied otherwise would be the one dishonest thing
+      // in a portfolio whose whole argument is that every figure is checkable.
+      body: `The view is the next move, not the current one. The desk is still in ${profile.location} — but this journey has never stayed put, and Toronto is where it goes next.`,
+      items: [
+        `Today: ${profile.location} · ${profile.timezone}`,
+        'Next: Toronto, Canada',
+        'Remote throughout, with U.S. overlap most days',
+      ],
     },
   },
   {
