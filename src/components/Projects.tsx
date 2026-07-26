@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { AnimatePresence, motion } from 'motion/react';
+import { AnimatePresence, m } from 'motion/react';
 import { ArrowUpRight, Github, Star } from 'lucide-react';
 import {
   githubProfileUrl,
@@ -74,12 +74,11 @@ export function Projects() {
         </div>
       </Reveal>
 
-      <motion.ul layout className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+      <m.ul className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
         <AnimatePresence mode="popLayout">
           {visibleProjects.map((project) => (
-            <motion.li
+            <m.li
               key={project.slug}
-              layout={!prefersReducedMotion}
               initial={prefersReducedMotion ? false : { opacity: 0, scale: 0.96 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, scale: 0.96 }}
@@ -147,10 +146,10 @@ export function Projects() {
                   </span>
                 </div>
               </article>
-            </motion.li>
+            </m.li>
           ))}
         </AnimatePresence>
-      </motion.ul>
+      </m.ul>
 
       <Reveal delay={0.1} className="mt-12 text-center">
         <a

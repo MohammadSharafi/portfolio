@@ -64,6 +64,8 @@ export const profile = {
   availability: 'Open to senior engineering roles',
   cvPath: '/cv.pdf',
   cvFileName: 'Mohammad-Sharafi-CV.pdf',
+  photo: '/mohammad-sharafi.jpg',
+  photoAlt: 'Mohammad Sharafi',
 
   tagline:
     'I build production mobile and backend systems for regulated healthcare — Flutter apps, HIPAA-compliant services, and AI that runs where the data lives.',

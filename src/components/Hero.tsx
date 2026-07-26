@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { AnimatePresence, motion } from 'motion/react';
+import { AnimatePresence, m } from 'motion/react';
 import { ArrowDown, Clock, Download, MapPin, Sparkles } from 'lucide-react';
 import { profile, socialLinks } from '@/data/profile';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
@@ -21,7 +21,7 @@ function RoleRotator({ roles }: { roles: readonly string[] }) {
   return (
     <span className="relative block h-[1.4em] overflow-hidden" aria-live="polite">
       <AnimatePresence mode="wait" initial={false}>
-        <motion.span
+        <m.span
           key={roles[index]}
           initial={prefersReducedMotion ? false : { y: '100%', opacity: 0 }}
           animate={{ y: '0%', opacity: 1 }}
@@ -30,7 +30,7 @@ function RoleRotator({ roles }: { roles: readonly string[] }) {
           className="absolute inset-x-0 block"
         >
           {roles[index]}
-        </motion.span>
+        </m.span>
       </AnimatePresence>
     </span>
   );
@@ -121,7 +121,7 @@ export function Hero() {
       <div className="absolute -bottom-40 -left-32 -z-10 size-[28rem] rounded-full bg-accent/20 blur-3xl" />
 
       <div className="mx-auto grid max-w-6xl items-center gap-12 lg:grid-cols-[1.1fr_0.9fr]">
-        <motion.div
+        <m.div
           initial={prefersReducedMotion ? false : { opacity: 0, y: 24 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
@@ -199,16 +199,16 @@ export function Hero() {
               </li>
             ))}
           </ul>
-        </motion.div>
+        </m.div>
 
-        <motion.div
+        <m.div
           initial={prefersReducedMotion ? false : { opacity: 0, y: 32 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.15, ease: [0.22, 1, 0.36, 1] }}
           className="hidden lg:block"
         >
           <CodeCard />
-        </motion.div>
+        </m.div>
       </div>
     </section>
   );

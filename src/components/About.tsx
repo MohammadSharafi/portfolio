@@ -37,6 +37,25 @@ export function About() {
     >
       <div className="grid gap-12 lg:grid-cols-[1fr_1fr] lg:gap-16">
         <Reveal direction="left" className="space-y-5">
+          <div className="flex items-center gap-5">
+            <img
+              src={profile.photo}
+              alt={profile.photoAlt}
+              width={96}
+              height={96}
+              loading="lazy"
+              decoding="async"
+              className="size-24 shrink-0 rounded-2xl object-cover shadow-soft ring-1 ring-border"
+            />
+            <div>
+              <p className="font-display text-lg font-semibold">{profile.name}</p>
+              <p className="text-sm text-muted-foreground">{profile.role}</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {profile.location} · {profile.timezone}
+              </p>
+            </div>
+          </div>
+
           {profile.summary.map((paragraph) => (
             <p
               key={paragraph.slice(0, 32)}

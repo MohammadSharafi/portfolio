@@ -1,5 +1,13 @@
 @import 'tailwindcss';
 
+/* Fonts are self-hosted rather than fetched from fonts.googleapis.com: that
+   removed two cross-origin preconnects and a render-blocking third-party
+   stylesheet from the critical path, and keeps visitor requests on one origin.
+   Each file carries a unicode-range, so a browser rendering English downloads
+   only the latin subset (48KB Inter + 24KB Space Grotesk). */
+@import '@fontsource-variable/inter/wght.css';
+@import '@fontsource-variable/space-grotesk/wght.css';
+
 /* Dark mode is class-driven so the pre-paint script in index.html can set it
    before React boots. `:where` keeps specificity at zero. */
 @custom-variant dark (&:where(.dark, .dark *));
@@ -81,8 +89,10 @@
   --radius-xl: calc(var(--radius) + 0.5rem);
   --radius-2xl: calc(var(--radius) + 1rem);
 
-  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  --font-display: 'Space Grotesk', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-sans:
+    'Inter Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-display:
+    'Space Grotesk Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, monospace;
 }
 

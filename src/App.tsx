@@ -1,4 +1,5 @@
 import { lazy, Suspense } from 'react';
+import { LazyMotion, domAnimation } from 'motion/react';
 import { Navbar } from './components/Navbar';
 import { Hero } from './components/Hero';
 import { Stats } from './components/Stats';
@@ -32,7 +33,11 @@ export default function App() {
   useReducedMotion();
 
   return (
-    <>
+    // Components use the tree-shakeable `m` primitives; LazyMotion supplies the
+    // feature set once. `domAnimation` omits Motion's layout-animation engine,
+    // which cuts 13KB gzip from the critical path — the one effect that needed
+    // it (the navbar indicator) is now a CSS transform instead.
+    <LazyMotion features={domAnimation} strict>
       <a
         href="#main"
         className="sr-only z-[70] focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:rounded-full focus:bg-primary focus:px-5 focus:py-3 focus:font-medium focus:text-primary-foreground"
@@ -63,6 +68,6 @@ export default function App() {
       </Suspense>
 
       <BackToTop />
-    </>
+    </LazyMotion>
   );
 }
