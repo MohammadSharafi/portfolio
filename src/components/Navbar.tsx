@@ -9,7 +9,7 @@ import { ThemeToggle } from './ThemeToggle';
 
 const sectionIds = navItems.map((item) => item.id);
 
-export function Navbar() {
+export function Navbar({ overScene = false }: { overScene?: boolean }) {
   const [isOpen, setIsOpen] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
   const activeSection = useActiveSection(sectionIds);
@@ -69,7 +69,10 @@ export function Navbar() {
         aria-label="Main"
         className={cn(
           'mx-auto max-w-6xl rounded-2xl transition-all duration-300',
-          isScrolled ? 'glass-strong shadow-soft' : 'glass'
+          isScrolled ? 'glass-strong shadow-soft' : 'glass',
+          // While floating over the lit room the bar borrows the dark tokens,
+          // otherwise a light-theme pill sits on a dark scene.
+          overScene && 'dark'
         )}
       >
         <div className="flex items-center justify-between gap-3 px-4 py-3">

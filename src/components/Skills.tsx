@@ -10,8 +10,8 @@ import { Section } from './ui/Section';
 import { Reveal } from './ui/Reveal';
 
 const levelStyles: Record<Proficiency, string> = {
-  core: 'bg-primary/15 text-primary border-primary/25',
-  working: 'bg-accent/12 text-accent border-accent/25',
+  core: 'bg-primary/15 text-primary-strong border-primary/25',
+  working: 'bg-accent/12 text-accent-strong border-accent/25',
   exploring: 'bg-muted text-muted-foreground border-border',
 };
 

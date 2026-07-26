@@ -6,6 +6,7 @@ import { Stats } from './components/Stats';
 import { ScrollProgress } from './components/ScrollProgress';
 import { BackToTop } from './components/BackToTop';
 import { useReducedMotion } from './hooks/useReducedMotion';
+import { useRoom } from './hooks/useRoom';
 
 // Everything below the fold is split out; the first screen ships without it.
 const About = lazy(() => import('./components/About').then((m) => ({ default: m.About })));
@@ -31,6 +32,9 @@ function SectionFallback() {
 export default function App() {
   // Keeps the `.reduce-motion` class on <html> in sync with the OS preference.
   useReducedMotion();
+  // Owned here so the navbar can switch to dark styling while it floats over
+  // the lit 3D scene, and the hero can drive the camera from the same state.
+  const room = useRoom();
 
   return (
     // Components use the tree-shakeable `m` primitives; LazyMotion supplies the
@@ -46,10 +50,10 @@ export default function App() {
       </a>
 
       <ScrollProgress />
-      <Navbar />
+      <Navbar overScene={room.showRoom && room.progress < 0.99} />
 
       <main id="main">
-        <Hero />
+        <Hero room={room} />
         <Stats />
 
         <Suspense fallback={<SectionFallback />}>
