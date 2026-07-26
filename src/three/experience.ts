@@ -6,11 +6,18 @@ import {
   Fog,
   PCFSoftShadowMap,
   PerspectiveCamera,
+  PMREMGenerator,
   PointLight,
   Scene,
   SRGBColorSpace,
+  Vector2,
   WebGLRenderer,
 } from 'three';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { buildRoom } from './room';
 import { codeScreen, projectsScreen, terminalScreen } from './screens';
 import { palette } from './palette';
@@ -58,22 +65,33 @@ export function createExperience(options: ExperienceOptions): Experience {
   });
   renderer.outputColorSpace = SRGBColorSpace;
   renderer.toneMapping = ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.15;
+  renderer.toneMappingExposure = 1.0;
   renderer.shadowMap.enabled = high;
   renderer.shadowMap.type = PCFSoftShadowMap;
   // Capped: shadow-mapped scenes at 3x DPR cost far more than they show.
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, high ? 2 : 1.25));
 
   const scene = new Scene();
-  scene.background = new Color('#0b0e15');
-  scene.fog = new Fog('#0b0e15', 7, 16);
+  scene.background = new Color('#080a10');
+  scene.fog = new Fog('#080a10', 7.5, 17);
+
+  // A generated studio environment gives every standard material something to
+  // reflect. Without it metals read as flat grey and the whole room looks
+  // rendered rather than lit. Held well below 1 so it tints rather than fills.
+  const pmrem = new PMREMGenerator(renderer);
+  const environment = pmrem.fromScene(new RoomEnvironment(), 0.04);
+  scene.environment = environment.texture;
+  scene.environmentIntensity = 0.28;
+  pmrem.dispose();
 
   const camera = new PerspectiveCamera(38, 1, 0.1, 60);
 
   // Lighting -----------------------------------------------------------------
-  scene.add(new AmbientLight(new Color('#4a5570'), 0.55));
+  scene.add(new AmbientLight(new Color('#3d4761'), 0.35));
 
-  const key = new DirectionalLight(new Color('#8fa8d8'), 0.5);
+  // Cool moonlight from the window side, deliberately weak: the room is lit by
+  // its own screens and lamp, and the contrast between those is the mood.
+  const key = new DirectionalLight(new Color('#93b0e8'), 0.42);
   key.position.set(4, 6, 4);
   key.castShadow = high;
   key.shadow.mapSize.set(1024, 1024);
@@ -94,20 +112,47 @@ export function createExperience(options: ExperienceOptions): Experience {
   scene.add(room.root);
 
   // Screen bounce and the warm desk lamp do most of the mood.
-  const screenLight = new PointLight(palette.screenGlow, 2.6, 5, 2);
+  const screenLight = new PointLight(palette.screenGlow, 3.1, 5.5, 2);
   screenLight.position.set(0, 1.15, -1.35);
   scene.add(screenLight);
 
-  const lampLight = new PointLight(palette.lampWarm, 3.4, 4.5, 2);
+  const lampLight = new PointLight(palette.lampWarm, 4.6, 4.5, 2);
   lampLight.position.set(...room.lampPosition);
   lampLight.castShadow = high;
   lampLight.shadow.mapSize.set(512, 512);
   lampLight.shadow.bias = -0.004;
   scene.add(lampLight);
 
-  const accentLight = new PointLight(palette.accent, 1.2, 6, 2);
+  const accentLight = new PointLight(palette.accent, 1.6, 6, 2);
   accentLight.position.set(-2.4, 2.1, 0.6);
   scene.add(accentLight);
+
+  // Rim from behind the desk lifts the monitor silhouettes off the back wall.
+  const rim = new PointLight(new Color('#6f8cff'), 1.1, 7, 2);
+  rim.position.set(0.4, 2.3, -2.0);
+  scene.add(rim);
+
+  // Post-processing ----------------------------------------------------------
+  // Bloom is what sells lit screens in a dark room: without it an emissive
+  // material is just a bright rectangle. Only on the high tier — it costs a
+  // full-resolution pass plus the blur pyramid.
+  const composer = high ? new EffectComposer(renderer) : null;
+  let bloomPass: UnrealBloomPass | null = null;
+
+  if (composer) {
+    composer.addPass(new RenderPass(scene, camera));
+    bloomPass = new UnrealBloomPass(
+      new Vector2(canvas.clientWidth || 1, canvas.clientHeight || 1),
+      0.34, // strength — a glow around bright sources, not a haze over the room
+      0.45, // radius
+      0.82 // threshold — high, so screen *text* stays crisp and only true
+      // highlights (the bulb, the brightest UI fills) bleed
+    );
+    composer.addPass(bloomPass);
+    // OutputPass applies tone mapping and colour space at the end of the chain,
+    // which is where they belong once a composer is involved.
+    composer.addPass(new OutputPass());
+  }
 
   // Interaction --------------------------------------------------------------
   const pointer = { x: 0, y: 0 };
@@ -125,6 +170,8 @@ export function createExperience(options: ExperienceOptions): Experience {
     const { clientWidth, clientHeight } = canvas;
     if (clientWidth === 0 || clientHeight === 0) return;
     renderer.setSize(clientWidth, clientHeight, false);
+    composer?.setSize(clientWidth, clientHeight);
+    bloomPass?.setSize(clientWidth, clientHeight);
     camera.aspect = clientWidth / clientHeight;
     camera.updateProjectionMatrix();
   };
@@ -173,10 +220,11 @@ export function createExperience(options: ExperienceOptions): Experience {
       room.animated.trinket.rotation.y += 0.006;
       room.animated.trinket.rotation.x = Math.sin(clock.t * 0.4) * 0.12;
       // Screens breathe very slightly, the way a real display flickers.
-      screenLight.intensity = 2.6 + Math.sin(clock.t * 2.1) * 0.12;
+      screenLight.intensity = 3.1 + Math.sin(clock.t * 2.1) * 0.14;
     }
 
-    renderer.render(scene, camera);
+    if (composer) composer.render();
+    else renderer.render(scene, camera);
   };
 
   // Only render while the canvas is actually on screen.
@@ -219,6 +267,8 @@ export function createExperience(options: ExperienceOptions): Experience {
       visibility.disconnect();
       document.removeEventListener('visibilitychange', onVisibilityChange);
       window.removeEventListener('pointermove', onPointerMove);
+      composer?.dispose();
+      environment.texture.dispose();
       scene.traverse((object) => {
         const mesh = object as { geometry?: { dispose(): void }; material?: unknown };
         mesh.geometry?.dispose();
