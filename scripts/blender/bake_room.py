@@ -35,7 +35,8 @@ import sys
 import bpy
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-OUT_DIR = os.path.normpath(os.path.join(HERE, "..", "..", "public", "models"))
+ROOT = os.path.normpath(os.path.join(HERE, "..", ".."))
+OUT_DIR = os.path.join(ROOT, "public", "models")
 OUT_GLB = os.path.join(OUT_DIR, "room-baked.glb")
 OUT_PNG = os.path.join(OUT_DIR, "room-bake.png")
 
@@ -217,12 +218,26 @@ def main() -> None:
 
     import build_room
 
-    build_room.build_all()
+    # The hand-modelled room, not a fresh run of the blockout script. Building
+    # from `build_room` here would bake a room nobody has touched since it was
+    # generated and quietly discard every hour of modelling — the export path
+    # reads the .blend, and so must this, or the two ship different rooms.
+    blend = os.path.join(ROOT, "assets", "room.blend")
+    if not os.path.exists(blend):
+        sys.exit(
+            f"{blend} does not exist.\n"
+            "Generate the blockout to start from:\n"
+            "    blender --background --python scripts/blender/build_room.py -- --blend"
+        )
+    bpy.ops.wm.open_mainfile(filepath=blend)
+    print(f"[bake_room] loaded {blend}")
 
     # Procedural wood grain, fabric weave and brushed metal, wired in only for
     # the bake. The plain glTF export cannot carry a node graph — it writes
-    # white where one is linked — so the room is built flat and textured here,
-    # where everything resolves into the atlas anyway.
+    # white where one is linked — so the room ships flat and is textured here,
+    # where everything resolves into the atlas anyway. Materials opt in with a
+    # `grain` custom property, which is stored in the .blend and can be set on
+    # anything modelled by hand.
     print(f"[bake_room] grain applied to {build_room.apply_grain()} materials")
 
     build_room.unwrap_all()

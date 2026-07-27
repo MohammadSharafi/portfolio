@@ -41,3 +41,7 @@ Thumbs.db
 # Python
 __pycache__/
 *.py[cod]
+
+# Blender save backups
+*.blend1
+*.blend2

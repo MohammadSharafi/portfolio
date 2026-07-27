@@ -19,6 +19,7 @@ runtime looks them up by that name, so renaming one here without renaming it in
 
 from __future__ import annotations
 
+import argparse
 import math
 import os
 import sys
@@ -26,8 +27,24 @@ import sys
 import bpy
 from mathutils import Matrix, Vector
 
-OUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "public", "models")
+ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+OUT_DIR = os.path.join(ROOT, "public", "models")
 OUT_GLB = os.path.normpath(os.path.join(OUT_DIR, "room.glb"))
+BLEND = os.path.join(ROOT, "assets", "room.blend")
+
+
+def argv_after_dashes() -> list[str]:
+    """
+    The arguments meant for this script rather than for Blender.
+
+    `blender --background --python foo.py -- --flag` hands the whole command
+    line to the script, Blender's own arguments included. Everything after a
+    bare `--` is ours; run under plain `python3` there is no `--` and the whole
+    tail is ours.
+    """
+    if "--" in sys.argv:
+        return sys.argv[sys.argv.index("--") + 1 :]
+    return sys.argv[1:] if not sys.argv[0].endswith("blender") else []
 
 # --------------------------------------------------------------------------
 # Palette. Kept in one place so the room reads as one lit space; these are the
@@ -70,14 +87,12 @@ PALETTE = {
 }
 
 _materials: dict[str, bpy.types.Material] = {}
-_grain_wanted: list[tuple[bpy.types.Material, tuple[float, ...], str]] = []
 
 
 def reset_scene() -> None:
     global _plants
     _plants = 0
     _materials.clear()
-    _grain_wanted.clear()
     bpy.ops.wm.read_factory_settings(use_empty=True)
     scene = bpy.context.scene
     scene.unit_settings.system = "METRIC"
@@ -96,8 +111,9 @@ def material(
     """
     A Principled BSDF material, cached by name so the GLB ships one copy.
 
-    `grain` names a procedural surface break-up, but only *records* it — see
-    `apply_grain`, which the bake calls and the plain export does not.
+    `grain` names a procedural surface break-up. It is recorded as a custom
+    property on the material rather than wired in here — see `apply_grain`,
+    which the bake calls and the plain export does not.
     """
     if name in _materials:
         return _materials[name]
@@ -113,14 +129,14 @@ def material(
         bsdf.inputs["Emission Color"].default_value = colour
         bsdf.inputs["Emission Strength"].default_value = emission
     if grain:
-        _grain_wanted.append((mat, colour, grain))
+        mat["grain"] = grain
     _materials[name] = mat
     return mat
 
 
 def apply_grain() -> int:
     """
-    Wire the recorded procedural grain into every material that asked for one.
+    Wire procedural grain into every material tagged with a `grain` property.
 
     This is deliberately not part of building the room. The glTF exporter can
     only carry a *flat* base colour or an image texture; hand it a procedural
@@ -128,10 +144,25 @@ def apply_grain() -> int:
     upholstered surface in the room into bare plastic. So the unbaked export
     keeps its flat colours, and the bake — which resolves the whole node tree
     down into one atlas anyway — calls this first and gets the texture.
+
+    The tag is a custom property on the material rather than a list built while
+    the room is constructed, so it survives into the .blend. The room is
+    hand-modelled now: a bake that only knew about grain requested by
+    `build_room` would texture nothing a modeller had touched. Setting
+    `grain` to one of the keys in `_GRAIN` on any material is enough.
     """
-    for mat, colour, kind in _grain_wanted:
-        _add_grain(mat, colour, kind)
-    return len(_grain_wanted)
+    applied = 0
+    for mat in bpy.data.materials:
+        kind = mat.get("grain")
+        if not kind or not mat.use_nodes:
+            continue
+        bsdf = mat.node_tree.nodes.get("Principled BSDF")
+        # Already wired, or hand-authored into something this would trample.
+        if bsdf is None or bsdf.inputs["Base Color"].is_linked:
+            continue
+        _add_grain(mat, tuple(bsdf.inputs["Base Color"].default_value), str(kind))
+        applied += 1
+    return applied
 
 
 # How each grain type is shaped: its mapping scale (which is the frequency, in
@@ -1485,7 +1516,26 @@ def build_all() -> None:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--blend",
+        metavar="PATH",
+        nargs="?",
+        const=BLEND,
+        help="write the blockout to a .blend instead of exporting a GLB",
+    )
+    args = parser.parse_args(argv_after_dashes())
+
     build_all()
+
+    if args.blend:
+        # A blockout to open and model on top of, not a finished room. No
+        # unwrap: the bake UVs are generated at bake time, and carrying a stale
+        # set through a modelling session is worse than having none.
+        os.makedirs(os.path.dirname(args.blend), exist_ok=True)
+        bpy.ops.wm.save_as_mainfile(filepath=args.blend)
+        print(f"[build_room] wrote {args.blend} ({os.path.getsize(args.blend) / 1024:.0f} KB)")
+        return
 
     try:
         unwrap_all()
@@ -1503,7 +1553,6 @@ def main() -> None:
     )
 
     meshes = [o for o in bpy.context.scene.objects if o.type == "MESH"]
-    tris = sum(len(o.data.loop_triangles) for o in meshes if o.data.loop_triangles or True)
     print(f"[build_room] objects={len(meshes)} materials={len(bpy.data.materials)}")
     print(f"[build_room] wrote {OUT_GLB} ({os.path.getsize(OUT_GLB) / 1024:.0f} KB)")
 
