@@ -19,6 +19,7 @@ runtime looks them up by that name, so renaming one here without renaming it in
 
 from __future__ import annotations
 
+import argparse
 import math
 import os
 import sys
@@ -26,8 +27,26 @@ import sys
 import bpy
 from mathutils import Matrix, Vector
 
-OUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "public", "models")
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.normpath(os.path.join(HERE, "..", ".."))
+sys.path.insert(0, HERE)
+OUT_DIR = os.path.join(ROOT, "public", "models")
 OUT_GLB = os.path.normpath(os.path.join(OUT_DIR, "room.glb"))
+BLEND = os.path.join(ROOT, "assets", "room.blend")
+
+
+def argv_after_dashes() -> list[str]:
+    """
+    The arguments meant for this script rather than for Blender.
+
+    `blender --background --python foo.py -- --flag` hands the whole command
+    line to the script, Blender's own arguments included. Everything after a
+    bare `--` is ours; run under plain `python3` there is no `--` and the whole
+    tail is ours.
+    """
+    if "--" in sys.argv:
+        return sys.argv[sys.argv.index("--") + 1 :]
+    return sys.argv[1:] if not sys.argv[0].endswith("blender") else []
 
 # --------------------------------------------------------------------------
 # Palette. Kept in one place so the room reads as one lit space; these are the
@@ -70,14 +89,12 @@ PALETTE = {
 }
 
 _materials: dict[str, bpy.types.Material] = {}
-_grain_wanted: list[tuple[bpy.types.Material, tuple[float, ...], str]] = []
 
 
 def reset_scene() -> None:
     global _plants
     _plants = 0
     _materials.clear()
-    _grain_wanted.clear()
     bpy.ops.wm.read_factory_settings(use_empty=True)
     scene = bpy.context.scene
     scene.unit_settings.system = "METRIC"
@@ -96,8 +113,9 @@ def material(
     """
     A Principled BSDF material, cached by name so the GLB ships one copy.
 
-    `grain` names a procedural surface break-up, but only *records* it — see
-    `apply_grain`, which the bake calls and the plain export does not.
+    `grain` names a procedural surface break-up. It is recorded as a custom
+    property on the material rather than wired in here — see `apply_grain`,
+    which the bake calls and the plain export does not.
     """
     if name in _materials:
         return _materials[name]
@@ -113,14 +131,14 @@ def material(
         bsdf.inputs["Emission Color"].default_value = colour
         bsdf.inputs["Emission Strength"].default_value = emission
     if grain:
-        _grain_wanted.append((mat, colour, grain))
+        mat["grain"] = grain
     _materials[name] = mat
     return mat
 
 
 def apply_grain() -> int:
     """
-    Wire the recorded procedural grain into every material that asked for one.
+    Wire procedural grain into every material tagged with a `grain` property.
 
     This is deliberately not part of building the room. The glTF exporter can
     only carry a *flat* base colour or an image texture; hand it a procedural
@@ -128,10 +146,25 @@ def apply_grain() -> int:
     upholstered surface in the room into bare plastic. So the unbaked export
     keeps its flat colours, and the bake — which resolves the whole node tree
     down into one atlas anyway — calls this first and gets the texture.
+
+    The tag is a custom property on the material rather than a list built while
+    the room is constructed, so it survives into the .blend. The room is
+    hand-modelled now: a bake that only knew about grain requested by
+    `build_room` would texture nothing a modeller had touched. Setting
+    `grain` to one of the keys in `_GRAIN` on any material is enough.
     """
-    for mat, colour, kind in _grain_wanted:
-        _add_grain(mat, colour, kind)
-    return len(_grain_wanted)
+    applied = 0
+    for mat in bpy.data.materials:
+        kind = mat.get("grain")
+        if not kind or not mat.use_nodes:
+            continue
+        bsdf = mat.node_tree.nodes.get("Principled BSDF")
+        # Already wired, or hand-authored into something this would trample.
+        if bsdf is None or bsdf.inputs["Base Color"].is_linked:
+            continue
+        _add_grain(mat, tuple(bsdf.inputs["Base Color"].default_value), str(kind))
+        applied += 1
+    return applied
 
 
 # How each grain type is shaped: its mapping scale (which is the frequency, in
@@ -295,6 +328,124 @@ def plane(
     return shade(obj, mat)
 
 
+def smooth(
+    obj: bpy.types.Object,
+    levels: int = 2,
+    *,
+    crease: float = 0.0,
+    boundary: bool = False,
+) -> bpy.types.Object:
+    """
+    Round an object off with a subdivision surface.
+
+    This is the difference between a room made of boxes and a room made of
+    things. A bevel softens an edge; subdivision changes the shape — it is what
+    turns a box into a cushion and a stack of slabs into a moulded chair shell,
+    and it is the single technique this room was missing.
+
+    `crease` between 0 and 1 holds the original edges: 0 lets the cage relax
+    into something pillowy, 1 pins it back to the box it started as. Cushions
+    want a low crease, panels want a high one.
+    """
+    if crease > 0:
+        # Blender 4.x moved edge crease out of `MeshEdge.crease` and into a
+        # generic attribute layer. Try the layer first and fall back, so this
+        # runs on both the 4.2 `bpy` module and whatever the machine doing the
+        # bake happens to have.
+        mesh = obj.data
+        try:
+            layer = mesh.attributes.get("crease_edge") or mesh.attributes.new(
+                "crease_edge", "FLOAT", "EDGE"
+            )
+            for item in layer.data:
+                item.value = crease
+        except (AttributeError, RuntimeError):
+            for edge in mesh.edges:
+                edge.crease = crease
+
+    modifier = obj.modifiers.new("Subsurf", "SUBSURF")
+    modifier.levels = levels
+    modifier.render_levels = levels
+    modifier.use_limit_surface = False
+    if boundary:
+        modifier.boundary_smooth = "PRESERVE_CORNERS"
+
+    bpy.ops.object.select_all(action="DESELECT")
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+    bpy.ops.object.shade_smooth()
+    return obj
+
+
+def poly(
+    name: str,
+    verts: list[tuple[float, float, float]],
+    faces: list[tuple[int, ...]],
+    location: tuple[float, float, float],
+    mat: bpy.types.Material,
+) -> bpy.types.Object:
+    """
+    A mesh built from explicit vertices and faces.
+
+    The primitive helpers above can only make what a box or a cylinder can be
+    stretched into. Anything with a real silhouette — a seat that curves in two
+    directions, a guitar's waist — needs its control points placed, and this is
+    how they get placed from code.
+    """
+    mesh = bpy.data.meshes.new(name)
+    mesh.from_pydata(list(verts), [], list(faces))
+    mesh.validate()
+    mesh.update()
+
+    obj = bpy.data.objects.new(name, mesh)
+    obj.location = location
+    bpy.context.collection.objects.link(obj)
+    bpy.context.view_layer.objects.active = obj
+    return shade(obj, mat)
+
+
+def lathe(
+    name: str,
+    profile: list[tuple[float, float]],
+    location: tuple[float, float, float],
+    mat: bpy.types.Material,
+    *,
+    segments: int = 24,
+) -> bpy.types.Object:
+    """
+    Spin a 2D profile of (radius, height) pairs around the Z axis.
+
+    Everything turned on a wheel — a mug, a pot, a lampshade, a plant pot with
+    a rolled rim — is one profile and a spin. Approximating those with stacked
+    cylinders is what made the room's round objects read as tin cans.
+    """
+    verts: list[tuple[float, float, float]] = []
+    faces: list[tuple[int, ...]] = []
+    rings = len(profile)
+
+    for step in range(segments):
+        angle = step / segments * math.tau
+        cos_a, sin_a = math.cos(angle), math.sin(angle)
+        for radius, height in profile:
+            verts.append((radius * cos_a, radius * sin_a, height))
+
+    for step in range(segments):
+        nxt = (step + 1) % segments
+        for ring in range(rings - 1):
+            a = step * rings + ring
+            b = step * rings + ring + 1
+            c = nxt * rings + ring + 1
+            d = nxt * rings + ring
+            faces.append((a, b, c, d))
+
+    obj = poly(name, verts, faces, location, mat)
+    bpy.ops.object.select_all(action="DESELECT")
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+    bpy.ops.object.shade_smooth()
+    return obj
+
+
 def cable(
     name: str,
     points: list[tuple[float, float, float]],
@@ -345,6 +496,17 @@ def join(name: str, objects: list[bpy.types.Object]) -> bpy.types.Object:
     something the visitor reads as one thing.
     """
     objects = [o for o in objects if o is not None]
+
+    # Flush pending transforms before joining.
+    #
+    # Assigning `obj.location` from Python does not update `matrix_world` — the
+    # depsgraph does that, lazily. `object.join()` reads `matrix_world`, so any
+    # part positioned by assignment rather than by the operator that created it
+    # gets merged as though it were still at the origin. That is what threw the
+    # plant's leaves across the floor: the leaves were the only parts placed by
+    # assignment, and they were the only parts that ended up in the wrong place.
+    bpy.context.view_layer.update()
+
     bpy.ops.object.select_all(action="DESELECT")
     for obj in objects:
         obj.select_set(True)
@@ -930,42 +1092,78 @@ def build_chair_and_plant() -> list[bpy.types.Object]:
     cx, cy = -0.25, -0.75
     parts = []
 
-    # Seat: a pan with a rolled front edge rather than a flat slab.
-    parts.append(cube("seat_pan", (0.52, 0.5, 0.1), (cx, cy, 0.46), fabric, bevel=0.03))
-    parts.append(cube("seat_front", (0.5, 0.12, 0.07), (cx, cy - 0.28, 0.45), fabric, bevel=0.03))
-    parts.append(cube("seat_wing_l", (0.06, 0.44, 0.09), (cx - 0.25, cy, 0.5), trim, bevel=0.025))
-    parts.append(cube("seat_wing_r", (0.06, 0.44, 0.09), (cx + 0.25, cy, 0.5), trim, bevel=0.025))
+    # Seat: a control cage dished in the middle and turned up at the sides, then
+    # subdivided. The previous seat was a slab with a separate strip stuck on
+    # the front for the waterfall edge and two more for the side bolsters, which
+    # is four boxes pretending to be one moulded pan. A seat is a single surface
+    # that curves in two directions, and that cannot be assembled out of boxes
+    # at any level of detail — it has to be one cage.
+    seat_rows = (
+        # (y offset, z at the centre, z at the edge, half width)
+        (-0.30, 0.455, 0.470, 0.225),
+        (-0.14, 0.435, 0.475, 0.255),
+        (0.02, 0.430, 0.480, 0.262),
+        (0.18, 0.440, 0.485, 0.255),
+        (0.28, 0.460, 0.490, 0.235),
+    )
+    columns = (-1.0, -0.55, 0.0, 0.55, 1.0)
+    verts: list[tuple[float, float, float]] = []
+    for dy, mid_z, edge_z, half in seat_rows:
+        for u in columns:
+            # Quadratic in |u|, so the pan dishes smoothly rather than kinking.
+            verts.append((u * half, dy, mid_z + (edge_z - mid_z) * u * u))
+    faces: list[tuple[int, ...]] = []
+    stride = len(columns)
+    for row in range(len(seat_rows) - 1):
+        for col in range(stride - 1):
+            a = row * stride + col
+            faces.append((a, a + 1, a + stride + 1, a + stride))
 
-    # Backrest: four segments, each leaning back a little further than the one
-    # below it so the spine curves. They are deliberately taller than their
-    # spacing — a tilted box pivots about its own centre, so segments sized to
-    # exactly meet would open a wedge-shaped gap at every seam.
-    for index in range(4):
-        z = 0.62 + index * 0.17
-        tilt = -0.07 - index * 0.05
-        width = 0.46 - index * 0.025
-        seg = cube(f"back_{index}", (width, 0.1, 0.28), (cx, cy - 0.2, z), fabric)
-        seg.rotation_euler = (tilt, 0, 0)
-        parts.append(seg)
+    seat = poly("seat_pan", verts, faces, (cx, cy, 0), fabric)
+    seat.modifiers.new("Thickness", "SOLIDIFY").thickness = 0.085
+    parts.append(smooth(seat, 2, crease=0.2))
 
-    # One trim rail up each side of the back, rather than a shell around every
-    # segment. Wrapping each segment separately drew a hard edge at all four
-    # seams, and four hard horizontal edges is exactly how a stack of boxes
-    # looks — the shape was right and the outline gave it away.
+    # Backrest: one shell, with the lean built into the cage rather than into
+    # four separately rotated boxes. Stacking tilted segments left a visible
+    # seam at every joint no matter how far they overlapped, and four hard
+    # horizontal lines is exactly how a stack of boxes looks.
+    back_rows = (
+        # (height, how far back, half width, how much the sides wrap forward)
+        #
+        # 0.68 m tall and 0.48 m wide. The first pass ran to 1.40 m on the same
+        # width and read as an ironing board — a task chair's back is only a
+        # little taller than it is wide, and getting that ratio wrong reads as
+        # wrong instantly even though no one could tell you the numbers.
+        (0.50, -0.185, 0.225, 0.018),
+        (0.66, -0.205, 0.240, 0.040),
+        (0.82, -0.235, 0.242, 0.048),
+        (0.98, -0.275, 0.234, 0.042),
+        (1.10, -0.315, 0.210, 0.028),
+        (1.18, -0.345, 0.172, 0.014),
+    )
+    verts = []
+    for z, dy, half, wrap in back_rows:
+        for u in columns:
+            verts.append((u * half, dy - wrap * (1 - u * u), z))
+    faces = []
+    for row in range(len(back_rows) - 1):
+        for col in range(stride - 1):
+            a = row * stride + col
+            faces.append((a, a + 1, a + stride + 1, a + stride))
+
+    back = poly("back_shell", verts, faces, (cx, cy, 0), fabric)
+    back.modifiers.new("Thickness", "SOLIDIFY").thickness = 0.075
+    parts.append(smooth(back, 2, crease=0.15))
+
+    # Armrests: a post rising off the seat frame and a rounded pad. The pads
+    # used to be 8 cm wide slabs, which from the side is a blade rather than
+    # something you would rest an arm on.
     for side in (-1, 1):
-        rail = cube("back_rail", (0.035, 0.075, 0.78), (cx + side * 0.23, cy - 0.24, 0.87), trim, bevel=0.015)
-        rail.rotation_euler = (-0.15, 0, 0)
-        parts.append(rail)
-
-    # Headrest, leaning further still.
-    head = cube("headrest", (0.32, 0.1, 0.16), (cx, cy - 0.16, 1.36), fabric, bevel=0.03)
-    head.rotation_euler = (-0.3, 0, 0)
-    parts.append(head)
-
-    # Armrests: a post and a padded top, both sides.
-    for side in (-1, 1):
-        parts.append(cube(f"arm_post_{side}", (0.05, 0.05, 0.24), (cx + side * 0.3, cy - 0.02, 0.62), metal))
-        parts.append(cube(f"arm_pad_{side}", (0.08, 0.3, 0.045), (cx + side * 0.3, cy + 0.02, 0.75), fabric, bevel=0.02))
+        post = cube(f"arm_post_{side}", (0.042, 0.05, 0.2), (cx + side * 0.285, cy + 0.02, 0.57), metal)
+        post.rotation_euler = (0, side * -0.12, 0)
+        parts.append(post)
+        pad = cube(f"arm_pad_{side}", (0.105, 0.32, 0.05), (cx + side * 0.3, cy + 0.0, 0.685), fabric, bevel=0)
+        parts.append(smooth(pad, 2, crease=0.45))
 
     # Gas lift and the five-star base with real castors.
     parts.append(cylinder("gas_lift", 0.035, 0.34, (cx, cy, 0.24), metal, vertices=14))
@@ -1033,28 +1231,55 @@ def build_plant(px: float, py: float, *, scale: float = 1.0, base_z: float = 0.0
         dy = math.sin(lean) * math.sin(angle)
         dz = math.cos(lean)
 
+        # The euler that actually points the cylinder's +Z along `dir`.
+        #
+        # This was a small-angle approximation with both signs inverted, so
+        # every stem leaned the opposite way to the leaf it was supposed to be
+        # carrying — the stem tip ended up as far the wrong side of the pot's
+        # axis as the leaf was the right side, and the plant read as foliage
+        # hovering in mid-air beside a bundle of sticks. Blender composes euler
+        # XYZ as Rz·Ry·Rx, which sends +Z to (sin b·cos a, −sin a, cos b·cos a);
+        # solving that for `dir` gives the two angles below exactly, with no
+        # approximation to drift.
+        rot_x = -math.asin(max(-1.0, min(1.0, math.sin(lean) * math.sin(angle))))
+        rot_y = math.atan2(math.sin(lean) * math.cos(angle), math.cos(lean))
+
         stem = cylinder(
             f"{tag}_stem_{i}",
-            0.008 * s,
+            0.014 * s,
             length,
             (px + dx * length / 2, py + dy * length / 2, soil_top + dz * length / 2),
             stem_mat,
             vertices=6,
-            rotation=(lean * math.sin(angle), -lean * math.cos(angle), 0),
+            rotation=(rot_x, rot_y, 0),
         )
         parts.append(stem)
 
-        bpy.ops.mesh.primitive_ico_sphere_add(
-            subdivisions=1,
-            radius=0.055 * s,
-            location=(px + dx * length, py + dy * length, soil_top + dz * length),
-        )
-        leaf = bpy.context.object
-        leaf.name = f"{tag}_leaf_{i}"
-        leaf.data.name = f"{tag}_leaf_{i}"
-        leaf.scale = (1.7, 0.62, 0.16)
-        leaf.rotation_euler = (0, 0.4, angle)
-        parts.append(shade(leaf, leaf_mat))
+        # A leaf as a tapered blade with a droop, not a squashed sphere. The
+        # sphere gave every leaf the same fat lozenge outline from every angle,
+        # which is what made the plant read as a bundle of pebbles on sticks.
+        # Sized against the stem, not in isolation. A 20 cm blade on an 8 mm
+        # stem is what made the first version read as leaves hovering in the
+        # air beside the plant: the geometry was correct — every leaf sat
+        # exactly on its stem tip — but the stem was too slight to be read as
+        # the thing holding it up. The blade also starts slightly behind the
+        # tip so it visibly overlaps the stem rather than balancing on it.
+        leaf_len = 0.13 * s
+        leaf_wide = 0.038 * s
+        blade: list[tuple[float, float, float]] = []
+        # (fraction along the leaf, fraction of full width, how far it droops)
+        for t, w, drop in ((-0.22, 0.15, 0.0), (0.3, 1.0, -0.1), (0.62, 0.85, -0.34), (1.0, 0.0, -0.72)):
+            for sign in (-1, 1):
+                blade.append((t * leaf_len, sign * w * leaf_wide, drop * leaf_wide))
+        blade_faces = [(n, n + 1, n + 3, n + 2) for n in range(0, 6, 2)]
+
+        leaf = poly(f"{tag}_leaf_{i}", blade, blade_faces, (0, 0, 0), leaf_mat)
+        leaf.modifiers.new("Thickness", "SOLIDIFY").thickness = 0.004 * s
+        smooth(leaf, 1, crease=0.1)
+        # Stand it up along the stem, then splay it out around the pot.
+        leaf.rotation_euler = (0, -math.pi / 2 + lean, angle)
+        leaf.location = (px + dx * length, py + dy * length, soil_top + dz * length)
+        parts.append(leaf)
 
     return join(tag, parts)
 
@@ -1081,17 +1306,21 @@ def build_lounge() -> list[bpy.types.Object]:
     parts.append(cube("sofa_base", (2.05, 0.86, 0.32), (sx, sy, 0.18), fabric, bevel=0.03))
     parts.append(cube("sofa_back", (2.0, 0.22, 0.56), (sx, sy + 0.38, 0.58), fabric, bevel=0.04))
     for side in (-1, 1):
-        parts.append(
-            cube(f"sofa_arm_{side}", (0.22, 0.9, 0.36), (sx + side * 0.95, sy, 0.48), fabric, bevel=0.06)
-        )
+        arm = cube(f"sofa_arm_{side}", (0.24, 0.92, 0.38), (sx + side * 0.95, sy, 0.47), fabric, bevel=0)
+        # Creased hard: an arm is upholstered over a frame, so it should round
+        # off without going soft the way a loose cushion does.
+        parts.append(smooth(arm, 2, crease=0.62))
+    # Cushions are subdivided rather than bevelled. A bevelled box is a box
+    # with soft corners and still reads as a box; a cushion is a shape whose
+    # faces bulge, which is what subdivision does to a cage and what a chamfer
+    # cannot do at any radius.
     for i in range(3):
-        parts.append(
-            cube(f"cushion_{i}", (0.58, 0.7, 0.15), (sx - 0.62 + i * 0.62, sy - 0.06, 0.4), fabric, bevel=0.05)
-        )
+        seat = cube(f"cushion_{i}", (0.6, 0.72, 0.17), (sx - 0.62 + i * 0.62, sy - 0.06, 0.4), fabric, bevel=0)
+        parts.append(smooth(seat, 2, crease=0.28))
     for i, x in enumerate((-0.52, 0.52)):
-        back = cube(f"back_cushion_{i}", (0.56, 0.17, 0.42), (sx + x, sy + 0.23, 0.63), fabric, bevel=0.06)
+        back = cube(f"back_cushion_{i}", (0.58, 0.2, 0.44), (sx + x, sy + 0.23, 0.63), fabric, bevel=0)
         back.rotation_euler = (0.14, 0, 0)
-        parts.append(back)
+        parts.append(smooth(back, 2, crease=0.22))
     # A throw over one arm, and two scatter cushions. Perfect symmetry is what
     # makes furniture look modelled rather than used.
     throw = cube("throw", (0.5, 0.72, 0.05), (sx - 0.72, sy - 0.02, 0.5),
@@ -1485,7 +1714,39 @@ def build_all() -> None:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--blend",
+        metavar="PATH",
+        nargs="?",
+        const=BLEND,
+        help="write the blockout to a .blend instead of exporting a GLB",
+    )
+    args = parser.parse_args(argv_after_dashes())
+
     build_all()
+
+    if args.blend:
+        # A blockout to open and model on top of, not a finished room. No
+        # unwrap: the bake UVs are generated at bake time, and carrying a stale
+        # set through a modelling session is worse than having none.
+        os.makedirs(os.path.dirname(args.blend), exist_ok=True)
+        bpy.ops.wm.save_as_mainfile(filepath=args.blend)
+        print(f"[build_room] wrote {args.blend} ({os.path.getsize(args.blend) / 1024:.0f} KB)")
+        return
+
+    # Check the naming contract before writing anything. The web app finds
+    # every interactive object by mesh name, so dropping or renaming one here
+    # breaks nothing loudly — the export succeeds, the site loads, and the
+    # object silently stops responding. Cheap to check, easy to miss.
+    import export_room
+
+    problems = export_room.validate({o.name for o in bpy.context.scene.objects if o.type == "MESH"})
+    if problems:
+        print(f"\n[build_room] {len(problems)} object(s) the web app needs are missing:\n", file=sys.stderr)
+        for problem in problems:
+            print(f"  · {problem}", file=sys.stderr)
+        sys.exit("\nNothing was exported — the site is still running the last good room.")
 
     try:
         unwrap_all()
@@ -1503,7 +1764,6 @@ def main() -> None:
     )
 
     meshes = [o for o in bpy.context.scene.objects if o.type == "MESH"]
-    tris = sum(len(o.data.loop_triangles) for o in meshes if o.data.loop_triangles or True)
     print(f"[build_room] objects={len(meshes)} materials={len(bpy.data.materials)}")
     print(f"[build_room] wrote {OUT_GLB} ({os.path.getsize(OUT_GLB) / 1024:.0f} KB)")
 
