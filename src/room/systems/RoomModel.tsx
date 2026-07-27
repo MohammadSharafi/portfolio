@@ -4,6 +4,7 @@ import type { MeshStandardMaterial } from 'three';
 import { MeshBasicMaterial, Mesh, type Object3D } from 'three';
 import { useEngine } from '../engine/store';
 import { objectIds, type ObjectId } from '../data/objects';
+import { roomAudio } from '../engine/audio';
 
 /** Blender tags interactive objects with this prefix; the ids follow it. */
 const PREFIX = 'ix_';
@@ -107,10 +108,12 @@ export function RoomModel({
         // explain that it can be switched, instead of just switching it, would
         // be the least satisfying possible response to clicking a light.
         if (id === 'lamp') {
+          roomAudio.play('switch');
           toggleLamp();
           discover(id);
           return;
         }
+        roomAudio.play(id === 'laptop' ? 'lid' : 'open');
         focus(id);
       }}
     />

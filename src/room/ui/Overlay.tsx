@@ -1,7 +1,8 @@
 import { useEffect, useRef } from 'react';
-import { X } from 'lucide-react';
+import { Volume2, VolumeX, X } from 'lucide-react';
 import { useEngine } from '../engine/store';
 import { roomObjects, roomObjectById } from '../data/objects';
+import { roomAudio } from '../engine/audio';
 import { cn } from '@/lib/utils';
 
 /**
@@ -21,6 +22,8 @@ export function Overlay() {
   const unfocus = useEngine((state) => state.unfocus);
   const lampOn = useEngine((state) => state.lampOn);
   const toggleLamp = useEngine((state) => state.toggleLamp);
+  const muted = useEngine((state) => state.muted);
+  const toggleMuted = useEngine((state) => state.toggleMuted);
 
   const panelRef = useRef<HTMLDivElement>(null);
   const returnTo = useRef<HTMLButtonElement | null>(null);
@@ -38,6 +41,12 @@ export function Overlay() {
   }, [focused, unfocus]);
 
   useEffect(() => {
+    roomAudio.setMuted(muted);
+  }, [muted]);
+
+  useEffect(() => () => roomAudio.dispose(), []);
+
+  useEffect(() => {
     // Focus goes back to the control that opened the panel, not to the top of
     // the document, so a keyboard user does not lose their place in the room.
     if (!focused) returnTo.current?.focus();
@@ -51,6 +60,20 @@ export function Overlay() {
 
       {/* The object list. Doubles as the keyboard path and as the "what is
         there to find" affordance, so nothing depends on hunting with a mouse. */}
+      <button
+        type="button"
+        onClick={toggleMuted}
+        aria-pressed={!muted}
+        className="pointer-events-auto absolute right-4 top-4 rounded-full bg-black/55 p-2.5 text-white/70 backdrop-blur-md transition-colors hover:text-white"
+        aria-label={muted ? 'Turn room sound on' : 'Turn room sound off'}
+      >
+        {muted ? (
+          <VolumeX className="size-4" aria-hidden="true" />
+        ) : (
+          <Volume2 className="size-4" aria-hidden="true" />
+        )}
+      </button>
+
       <nav
         aria-label="Objects in the room"
         className="pointer-events-auto absolute bottom-4 left-1/2 flex max-w-[95vw] -translate-x-1/2 gap-1.5 overflow-x-auto rounded-full bg-black/55 p-1.5 backdrop-blur-md"
@@ -125,7 +148,10 @@ export function Overlay() {
           {object.id === 'lamp' ? (
             <button
               type="button"
-              onClick={toggleLamp}
+              onClick={() => {
+                roomAudio.play('switch');
+                toggleLamp();
+              }}
               aria-pressed={lampOn}
               className="mt-4 rounded-full bg-white px-4 py-2 text-sm font-medium text-black transition-opacity hover:opacity-90"
             >
