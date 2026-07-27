@@ -849,7 +849,12 @@ def build_keyboard_and_props() -> list[bpy.types.Object]:
     )
     handle = bpy.context.object
     handle.name = "mug_handle"
-    handle.rotation_euler = (0, math.radians(90), 0)
+    handle.data.name = "mug_handle"
+    # Spun about X, not Y. A torus is born in the XY plane with its axis on Z;
+    # turning it about Y leaves the ring facing the way it sticks out, so the
+    # handle stood edge-on to the mug like a wheel rather than a loop you could
+    # get a finger through.
+    handle.rotation_euler = (math.radians(90), 0, 0)
     shade(handle, mug_mat)
     mug = join("ix_mug", [mug_body, handle])
 
@@ -871,16 +876,70 @@ def build_keyboard_and_props() -> list[bpy.types.Object]:
         rotation_z=math.radians(-9),
     )
 
-    headphones = cylinder(
-        "ix_headphones",
-        0.1,
-        0.03,
-        (-1.42, -1.72, 0.805),
-        material("headphones", "plastic", roughness=0.45),
-        vertices=20,
-    )
+    return [keyboard, mouse, mug, pencil, notebook, build_headphones(-1.42, -1.72, 0.79)]
 
-    return [keyboard, mouse, mug, pencil, notebook, headphones]
+
+def build_headphones(hx: float, hy: float, deck: float) -> bpy.types.Object:
+    """
+    Over-ear headphones lying on the desk, cups down, band arcing over them.
+
+    They were a single flat disc — a 20 cm coaster standing in for the one
+    object on the desk with a shape everyone can draw from memory. Nothing
+    about a disc says headphones, and at this size the silhouette is all there
+    is to go on.
+    """
+    shell = material("headphone_shell", "plastic", roughness=0.42)
+    pad = material("headphone_pad", "dark_metal", roughness=0.95, grain="fabric")
+    metal = material("headphone_band", "metal", roughness=0.4, metallic=0.7, grain="brushed")
+
+    span = 0.075
+    parts: list[bpy.types.Object] = []
+
+    for side in (-1, 1):
+        cx = hx + side * span
+        # Cup and ear pad as one lathed profile each, so the pad rolls over
+        # rather than sitting on as a separate ring.
+        parts.append(
+            lathe(
+                f"cup_{side}",
+                [(0.0, 0.055), (0.044, 0.055), (0.05, 0.048), (0.05, 0.03), (0.043, 0.026)],
+                (cx, hy, deck),
+                shell,
+                segments=22,
+            )
+        )
+        parts.append(
+            lathe(
+                f"pad_{side}",
+                [(0.048, 0.026), (0.052, 0.018), (0.048, 0.004), (0.032, 0.0)],
+                (cx, hy, deck),
+                pad,
+                segments=22,
+            )
+        )
+        # The yoke the cup pivots in.
+        yoke = cube(f"yoke_{side}", (0.012, 0.09, 0.05), (cx + side * 0.052, hy, deck + 0.035), metal, bevel=0.004)
+        parts.append(yoke)
+
+    # The band: a ribbon swept over a semicircle, given thickness and rounded.
+    # An arc is the whole read of a pair of headphones and there is no
+    # primitive for one.
+    steps = 14
+    radius = span + 0.052
+    verts: list[tuple[float, float, float]] = []
+    for step in range(steps + 1):
+        angle = math.pi * step / steps
+        x = -math.cos(angle) * radius
+        z = math.sin(angle) * radius * 0.62
+        for edge in (-1, 1):
+            verts.append((x, edge * 0.017, z + 0.035))
+    faces = [(n, n + 1, n + 3, n + 2) for n in range(0, steps * 2, 2)]
+
+    band = poly("band", verts, faces, (hx, hy, deck), metal)
+    band.modifiers.new("Thickness", "SOLIDIFY").thickness = 0.009
+    parts.append(smooth(band, 1, crease=0.4))
+
+    return join("ix_headphones", parts)
 
 
 def build_lamp() -> list[bpy.types.Object]:
@@ -1391,48 +1450,7 @@ def build_lounge() -> list[bpy.types.Object]:
         art.append(cube(f"print_{i}", (0.01, 0.4, h - 0.06), (-3.08, y, z),
                         material(f"print_{i}", ("cyan", "violet")[i], roughness=0.7), bevel=0))
 
-    # Guitar on a stand, in the gap between the bookshelf and the corner.
-    #
-    # The body is three overlapping discs, not two. Two gave a bulb on a stick:
-    # a guitar is read almost entirely by its waist, and without a narrow disc
-    # pinched between two wide ones there is no waist to read.
-    guitar = []
-    gx, gy = -2.86, 2.3
-    lean = math.radians(11)
-    body_mat = material("guitar_body", "book_d", roughness=0.3)
-    for name, radius, z in (
-        ("guitar_lower", 0.2, 0.3),
-        ("guitar_waist", 0.135, 0.46),
-        ("guitar_upper", 0.165, 0.61),
-    ):
-        guitar.append(
-            cylinder(name, radius, 0.1, (gx + z * math.tan(lean), gy, z), body_mat,
-                     vertices=22, rotation=(0, math.radians(90), 0))
-        )
-    guitar.append(
-        cylinder("guitar_soundhole", 0.05, 0.012, (gx + 0.44 * math.tan(lean), gy - 0.052, 0.44),
-                 material("soundhole", "plastic", roughness=0.7), vertices=18,
-                 rotation=(0, math.radians(90), 0))
-    )
-    guitar.append(
-        cube("guitar_bridge", (0.02, 0.11, 0.035), (gx + 0.27 * math.tan(lean) - 0.05, gy, 0.27),
-             material("guitar_bridge", "dark_metal", roughness=0.5), bevel=0.004)
-    )
-
-    neck = cube("guitar_neck", (0.05, 0.055, 0.72), (gx + 0.95 * math.tan(lean), gy, 0.95),
-                material("guitar_neck", "pot", roughness=0.5))
-    neck.rotation_euler = (0, -lean, 0)
-    guitar.append(neck)
-    fretboard = cube("guitar_fretboard", (0.014, 0.05, 0.7),
-                     (gx + 0.95 * math.tan(lean) - 0.032, gy, 0.95),
-                     material("fretboard", "dark_metal", roughness=0.55), bevel=0.003)
-    fretboard.rotation_euler = (0, -lean, 0)
-    guitar.append(fretboard)
-    head = cube("guitar_head", (0.055, 0.07, 0.17), (gx + 1.38 * math.tan(lean), gy, 1.38),
-                material("guitar_head", "dark_metal", roughness=0.4))
-    head.rotation_euler = (0, -lean, 0)
-    guitar.append(head)
-    guitar.append(cube("guitar_stand", (0.28, 0.32, 0.03), (gx + 0.06, gy, 0.055), dark))
+    guitar = build_guitar(-2.86, 2.3, dark)
 
     return [
         sofa,
@@ -1442,6 +1460,104 @@ def build_lounge() -> list[bpy.types.Object]:
         join("wall_art", art),
         join("guitar", guitar),
     ]
+
+
+def build_guitar(gx: float, gy: float, stand_mat: bpy.types.Material) -> list[bpy.types.Object]:
+    """
+    An acoustic guitar leaning in the corner.
+
+    The body is a real outline, given thickness and rounded off. Three stacked
+    discs got the widths right and the shape wrong: a guitar is read entirely
+    by the continuous curve in and out of its waist, and a stack of circles has
+    a hard step at every join instead of a curve.
+    """
+    lean = math.radians(11)
+    body_mat = material("guitar_body", "book_d", roughness=0.3)
+
+    # Half the outline, bottom of the body to the neck joint, as (height along
+    # the body, half width). Mirrored into a full silhouette below.
+    outline = (
+        (0.000, 0.030),
+        (0.035, 0.125),
+        (0.085, 0.178),
+        (0.150, 0.190),
+        (0.215, 0.168),
+        (0.270, 0.126),
+        (0.310, 0.121),
+        (0.360, 0.140),
+        (0.420, 0.152),
+        (0.475, 0.130),
+        (0.510, 0.082),
+        (0.530, 0.038),
+    )
+    verts: list[tuple[float, float, float]] = []
+    for height, half in outline:
+        for side in (-1, 1):
+            verts.append((0.0, side * half, height))
+    faces = [(n, n + 1, n + 3, n + 2) for n in range(0, (len(outline) - 1) * 2, 2)]
+
+    base_z = 0.09
+    body = poly("guitar_body", verts, faces, (gx, gy, base_z), body_mat)
+    body.modifiers.new("Thickness", "SOLIDIFY").thickness = 0.105
+    body.rotation_euler = (0, -lean, 0)
+    smooth(body, 2, crease=0.55)
+
+    def along(distance: float, offset: float = 0.0) -> tuple[float, float, float]:
+        """
+        A point `distance` up the guitar's own axis, `offset` toward the room.
+
+        Derived from the rotation the body actually carries. Blender's Ry(−lean)
+        sends the body's local +Z to (−sin, 0, cos), so everything mounted on it
+        travels in −X as it rises; walking +X instead put the neck and the
+        soundhole on the opposite side of the corner from the body they belong
+        to. The front face normal is that same rotation applied to +X.
+        """
+        return (
+            gx - distance * math.sin(lean) + offset * math.cos(lean),
+            gy,
+            base_z + distance * math.cos(lean) + offset * math.sin(lean),
+        )
+
+    parts = [body]
+
+    parts.append(
+        cylinder("guitar_soundhole", 0.048, 0.01, along(0.315, 0.056),
+                 material("soundhole", "plastic", roughness=0.7), vertices=20,
+                 rotation=(0, math.radians(90) - lean, 0))
+    )
+    bridge = cube("guitar_bridge", (0.022, 0.105, 0.032), along(0.16, 0.056),
+                  material("guitar_bridge", "dark_metal", roughness=0.5), bevel=0.004)
+    bridge.rotation_euler = (0, -lean, 0)
+    parts.append(bridge)
+
+    neck = cube("guitar_neck", (0.048, 0.052, 0.46), along(0.75), material("guitar_neck", "pot", roughness=0.5))
+    neck.rotation_euler = (0, -lean, 0)
+    parts.append(neck)
+
+    fretboard = cube("guitar_fretboard", (0.012, 0.048, 0.44), along(0.75, 0.03),
+                     material("fretboard", "dark_metal", roughness=0.55), bevel=0.003)
+    fretboard.rotation_euler = (0, -lean, 0)
+    parts.append(fretboard)
+
+    head = cube("guitar_head", (0.05, 0.066, 0.15), along(1.03),
+                material("guitar_head", "dark_metal", roughness=0.4))
+    head.rotation_euler = (0, -lean, 0)
+    parts.append(head)
+
+    # Tuning pegs, three a side. Tiny, but a bare headstock reads as a plank
+    # and this is the one place the eye expects detail.
+    peg_mat = material("guitar_peg", "metal", roughness=0.35, metallic=0.85)
+    for index in range(3):
+        for side in (-1, 1):
+            base = along(0.99 + index * 0.035)
+            parts.append(
+                cylinder(f"peg_{index}_{side}", 0.007, 0.05,
+                         (base[0], gy + side * 0.052, base[2]), peg_mat, vertices=8,
+                         rotation=(math.radians(90), 0, 0))
+            )
+
+    parts.append(cube("guitar_stand", (0.28, 0.32, 0.03), (gx + 0.06, gy, 0.055), stand_mat))
+    return parts
 
 
 def build_door() -> list[bpy.types.Object]:
