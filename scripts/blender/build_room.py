@@ -413,7 +413,7 @@ def build_laptop() -> list[bpy.types.Object]:
     base = cube("laptop_base", (0.86, 0.6, 0.018), (0.06, -1.55, 0.774), body)
     deck = cube("laptop_deck", (0.72, 0.36, 0.004), (0.06, -1.62, 0.784), material("deck", "keycap"), bevel=0)
 
-    lid = cube("ix_laptop_lid", (0.86, 0.02, 0.56), (0.06, -1.85, 1.05), body)
+    lid = cube("ix_laptop_lid_body", (0.86, 0.02, 0.56), (0.06, -1.85, 1.05), body)
     lid_screen = plane(
         "ix_laptop_display", (0.8, 0.5), (0.06, -1.833, 1.05), screen_mat,
         rotation=(math.radians(-90), 0, 0)
@@ -425,10 +425,19 @@ def build_laptop() -> list[bpy.types.Object]:
         obj.data.transform(Matrix.Translation(obj.location - hinge))
         obj.location = hinge
 
-    lid_group = join("ix_laptop_lid", [lid, lid_screen])
-    lid_group.rotation_euler = (math.radians(-14), 0, 0)
+    # Deliberately not joined. Joining the screen into the lid gives one mesh
+    # with two materials, and glTF splits that into ix_laptop_lid_1 and _2 —
+    # so the mesh named ix_laptop_display simply never reaches the export, and
+    # the runtime paints a terminal onto something that does not exist. Both
+    # already share the hinge as their origin, so the animation rotates them
+    # together without a parent.
+    # The lid tilts 14 degrees back. The screen needs that *plus* the -90 that
+    # stands it upright and faces it at the room — assigning the tilt alone
+    # overwrites the facing rotation and lays the screen flat.
+    lid.rotation_euler = (math.radians(-14), 0, 0)
+    lid_screen.rotation_euler = (math.radians(-104), 0, 0)
 
-    return [join("laptop_base", [base, deck]), lid_group]
+    return [lid, lid_screen, join("laptop_base", [base, deck])]
 
 
 def build_keyboard_and_props() -> list[bpy.types.Object]:

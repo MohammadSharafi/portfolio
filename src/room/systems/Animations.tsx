@@ -26,11 +26,17 @@ export function Animations({ root }: { root: Object3D }) {
   const lampOn = useEngine((state) => state.lampOn);
 
   const parts = useMemo(() => {
-    let lid: Object3D | null = null;
+    // Each part keeps its own resting rotation: the lid body sits at the hinge
+    // tilt, the screen at that tilt plus the rotation that stands it upright.
+    const lid: Array<{ node: Object3D; base: number }> = [];
     const bulbs: MeshStandardMaterial[] = [];
 
     root.traverse((node) => {
-      if (node.name.startsWith('ix_laptop_lid') && !lid) lid = node;
+      // The lid body and its screen are separate objects sharing the hinge as
+      // their origin, so both turn.
+      if (node.name.startsWith('ix_laptop_lid') || node.name.startsWith('ix_laptop_display')) {
+        lid.push({ node, base: node.rotation.x });
+      }
       if (node.name.startsWith('ix_lamp') && node instanceof Mesh) {
         const material = node.material;
         if (!Array.isArray(material) && material instanceof MeshStandardMaterial) {
@@ -39,7 +45,7 @@ export function Animations({ root }: { root: Object3D }) {
       }
     });
 
-    return { lid: lid as Object3D | null, bulbs, base: (lid as Object3D | null)?.rotation.x ?? 0 };
+    return { lid, bulbs };
   }, [root]);
 
   const lidProgress = useRef(1);
@@ -58,7 +64,9 @@ export function Animations({ root }: { root: Object3D }) {
     // visitor has been, which reads as clutter rather than as memory.
     const target = focused === 'laptop' ? 0 : 1;
     lidProgress.current += (target - lidProgress.current) * (1 - Math.exp(-4.5 * dt));
-    if (parts.lid) parts.lid.rotation.x = parts.base + lidProgress.current * LID_CLOSED;
+    for (const part of parts.lid) {
+      part.node.rotation.x = part.base + lidProgress.current * LID_CLOSED;
+    }
 
     const lampTarget = lampOn ? 1 : 0;
     glow.current += (lampTarget - glow.current) * (1 - Math.exp(-6 * dt));
