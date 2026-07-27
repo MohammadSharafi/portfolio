@@ -418,6 +418,16 @@ def build_laptop() -> list[bpy.types.Object]:
         "ix_laptop_display", (0.8, 0.5), (0.06, -1.833, 1.05), screen_mat,
         rotation=(math.radians(-90), 0, 0)
     )
+    # Bake the screen's facing rotation into its vertices before re-origining.
+    # Left as an object rotation it also rotates the screen's offset from the
+    # hinge, so the two halves swing on different arcs and the screen ends up
+    # sitting proud of the panel instead of flush in it. Once baked, both parts
+    # carry the same object rotation and stay coplanar through the whole swing.
+    bpy.context.view_layer.objects.active = lid_screen
+    bpy.ops.object.select_all(action="DESELECT")
+    lid_screen.select_set(True)
+    bpy.ops.object.transform_apply(location=False, rotation=True, scale=False)
+
     hinge = Vector((0.06, -1.85, 0.783))
     for obj in (lid, lid_screen):
         # Re-origin onto the hinge line so the lid rotates about it rather than
@@ -426,16 +436,12 @@ def build_laptop() -> list[bpy.types.Object]:
         obj.location = hinge
 
     # Deliberately not joined. Joining the screen into the lid gives one mesh
-    # with two materials, and glTF splits that into ix_laptop_lid_1 and _2 —
-    # so the mesh named ix_laptop_display simply never reaches the export, and
-    # the runtime paints a terminal onto something that does not exist. Both
-    # already share the hinge as their origin, so the animation rotates them
-    # together without a parent.
-    # The lid tilts 14 degrees back. The screen needs that *plus* the -90 that
-    # stands it upright and faces it at the room — assigning the tilt alone
-    # overwrites the facing rotation and lays the screen flat.
+    # with two materials, and glTF splits that into ix_laptop_lid_1 and _2 — so
+    # the mesh named ix_laptop_display never reaches the export, and the runtime
+    # paints a terminal onto something that does not exist. Both share the hinge
+    # as their origin, so the animation turns them together without a parent.
     lid.rotation_euler = (math.radians(-14), 0, 0)
-    lid_screen.rotation_euler = (math.radians(-104), 0, 0)
+    lid_screen.rotation_euler = (math.radians(-14), 0, 0)
 
     return [lid, lid_screen, join("laptop_base", [base, deck])]
 
