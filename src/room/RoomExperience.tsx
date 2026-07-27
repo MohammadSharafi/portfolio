@@ -40,8 +40,20 @@ function Scene({ url, baked }: { url: string; baked: boolean }) {
           >
             <orthographicCamera attach="shadow-camera" args={[-6, 6, 6, -6, 0.1, 30]} />
           </directionalLight>
-          <pointLight color="#ffb367" intensity={9} distance={5} decay={2} position={[-1.02, 1.15, 2]} />
-          <pointLight color="#6aa6ff" intensity={6} distance={5} decay={2} position={[0, 1.25, 1.9]} />
+          <pointLight
+            color="#ffb367"
+            intensity={9}
+            distance={5}
+            decay={2}
+            position={[-1.02, 1.15, 2]}
+          />
+          <pointLight
+            color="#6aa6ff"
+            intensity={6}
+            distance={5}
+            decay={2}
+            position={[0, 1.25, 1.9]}
+          />
         </>
       )}
 

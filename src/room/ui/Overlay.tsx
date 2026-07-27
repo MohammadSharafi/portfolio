@@ -110,7 +110,10 @@ export function Overlay() {
             <ul className="mt-3 space-y-1.5 text-sm text-white/70">
               {object.panel.items.map((item) => (
                 <li key={item} className="flex gap-2">
-                  <span className="mt-1.5 size-1 shrink-0 rounded-full bg-sky-400" aria-hidden="true" />
+                  <span
+                    className="mt-1.5 size-1 shrink-0 rounded-full bg-sky-400"
+                    aria-hidden="true"
+                  />
                   {item}
                 </li>
               ))}

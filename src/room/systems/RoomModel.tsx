@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from 'react';
 import { useGLTF } from '@react-three/drei';
-import type { MeshStandardMaterial} from 'three';
+import type { MeshStandardMaterial } from 'three';
 import { MeshBasicMaterial, Mesh, type Object3D } from 'three';
 import { useEngine } from '../engine/store';
 import { objectIds, type ObjectId } from '../data/objects';
