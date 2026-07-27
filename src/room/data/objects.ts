@@ -23,6 +23,7 @@ export type Vec3 = [number, number, number];
 export const objectIds = [
   'monitor-health',
   'monitor-code',
+  'cv',
   'laptop',
   'notebook',
   'bookshelf',
@@ -59,9 +60,21 @@ export interface RoomObject {
     title: string;
     body: string;
     items: readonly string[];
-    link?: { href: string; label: string };
+    /** `download` names the saved file and turns the link into a download. */
+    link?: { href: string; label: string; download?: string };
   };
 }
+
+/**
+ * A link from a room panel into the written site.
+ *
+ * A bare `#experience` is a dead link here and was one on every panel that
+ * carried it. The room and the written site are two branches of `App` — when
+ * the room is showing, none of those sections is in the document, so the anchor
+ * scrolled to nothing and the panel's one call to action did nothing at all.
+ * `?text=1` is what switches branches, and the hash then lands where it should.
+ */
+const written = (section: string) => `?text=1#${section}`;
 
 const featured = projects.filter((project) => project.featured);
 const core = skillGroups
@@ -89,7 +102,7 @@ export const roomObjects: readonly RoomObject[] = [
       title: 'The EHR AI Clinical Assistant',
       body: 'HIPAA-compliant clinical AI, integrated with Cerner/Oracle Health and the Mayo Clinic Platform over SMART on FHIR. 123+ endpoints, an OAuth2 token vault, rate limiting and automatic pagination.',
       items: (experience[0]?.highlights ?? []).slice(0, 4),
-      link: { href: '#experience', label: 'Full experience' },
+      link: { href: written('experience'), label: 'Full experience' },
     },
   },
   {
@@ -102,14 +115,39 @@ export const roomObjects: readonly RoomObject[] = [
       title: 'Architecture chosen for the constraint',
       body: 'Flutter and Dart on the front, Python FastAPI and Java Spring Boot behind, on GCP Cloud Run. The stack follows the problem rather than the fashion.',
       items: core,
-      link: { href: '#skills', label: 'Full stack' },
+      link: { href: written('skills'), label: 'Full stack' },
+    },
+  },
+  {
+    id: 'cv',
+    label: 'CV',
+    hint: 'Read it, or take a copy',
+    // A4 is 21 cm wide and the camera has to get close enough to read it, so
+    // this is the tightest stop in the room. Composed along the page's own
+    // normal — it leans 20° back, and a stop squared up to the desk instead
+    // would frame it foreshortened with the text running away up the sheet.
+    stop: { position: [1.6, 1.19, 0.84], target: [1.6, 0.95, 1.46], duration: 1.3 },
+    panel: {
+      kicker: 'Curriculum vitae',
+      title: 'The whole thing, on one page',
+      body: 'The document itself, standing on the desk and printed from the same data as everything else in this room. The full history is below; the PDF is the version to forward.',
+      // Every role, not the four the printed page has space for. The sheet is
+      // a physical object with an edge; this is not.
+      items: experience.map(
+        (role) => `${role.role} — ${role.company} · ${role.period} · ${role.location}`
+      ),
+      link: {
+        href: profile.cvPath,
+        label: 'Download the PDF',
+        download: profile.cvFileName,
+      },
     },
   },
   {
     id: 'laptop',
     label: 'Laptop',
     hint: 'Open it',
-    stop: { position: [0.62, 1.12, 0.42], target: [0.06, 0.86, 1.5], duration: 1.2 },
+    stop: { position: [-0.7, 1.35, 0.95], target: [-1.12, 1.07, 1.79], duration: 1.2 },
     panel: {
       kicker: 'Terminal',
       title: 'Numbers that hold up',
@@ -123,13 +161,13 @@ export const roomObjects: readonly RoomObject[] = [
     id: 'notebook',
     label: 'Notebook',
     hint: 'Selected work',
-    stop: { position: [-0.35, 1.1, 0.5], target: [-1.05, 0.83, 1.58], duration: 1.1 },
+    stop: { position: [1.5, 1.32, 1.0], target: [1.24, 0.82, 1.62], duration: 1.1 },
     panel: {
       kicker: 'Projects',
       title: 'Selected work',
       body: 'The projects I keep coming back to — distributed systems, local AI, and the mobile clients on top of them.',
       items: featured.map((project) => `${project.title} — ${project.angle}`),
-      link: { href: '#projects', label: 'All projects' },
+      link: { href: written('projects'), label: 'All projects' },
     },
   },
   {
@@ -142,7 +180,7 @@ export const roomObjects: readonly RoomObject[] = [
       title: education[0]?.institution ?? 'Isfahan University of Technology',
       body: `${education[0]?.degree ?? 'B.Eng. Computer Software Engineering'}, ${education[0]?.period ?? '2018 — 2022'}. The shelf has not stopped filling since.`,
       items: learning,
-      link: { href: '#recognition', label: 'Education' },
+      link: { href: written('recognition'), label: 'Education' },
     },
   },
   {
@@ -202,7 +240,7 @@ export const roomObjects: readonly RoomObject[] = [
     id: 'certificates',
     label: 'Certificates',
     hint: 'Recognition',
-    stop: { position: [-1.55, 2.05, 1.35], target: [-2.05, 2.0, 2.45], duration: 1.5 },
+    stop: { position: [-1.09, 2.07, 1.35], target: [-1.31, 2.01, 2.51], duration: 1.5 },
     panel: {
       kicker: 'Recognition',
       title: 'Attributable, with an issuer',
@@ -211,14 +249,14 @@ export const roomObjects: readonly RoomObject[] = [
         (award) =>
           `${award.title} — ${award.issuer}, ${award.year}${award.scope === 'team' ? ' (team)' : ''}`
       ),
-      link: { href: '#recognition', label: 'Awards' },
+      link: { href: written('recognition'), label: 'Awards' },
     },
   },
   {
     id: 'lamp',
     label: 'Desk lamp',
     hint: 'Click to switch',
-    stop: { position: [-0.35, 1.28, 1.15], target: [-1.02, 1.12, 1.95], duration: 0.9 },
+    stop: { position: [1.86, 1.46, 1.34], target: [1.42, 1.16, 2.1], duration: 0.9 },
     panel: {
       kicker: 'Lighting',
       title: 'The lamp works',
@@ -250,7 +288,7 @@ export const roomObjects: readonly RoomObject[] = [
     id: 'mug',
     label: 'Coffee mug',
     hint: 'Push it',
-    stop: { position: [-0.42, 1.02, 0.72], target: [-0.98, 0.85, 1.3], duration: 0.9 },
+    stop: { position: [1.21, 1.07, 0.76], target: [0.93, 0.85, 1.3], duration: 0.9 },
     panel: {
       kicker: 'Physics',
       title: 'Yes, it falls',
@@ -262,7 +300,7 @@ export const roomObjects: readonly RoomObject[] = [
     id: 'headphones',
     label: 'Headphones',
     hint: 'Sound on',
-    stop: { position: [-0.85, 1.02, 0.95], target: [-1.42, 0.83, 1.68], duration: 0.9 },
+    stop: { position: [1.0, 1.15, 1.23], target: [0.62, 0.85, 1.85], duration: 0.9 },
     panel: {
       kicker: 'Audio',
       title: 'Room tone',
@@ -280,7 +318,7 @@ export const roomObjects: readonly RoomObject[] = [
       title: 'Get in touch',
       body: `${profile.availability}. The fastest way to reach me is email.`,
       items: [],
-      link: { href: '#contact', label: 'Contact details' },
+      link: { href: written('contact'), label: 'Contact details' },
     },
   },
 ];

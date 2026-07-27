@@ -3,6 +3,8 @@ import { projects } from '@/data/projects';
 import { stats } from '@/data/stats';
 import { experience } from '@/data/experience';
 import { profile } from '@/data/profile';
+import { skillGroups } from '@/data/skills';
+import { education } from '@/data/credentials';
 
 /**
  * Everything with writing on it in the room.
@@ -461,6 +463,121 @@ export function stickyTexture() {
   });
 
   return finish(canvas);
+}
+
+/**
+ * The printed CV standing on the desk.
+ *
+ * Composed here rather than rasterised from `public/cv.pdf`: pulling in a PDF
+ * renderer to draw one page would cost more than the whole room's JavaScript,
+ * and the PDF would then be a second source of truth that could disagree with
+ * `src/data` the moment either changed. This draws from the same arrays every
+ * other surface reads, so the page on the desk cannot contradict the page the
+ * download link hands over.
+ *
+ * A4 proportion, 1:√2. The page is modelled at 210 × 297 mm, and a canvas of
+ * any other shape would stretch the type across it.
+ */
+export function cvTexture() {
+  const W = 1024;
+  const H = 1448;
+  const { canvas, ctx } = surface(W, H, '#f6f7f9');
+
+  const M = 74; // Page margin, roughly the 18 mm a printed CV would carry.
+  const INK = '#141a22';
+  const MUTED = '#5b6775';
+  const RULE = '#c9d1db';
+
+  const rule = (y: number) => {
+    ctx.strokeStyle = RULE;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(M, y);
+    ctx.lineTo(W - M, y);
+    ctx.stroke();
+  };
+
+  const heading = (text: string, y: number) => {
+    ctx.fillStyle = '#2563eb';
+    ctx.font = `700 21px ${FONT_UI}`;
+    ctx.fillText(text.toUpperCase(), M, y);
+    rule(y + 14);
+    return y + 48;
+  };
+
+  ctx.fillStyle = INK;
+  ctx.font = `700 54px ${FONT_UI}`;
+  ctx.fillText(profile.name, M, M + 46);
+
+  ctx.fillStyle = '#2563eb';
+  ctx.font = `600 26px ${FONT_UI}`;
+  ctx.fillText(profile.role, M, M + 84);
+
+  ctx.fillStyle = MUTED;
+  ctx.font = `400 20px ${FONT_UI}`;
+  ctx.fillText(`${profile.email}  ·  ${profile.location} (${profile.timezone})`, M, M + 122);
+
+  let y = heading('Profile', M + 190);
+  ctx.fillStyle = '#3b4653';
+  ctx.font = `400 21px ${FONT_UI}`;
+  y = paragraph(ctx, profile.tagline, M, y, W - M * 2, 31) + 26;
+
+  y = heading('Experience', y);
+  // Four roles, not five. The fifth pushes the education block off the bottom
+  // of the sheet, and a CV that runs off the page is worse than one that stops
+  // — the panel behind this carries the full history either way.
+  for (const role of experience.slice(0, 4)) {
+    ctx.fillStyle = INK;
+    ctx.font = `600 23px ${FONT_UI}`;
+    ctx.fillText(`${role.role} — ${role.company}`, M, y);
+
+    ctx.fillStyle = MUTED;
+    ctx.font = `400 19px ${FONT_MONO}`;
+    const period = role.period;
+    ctx.fillText(period, W - M - ctx.measureText(period).width, y);
+
+    y += 30;
+    ctx.fillStyle = '#4a5867';
+    ctx.font = `400 19px ${FONT_UI}`;
+    y = paragraph(ctx, role.highlights[0] ?? role.description, M + 22, y, W - M * 2 - 22, 27) + 20;
+  }
+
+  y = heading('Stack', y + 4);
+  ctx.fillStyle = '#4a5867';
+  ctx.font = `400 20px ${FONT_UI}`;
+  const core = skillGroups
+    .flatMap((group) => group.skills)
+    .filter((skill) => skill.level === 'core')
+    .map((skill) => skill.name)
+    .join(' · ');
+  y = paragraph(ctx, core, M, y, W - M * 2, 29) + 26;
+
+  y = heading('Education', y);
+  const degree = education[0];
+  if (degree) {
+    ctx.fillStyle = INK;
+    ctx.font = `600 23px ${FONT_UI}`;
+    ctx.fillText(degree.degree, M, y);
+    y += 30;
+    ctx.fillStyle = MUTED;
+    ctx.font = `400 19px ${FONT_UI}`;
+    ctx.fillText(`${degree.institution} · ${degree.period} · ${degree.detail}`, M, y);
+  }
+
+  // Footer rule and the fold line a printed sheet would show. Small, but the
+  // difference between a page and a white rectangle with words on it.
+  ctx.strokeStyle = '#e3e8ee';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(0, H / 3);
+  ctx.lineTo(W, H / 3);
+  ctx.stroke();
+
+  // Mirrored, like the monitors and the laptop. The page stands facing +Z in
+  // glTF space along with them, so its quad samples U back to front and every
+  // line of the CV would print in reverse. The whiteboard faces +X and is the
+  // one readable surface here that does not need this.
+  return finish(canvas, true);
 }
 
 /**

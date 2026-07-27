@@ -5,6 +5,7 @@ import {
   bookSpineTexture,
   clinicalScreen,
   codeScreen,
+  cvTexture,
   stickyTexture,
   terminalScreen,
   whiteboardTexture,
@@ -30,6 +31,7 @@ const TARGETS: Record<string, () => Texture> = {
   ix_laptop_display: terminalScreen,
   ix_whiteboard_face: whiteboardTexture,
   ix_sticky_notes: stickyTexture,
+  ix_cv_face: cvTexture,
 };
 
 /** Screens read as light sources; paper does not. */

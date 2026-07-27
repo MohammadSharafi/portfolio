@@ -205,6 +205,11 @@ export function Overlay() {
           {object.panel.link ? (
             <a
               href={object.panel.link.href}
+              // Spread rather than `download={link.download}`, because
+              // `exactOptionalPropertyTypes` makes `undefined` a value the prop
+              // does not accept, and a bare `download` attribute would name the
+              // saved file after the URL instead of the person.
+              {...(object.panel.link.download ? { download: object.panel.link.download } : {})}
               className="mt-4 inline-block text-sm font-medium text-sky-300 underline underline-offset-4 hover:text-sky-200"
             >
               {object.panel.link.label} →

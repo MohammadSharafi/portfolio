@@ -118,3 +118,53 @@ Things that cost real time, in case they come round again:
 - **Smooth, metallic surfaces mirror the room.** A window pane at roughness
   0.05 reflected the lit room back hard enough that the skyline behind it was
   invisible.
+
+## Surfaces
+
+`grain_maps.py` generates the room's textures — wood, fabric, carpet pile,
+plaster, brushed metal and paper — as tiling images, and `material(…,
+grain="wood")` wires them into base colour, roughness and normal. They are
+packed into the GLB, so the model on the web is the textured one. Nothing is
+downloaded and there is no licence to track.
+
+The noise is built in the frequency domain: a random spectrum with a 1/f
+falloff, inverse-transformed. That is periodic by construction, so every map
+tiles with no seam, and shaping the spectrum anisotropically is the whole
+difference between wood and brushed aluminium.
+
+Two things about this are easy to get wrong and both are silent:
+
+- **Texture density has to be normalised per object.** Smart UV Project packs
+  each object's islands into 0..1, so a 3.5 m desk and a 6 cm mug both fill the
+  whole map — the desk gets grain the size of a fingerprint and the mug gets
+  floorboards. `texture_uvs()` measures each object's real surface area against
+  the area its UVs occupy and scales to a fixed half-metre tile. Check it with
+  the UV density readout rather than by eye; every object should land on 0.50 m.
+- **Anything the runtime paints must keep its 0..1 UV.** The monitors, the
+  laptop screen, the whiteboard, the sticky notes, the CV page and the book
+  spines are addressed by `Screens.tsx` as whole images. `PAINTED` excludes
+  them from both the unwrap and the rescale; without that a monitor shows its
+  dashboard four times over.
+
+`--flat` exports without the maps, which is useful when judging a silhouette
+that grain would otherwise disguise.
+
+## More notes from building this
+
+- **Assigning `colorspace_settings.name` resets an image's buffer.** Fill the
+  pixels _after_ setting the colorspace, never before. The obvious order —
+  fill, then label — throws the fill away, and every map in the GLB ships as a
+  flat 1 KB PNG of nothing with no error anywhere.
+- **`image.pixels` needs `image.update()`** before the buffer counts as written.
+- **The glTF exporter treats a dot in an image name as a file extension**, so
+  `rough_0.45` and `rough_0.85` both arrive called `rough_0`.
+- **A box takes the lean; a plane takes the lean plus 90°.** A plane is born
+  flat and has to be stood up first. Giving a box a plane's rotation lays it
+  down, which looks like an odd base rather than like a mistake.
+- **Camera stops go stale silently.** They live in `src/room/data/objects.ts`
+  in glTF coordinates while the model is authored in Blender coordinates, and
+  nothing connects a stop to the object it names. Rearranging the desk left six
+  of fifteen aiming at where their object used to be — clicking the lamp flew
+  the camera 2.4 m past it and framed bare desk. `check_stops` in
+  `export_room.py` catches this now, and `check_clearance` catches the matching
+  problem in the model: props standing inside one another.

@@ -22,10 +22,15 @@ from __future__ import annotations
 import argparse
 import math
 import os
+import re
 import sys
 
 import bpy
 from mathutils import Matrix, Vector
+
+# Blender runs this by path, so the script's own directory is not
+# necessarily on the import path.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.normpath(os.path.join(HERE, "..", ".."))
@@ -90,6 +95,18 @@ PALETTE = {
 
 _materials: dict[str, bpy.types.Material] = {}
 
+# Whether materials carry generated image maps. On by default — the textured
+# room is the one that should reach the browser. `--flat` turns it off, which is
+# useful when checking geometry: an untextured render shows a silhouette that
+# grain would otherwise disguise.
+TEXTURED = True
+
+# Meshes the web app paints a canvas onto. Their UVs are the contract for where
+# that image lands, so nothing here may be unwrapped or rescaled.
+PAINTED = re.compile(
+    r"^(ix_\w+_display|ix_whiteboard_face|ix_sticky_notes|ix_cv_face|ix_book_spine_\d+)$"
+)
+
 
 def reset_scene() -> None:
     global _plants
@@ -131,9 +148,116 @@ def material(
         bsdf.inputs["Emission Color"].default_value = colour
         bsdf.inputs["Emission Strength"].default_value = emission
     if grain:
+        # Recorded either way, so the bake still knows what a surface is even
+        # when the maps below are switched off.
         mat["grain"] = grain
+        if TEXTURED:
+            _add_maps(mat, grain, colour, roughness)
     _materials[name] = mat
     return mat
+
+
+_grain_images: dict[str, bpy.types.Image] = {}
+
+
+def _image(name: str, pixels, *, data: bool) -> bpy.types.Image:
+    """
+    A packed image datablock from a numpy array, greyscale or RGB.
+
+    Packed rather than written next to the .blend: the GLB has to carry the
+    bytes, and an image with no file on disk is one that cannot go stale or go
+    missing when the repository is cloned somewhere else.
+    """
+    import numpy as np
+
+    if name in _grain_images:
+        return _grain_images[name]
+
+    height, width = pixels.shape[0], pixels.shape[1]
+    image = bpy.data.images.new(name, width, height, alpha=False, is_data=data)
+
+    # Colorspace before pixels, not after. Assigning it resets the datablock to
+    # a freshly generated buffer, so doing it in the obvious order — fill, then
+    # label — silently threw the fill away and packed Blender's default colour
+    # grid instead. Every map in the GLB came out a flat 1 KB PNG, and nothing
+    # anywhere reported a problem.
+    image.colorspace_settings.name = "Non-Color" if data else "sRGB"
+
+    rgba = np.ones((height, width, 4), dtype=np.float32)
+    if pixels.ndim == 2:
+        rgba[..., 0] = rgba[..., 1] = rgba[..., 2] = pixels
+    else:
+        rgba[..., :3] = pixels
+    # Blender's buffer runs bottom-up; the arrays are built top-down.
+    image.pixels.foreach_set(np.ascontiguousarray(np.flipud(rgba)).reshape(-1))
+    # `pixels` writes into a buffer the image does not consider dirty until it
+    # is told. Without this the pack — and the export after it — takes the
+    # blank buffer the datablock was created with, and every map in the GLB
+    # comes out a flat 1 KB PNG of nothing. It looks exactly like a texture
+    # pipeline that works, right up to the point where you look at the room.
+    image.update()
+
+    image.file_format = "PNG"
+    image.pack()
+    _grain_images[name] = image
+    return image
+
+
+def _texture_node(tree, image, location):
+    node = tree.nodes.new("ShaderNodeTexImage")
+    node.image = image
+    node.interpolation = "Smart"
+    node.location = location
+    return node
+
+
+def _add_maps(mat: bpy.types.Material, kind: str, colour, base_rough: float) -> None:
+    """
+    Wire generated image maps into a material's colour, roughness and normal.
+
+    The colour map is greyscale and multiplied by the material's own colour,
+    because that is the one arrangement the glTF exporter recognises and folds
+    into `baseColorTexture` plus `baseColorFactor`. Wiring anything cleverer —
+    a noise node, a colour ramp, a mix of two tints — makes the exporter give up
+    and write flat white, which is exactly how every wooden surface in this room
+    spent a while looking like bare plastic.
+    """
+    import grain_maps
+
+    tree = mat.node_tree
+    bsdf = tree.nodes["Principled BSDF"]
+
+    albedo = _texture_node(tree, _image(f"grain_{kind}_albedo", grain_maps.albedo(kind), data=False), (-820, 300))
+    tint = tree.nodes.new("ShaderNodeMix")
+    tint.data_type = "RGBA"
+    tint.blend_type = "MULTIPLY"
+    tint.inputs["Factor"].default_value = 1.0
+    tint.inputs[7].default_value = tuple(colour[:3]) + (1.0,)
+    tint.location = (-520, 300)
+    tree.links.new(albedo.outputs["Color"], tint.inputs[6])
+    tree.links.new(tint.outputs[2], bsdf.inputs["Base Color"])
+
+    # Roughness is baked per material rather than shared, because it is keyed to
+    # the material's own base roughness — a rough fabric and a polished lacquer
+    # can share a weave and cannot share a roughness map.
+    # Bucketed to a tenth, and named without a dot. Two materials a hundredth
+    # of a roughness apart are indistinguishable and were shipping two copies of
+    # the same 25 KB noise; and the glTF exporter treats everything after a dot
+    # in an image name as a file extension, so `rough_0.45` and `rough_0.85`
+    # both arrived called `rough_0`.
+    bucket = round(min(1.0, max(0.0, base_rough)) * 10)
+    rough = _texture_node(
+        tree,
+        _image(f"grain_{kind}_rough_{bucket:02d}", grain_maps.roughness(kind, bucket / 10), data=True),
+        (-520, 20),
+    )
+    tree.links.new(rough.outputs["Color"], bsdf.inputs["Roughness"])
+
+    normal_map = _texture_node(tree, _image(f"grain_{kind}_normal", grain_maps.normal(kind), data=True), (-520, -260))
+    normal_node = tree.nodes.new("ShaderNodeNormalMap")
+    normal_node.location = (-240, -260)
+    tree.links.new(normal_map.outputs["Color"], normal_node.inputs["Color"])
+    tree.links.new(normal_node.outputs["Normal"], bsdf.inputs["Normal"])
 
 
 def apply_grain() -> int:
@@ -1011,25 +1135,35 @@ def build_keyboard_and_props() -> list[bpy.types.Object]:
     shade(handle, mug_mat)
     mug = join("ix_mug", [mug_body, handle])
 
+    # Lying on the notebook rather than beside it. It used to sit where the CV
+    # holder now stands, and a pencil left on the open book it belongs to is
+    # both truer to a desk in use and one less loose object competing for the
+    # right-hand end of the desk.
     pencil = cylinder(
         "ix_pencil",
         0.007,
         0.19,
-        (1.66, -1.62, 0.802),
+        (1.24, -1.50, 0.830),
         material("pencil", "sticky", roughness=0.6),
         vertices=6,
         rotation=(0, math.radians(90), math.radians(18)),
     )
 
+    # Moved back and left: it has to clear the CV holder at the end of the
+    # desk on one side and the mug on the other, and the first attempt at this
+    # swapped an overlap with the headphones for one with the mug.
     notebook = cube(
         "ix_notebook",
         (0.34, 0.46, 0.03),
-        (1.30, -1.52, 0.805),
+        (1.24, -1.62, 0.805),
         material("notebook", "book_a", roughness=0.6),
         rotation_z=math.radians(-9),
     )
 
-    return [keyboard, mouse, mug, pencil, notebook, build_headphones(1.05, -1.78, 0.79)]
+    # The headphones used to sit at (1.05, -1.78), which put them 9 cm inside
+    # the notebook — they passed through the cover rather than resting on
+    # anything. Moved to the clear stretch between the laptop and the keyboard.
+    return [keyboard, mouse, mug, pencil, notebook, build_headphones(0.62, -1.85, 0.79)]
 
 
 def build_headphones(hx: float, hy: float, deck: float) -> bpy.types.Object:
@@ -1093,6 +1227,76 @@ def build_headphones(hx: float, hy: float, deck: float) -> bpy.types.Object:
     parts.append(smooth(band, 1, crease=0.4))
 
     return join("ix_headphones", parts)
+
+
+def build_cv() -> list[bpy.types.Object]:
+    """
+    The CV, printed and standing in a document holder at the right of the desk.
+
+    The room already said everything the CV says, spread across a dozen objects
+    — but it never showed the document itself, which is the one artefact a
+    recruiter actually asks for. It stands rather than lying flat because a page
+    face-up on a desk is unreadable from every angle the camera can reach, and
+    an unreadable page is a grey rectangle.
+
+    `ix_cv_face` is the printed side and is painted at runtime from `src/data`,
+    the same way the monitors and the whiteboard are. The holder around it is
+    `ix_cv`, so the whole thing answers to one click.
+    """
+    # Leaning back from vertical. A page perpendicular to the desk is a slab
+    # seen edge-on from the establishing shot; twenty degrees is enough to catch
+    # the key light across it and still read as standing rather than propped.
+    lean = math.radians(20)
+    # A plane is born in XY facing +Z. Turning it -90° about X faces it +Y, into
+    # the room; easing off that angle by the lean tips the top away.
+    tilt = -(math.radians(90) - lean)
+
+    # Real A4, 210 × 297 mm. The room is metric and to scale everywhere else,
+    # and a CV that is not the size of a CV is the kind of thing nobody can name
+    # but everybody notices.
+    page_w, page_h = 0.21, 0.297
+    # The right-hand end of the desk, in front of the lamp. Chosen by measuring
+    # the free space rather than by eye: at this footprint the desk has no gap
+    # at all until the notebook moves left, and the first version of this stood
+    # inside the lamp — the two bounding boxes overlapped by 24 cm and nothing
+    # said so, because nothing was checking. `check_clearance` in the export now
+    # does. Everything below is expressed relative to this point so the whole
+    # holder moves together.
+    cx, cy, cz = 1.60, -1.45, 0.9455
+
+    holder = material("cv_holder", "dark_metal", roughness=0.35, metallic=0.6, grain="brushed")
+    board = material("cv_board", "chair_dark", roughness=0.5)
+
+    # The unit normal the page faces, used to seat everything behind it without
+    # a second set of hand-worked coordinates that would drift from the lean.
+    ny, nz = math.cos(lean), math.sin(lean)
+
+    face = plane("ix_cv_face", (page_w, page_h), (cx, cy, cz),
+                 material("cv_paper", "paper", roughness=0.9, grain="paper"),
+                 rotation=(tilt, 0, 0))
+
+    # The board takes `lean`, not `tilt`. A plane is born flat and has to be
+    # stood up before it is leaned; a box is born standing and only needs the
+    # lean. Giving the box the plane's angle laid it down on the desk behind the
+    # page — 29 cm deep and 11 cm tall instead of the other way round — which
+    # from the front looked like a slightly odd base rather than like a mistake.
+    backing = cube("cv_backing", (page_w + 0.028, 0.008, page_h + 0.024),
+                   (cx, cy - ny * 0.007, cz - nz * 0.007), board, bevel=0.003)
+    backing.rotation_euler = (lean, 0, 0)
+
+    parts = [
+        backing,
+        # The ledge the page stands on. No base plate under the whole thing: the
+        # board's own foot reaches the desk, and a tray beneath it would have to
+        # be thinner than the board's bevel to avoid intersecting it.
+        cube("cv_lip", (page_w + 0.034, 0.016, 0.026), (cx, cy + 0.062, 0.8035), holder, bevel=0.004),
+        strut("cv_strut", (cx, cy - 0.055, 0.98), (cx, cy - 0.145, 0.80), 0.008, holder),
+        # A foot on the back leg, so it stands on something rather than ending
+        # in a cut cylinder resting on its rim.
+        cylinder("cv_foot", 0.018, 0.008, (cx, cy - 0.145, 0.7945), holder, vertices=12),
+    ]
+
+    return [join("ix_cv", parts), face]
 
 
 def build_lamp() -> list[bpy.types.Object]:
@@ -1313,7 +1517,11 @@ def build_chair_and_plant() -> list[bpy.types.Object]:
     trim = material("chair_trim", "chair_light", roughness=0.85, grain="fabric")
     metal = material("chair_metal", "metal", roughness=0.35, metallic=0.75, grain="brushed")
 
-    cx, cy = -0.25, -0.75
+    # On the keyboard's centreline, pushed back 25 cm from the desk edge and
+    # turned a little — a chair someone has just got up from. It used to sit
+    # 29 cm to the left of the working position for no reason anyone recorded,
+    # which put it squarely between the establishing camera and the laptop.
+    cx, cy = 0.18, -0.80
     parts = []
 
     # Seat: a control cage dished in the middle and turned up at the sides, then
@@ -1322,13 +1530,17 @@ def build_chair_and_plant() -> list[bpy.types.Object]:
     # is four boxes pretending to be one moulded pan. A seat is a single surface
     # that curves in two directions, and that cannot be assembled out of boxes
     # at any level of detail — it has to be one cage.
+    # Measured against a real task chair rather than composed by eye. Seat top
+    # lands at 52 cm off the floor against a 79 cm desk, and the pan is 51 cm
+    # deep — it was 58 cm, which is deeper than any chair made and read as a
+    # bench with a back on it.
     seat_rows = (
         # (y offset, z at the centre, z at the edge, half width)
-        (-0.30, 0.455, 0.470, 0.225),
-        (-0.14, 0.435, 0.475, 0.255),
-        (0.02, 0.430, 0.480, 0.262),
-        (0.18, 0.440, 0.485, 0.255),
-        (0.28, 0.460, 0.490, 0.235),
+        (-0.26, 0.455, 0.470, 0.225),
+        (-0.13, 0.435, 0.475, 0.255),
+        (0.01, 0.430, 0.480, 0.262),
+        (0.15, 0.440, 0.485, 0.255),
+        (0.25, 0.460, 0.490, 0.235),
     )
     columns = (-1.0, -0.55, 0.0, 0.55, 1.0)
     verts: list[tuple[float, float, float]] = []
@@ -1356,16 +1568,22 @@ def build_chair_and_plant() -> list[bpy.types.Object]:
     # row forward, so the shell curls around where a back would sit instead of
     # being a flat panel. It is strongest across the shoulders and eases off at
     # the waist and the top, which is the whole silhouette.
+    #
+    # The top of the shell is at 1.36 m, not 1.50. A gaming chair's backrest
+    # stands about 85 cm above its seat; this one stood 98 cm above it, which
+    # put the whole chair at 1.56 m — taller than any chair sold, and tall
+    # enough that from the establishing shot it covered three quarters of the
+    # laptop behind it. Both problems had the same cause.
     back_rows = (
         # (height, how far back, half width, how far the sides wrap forward)
         (0.50, -0.180, 0.215, 0.014),
-        (0.66, -0.200, 0.243, 0.036),
-        (0.82, -0.230, 0.255, 0.054),
-        (0.98, -0.265, 0.258, 0.062),
-        (1.14, -0.300, 0.246, 0.056),
-        (1.30, -0.340, 0.218, 0.038),
-        (1.42, -0.375, 0.176, 0.020),
-        (1.50, -0.400, 0.126, 0.008),
+        (0.64, -0.200, 0.243, 0.036),
+        (0.78, -0.230, 0.255, 0.054),
+        (0.91, -0.265, 0.258, 0.062),
+        (1.05, -0.300, 0.246, 0.056),
+        (1.19, -0.340, 0.218, 0.038),
+        (1.29, -0.375, 0.176, 0.020),
+        (1.36, -0.400, 0.126, 0.008),
     )
     verts = []
     for z, dy, half, wrap in back_rows:
@@ -1384,13 +1602,33 @@ def build_chair_and_plant() -> list[bpy.types.Object]:
     # Headrest and lumbar cushion, each slung on a strap. These are the two
     # details that say "gaming chair" rather than "office chair", and they are
     # also the only places the trim colour appears at any size.
-    head = cube("headrest", (0.24, 0.11, 0.13), (cx, cy - 0.36, 1.44), trim, bevel=0)
+    head = cube("headrest", (0.24, 0.11, 0.13), (cx, cy - 0.345, 1.31), trim, bevel=0)
     head.rotation_euler = (-0.34, 0, 0)
     parts.append(smooth(head, 2, crease=0.35))
 
-    lumbar = cube("lumbar", (0.26, 0.12, 0.15), (cx, cy - 0.155, 0.72), trim, bevel=0)
+    lumbar = cube("lumbar", (0.26, 0.12, 0.15), (cx, cy - 0.155, 0.69), trim, bevel=0)
     lumbar.rotation_euler = (-0.1, 0, 0)
     parts.append(smooth(lumbar, 2, crease=0.3))
+
+    # Stitched piping along the seams between the centre panels and the
+    # bolsters. This is the detail that separates upholstery from a moulded
+    # shell: a real chair is cut from flat panels and sewn, and the seam stands
+    # slightly proud of the surface catching a highlight down its whole length.
+    # Without it the seat and back are two smooth blobs no amount of subdivision
+    # will make convincing.
+    piping = material("chair_piping", "chair_light", roughness=0.7)
+    for u in (-0.55, 0.55):
+        seam = [
+            (cx + u * half, cy + dy - wrap * (1 - u * u) + 0.046, z)
+            for z, dy, half, wrap in back_rows
+        ]
+        parts.append(cable(f"back_seam_{u}", seam, 0.006, piping))
+
+        seam = [
+            (cx + u * half, cy + dy, mid_z + (edge_z - mid_z) * u * u + 0.046)
+            for dy, mid_z, edge_z, half in seat_rows
+        ]
+        parts.append(cable(f"seat_seam_{u}", seam, 0.006, piping))
 
     # No separate contrast stripes. The shell's own wings already carry the
     # racing shape, and a rail laid over them read as something bolted on
@@ -1400,27 +1638,52 @@ def build_chair_and_plant() -> list[bpy.types.Object]:
     # used to be 8 cm wide slabs, which from the side is a blade rather than
     # something you would rest an arm on.
     for side in (-1, 1):
-        post = cube(f"arm_post_{side}", (0.042, 0.05, 0.2), (cx + side * 0.285, cy + 0.02, 0.57), metal)
+        # Pads at 20 cm above the seat, which is where an armrest goes. They sat
+        # at 16 cm, low enough to read as part of the seat rather than as
+        # something to rest an arm on.
+        post = cube(f"arm_post_{side}", (0.042, 0.05, 0.22), (cx + side * 0.285, cy + 0.02, 0.60), metal)
         post.rotation_euler = (0, side * -0.12, 0)
         parts.append(post)
-        pad = cube(f"arm_pad_{side}", (0.105, 0.32, 0.05), (cx + side * 0.3, cy + 0.0, 0.685), fabric, bevel=0)
+        pad = cube(f"arm_pad_{side}", (0.105, 0.32, 0.05), (cx + side * 0.3, cy + 0.0, 0.72), fabric, bevel=0)
         parts.append(smooth(pad, 2, crease=0.45))
+
+    # The mechanism under the pan. Every chair has one and it is always visible
+    # from a low angle — without it the seat floats on the gas lift with a gap
+    # underneath, which is the single clearest tell in a modelled chair.
+    parts.append(cube("seat_plate", (0.24, 0.30, 0.045), (cx, cy - 0.01, 0.395), metal, bevel=0.008))
+    # The recline lever, sticking out under the right of the seat.
+    parts.append(
+        cylinder("tilt_lever", 0.011, 0.13, (cx + 0.20, cy + 0.05, 0.385), metal, vertices=10,
+                 rotation=(0, math.radians(90), math.radians(12)))
+    )
 
     # Gas lift and the five-star base with real castors.
     parts.append(cylinder("gas_lift", 0.035, 0.34, (cx, cy, 0.24), metal, vertices=14))
     parts.append(cylinder("lift_shroud", 0.055, 0.16, (cx, cy, 0.16), material("shroud", "plastic", roughness=0.5), vertices=14))
+    castor_mat = material("castor", "plastic", roughness=0.45)
     for i in range(5):
         angle = i / 5 * math.tau
         dx, dy = math.cos(angle), math.sin(angle)
         spoke = cube(f"spoke_{i}", (0.055, 0.3, 0.035), (cx + dx * 0.15, cy + dy * 0.15, 0.075), metal, rotation_z=angle + math.pi / 2)
         parts.append(spoke)
-        parts.append(cylinder(f"castor_{i}", 0.032, 0.022, (cx + dx * 0.29, cy + dy * 0.29, 0.032),
-                              material("castor", "plastic", roughness=0.45), vertices=12,
-                              rotation=(0, math.radians(90), angle)))
+        # A fork and twin wheels, not a single disc on the end of the spoke. A
+        # castor is the one part of a chair seen from close to its own height,
+        # and a bare cylinder there reads as a peg.
+        parts.append(
+            cube(f"castor_fork_{i}", (0.035, 0.05, 0.055), (cx + dx * 0.285, cy + dy * 0.285, 0.068),
+                 material("castor_fork", "dark_metal", roughness=0.4, metallic=0.5),
+                 rotation_z=angle + math.pi / 2, bevel=0.004)
+        )
+        for offset in (-0.019, 0.019):
+            parts.append(
+                cylinder(f"castor_{i}_{offset}", 0.030, 0.014,
+                         (cx + dx * 0.29 - dy * offset, cy + dy * 0.29 + dx * offset, 0.030),
+                         castor_mat, vertices=14, rotation=(0, math.radians(90), angle))
+            )
 
     chair = join("ix_chair", parts)
     set_origin(chair, (cx, cy, 0.0))
-    chair.rotation_euler = (0, 0, math.radians(-24))
+    chair.rotation_euler = (0, 0, math.radians(-20))
 
     return [chair, build_plant(2.78, 0.35)]
 
@@ -1799,7 +2062,12 @@ def build_details() -> list[bpy.types.Object]:
     cables = [
         cable("cable_monitor_l", [(-0.62, -2.2, 1.0), (-0.6, -2.36, 0.72), (-0.2, -2.42, 0.1), strip], 0.009, rubber),
         cable("cable_monitor_r", [(0.66, -2.2, 1.0), (0.7, -2.38, 0.74), (0.68, -2.44, 0.12), strip], 0.009, rubber),
-        cable("cable_lamp", [(-1.02, -2.02, 0.82), (-0.9, -2.3, 0.5), (-0.2, -2.4, 0.08), strip], 0.007, rubber),
+        # From the lamp's foot at (1.58, -2.28), not from (-1.02, -2.02) where
+        # the lamp used to stand. The lamp was moved to the back-right corner
+        # and its cable was not, so the room had a flex running out of the
+        # desktop on the left with nothing on the end of it, and a lamp on the
+        # right plugged into nothing.
+        cable("cable_lamp", [(1.58, -2.28, 0.80), (1.5, -2.42, 0.45), (1.0, -2.44, 0.1), strip], 0.007, rubber),
         cable("cable_wall", [strip, (1.1, -2.42, 0.1), (1.5, -2.48, 0.3)], 0.009, rubber),
     ]
     cables.append(cube("power_strip", (0.34, 0.09, 0.045), strip, dark, bevel=0.008))
@@ -1969,6 +2237,66 @@ def add_lighting() -> None:
     screens.rotation_euler = (math.radians(90), 0, 0)
 
 
+def texture_uvs() -> None:
+    """
+    Unwrap every mesh and scale its UVs to a fixed number of texels per metre.
+
+    Unwrapping alone is not enough. Smart UV Project packs each object's islands
+    into the 0..1 square, so a 3.5 m desk and a 6 cm mug both come out filling
+    the whole texture — the desk gets grain the size of a fingerprint and the
+    mug gets floorboards. Measuring each object's real surface area against the
+    area its UVs occupy gives the exact factor that puts them on the same scale.
+    """
+    import grain_maps
+
+    # Everything the runtime paints a canvas onto keeps the clean 0..1 UV its
+    # quad was born with. Re-unwrapping a screen would be harmless; rescaling it
+    # to half-metre tiles would not — a 1.08 m monitor would show its dashboard
+    # four times over, and the whiteboard would repeat its diagram across itself.
+    meshes = [
+        o for o in bpy.context.scene.objects
+        if o.type == "MESH" and not PAINTED.match(o.name)
+    ]
+
+    bpy.ops.object.select_all(action="DESELECT")
+    for obj in meshes:
+        if not obj.data.uv_layers:
+            obj.data.uv_layers.new(name="UVMap")
+        obj.data.uv_layers.active = obj.data.uv_layers[0]
+
+    bpy.context.view_layer.objects.active = meshes[0]
+    for obj in meshes:
+        obj.select_set(True)
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.uv.smart_project(angle_limit=math.radians(66), island_margin=0.02)
+    bpy.ops.object.mode_set(mode="OBJECT")
+    bpy.ops.object.select_all(action="DESELECT")
+
+    for obj in meshes:
+        mesh = obj.data
+        layer = mesh.uv_layers[0]
+        world = sum(polygon.area for polygon in mesh.polygons)
+        if world <= 0:
+            continue
+
+        # UV area, by fanning each polygon from its first corner.
+        uv_area = 0.0
+        for polygon in mesh.polygons:
+            loops = list(polygon.loop_indices)
+            origin = layer.data[loops[0]].uv
+            for index in range(1, len(loops) - 1):
+                a = layer.data[loops[index]].uv - origin
+                b = layer.data[loops[index + 1]].uv - origin
+                uv_area += abs(a.x * b.y - a.y * b.x) * 0.5
+        if uv_area <= 1e-9:
+            continue
+
+        factor = math.sqrt(world / uv_area) / grain_maps.TILE_METRES
+        for datum in layer.data:
+            datum.uv = (datum.uv.x * factor, datum.uv.y * factor)
+
+
 def unwrap_all() -> None:
     """
     A second UV set, packed into one atlas, so the bake script has somewhere to
@@ -2013,6 +2341,7 @@ def build_all() -> None:
     build_monitors()
     build_laptop()
     build_keyboard_and_props()
+    build_cv()
     build_lamp()
     build_shelf_and_books()
     build_whiteboard()
@@ -2036,7 +2365,16 @@ def main() -> None:
         const=BLEND,
         help="write the blockout to a .blend instead of exporting a GLB",
     )
+    parser.add_argument(
+        "--flat",
+        action="store_true",
+        help="export without generated surface maps, for checking silhouettes",
+    )
     args = parser.parse_args(argv_after_dashes())
+
+    global TEXTURED
+    if args.flat:
+        TEXTURED = False
 
     build_all()
 
@@ -2065,8 +2403,18 @@ def main() -> None:
     # A warning rather than a failure: sinking a prop into a surface is
     # sometimes deliberate, and refusing to export over it would be worse than
     # the bug. Saying so out loud is enough.
-    for complaint in export_room.check_resting():
-        print(f"[build_room] {complaint}", file=sys.stderr)
+    for check in (export_room.check_resting, export_room.check_clearance, export_room.check_stops):
+        for complaint in check():
+            print(f"[build_room] {complaint}", file=sys.stderr)
+
+    # Texture UVs first: they are the ones the shipped GLB samples the grain
+    # with, and they go in the mesh's first layer. The bake's atlas is a second
+    # layer on top and must not displace them.
+    if TEXTURED:
+        try:
+            texture_uvs()
+        except Exception as exc:  # pragma: no cover - best-effort
+            print(f"[build_room] texture UVs skipped: {exc}", file=sys.stderr)
 
     try:
         unwrap_all()

@@ -209,6 +209,17 @@ def rewire_to_baked(atlas: bpy.types.Image, meshes: list[bpy.types.Object]) -> N
             links.new(uv.outputs["UV"], tex.inputs["Vector"])
             links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
 
+            # Unlink before setting, or the value is ignored and the map wins.
+            # The grain maps are now wired into roughness and normal at build
+            # time, and a link left in place would ship a roughness map and a
+            # normal map inside the baked GLB — several hundred kilobytes of
+            # data addressed through the atlas's UVs, which are not the UVs it
+            # was authored against, describing a lighting response the browser
+            # does not compute because the baked room draws unlit.
+            for socket in ("Roughness", "Normal"):
+                for link in list(bsdf.inputs[socket].links):
+                    mat.node_tree.links.remove(link)
+
             bsdf.inputs["Roughness"].default_value = 1.0
             bsdf.inputs["Metallic"].default_value = 0.0
             if "Emission Strength" in bsdf.inputs:
@@ -244,13 +255,19 @@ def main() -> None:
     # one. Whatever the export ships, the bake has to bake.
     build_room.build_all()
 
-    # Procedural wood grain, fabric weave and brushed metal, wired in only for
-    # the bake. The plain glTF export cannot carry a node graph — it writes
-    # white where one is linked — so the room ships flat and is textured here,
-    # where everything resolves into the atlas anyway. Materials opt in with a
-    # `grain` custom property, which is stored in the .blend and can be set on
-    # anything modelled by hand.
-    print(f"[bake_room] grain applied to {build_room.apply_grain()} materials")
+    # The same texture UVs the shipped model uses. Without this the grain maps
+    # are sampled through whatever UVs each primitive was born with — every cube
+    # face its own 0..1 square — so a bake would resolve wood grain at the size
+    # of a floorboard on a coffee mug and freeze it into the atlas permanently.
+    build_room.texture_uvs()
+
+    # Materials now carry generated image maps, wired at build time, so there is
+    # normally nothing left for this to do — it reports 0 and that is correct.
+    # It stays for the case where a material is tagged with a `grain` property
+    # but has no maps, which is what a hand-authored material added in Blender
+    # would look like.
+    applied = build_room.apply_grain()
+    print(f"[bake_room] {applied} material(s) needed procedural grain; the rest already carry maps")
 
     build_room.unwrap_all()
 
