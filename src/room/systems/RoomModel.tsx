@@ -22,7 +22,15 @@ function toObjectId(name: string): ObjectId | null {
   return (objectIds as readonly string[]).includes(stem) ? (stem as ObjectId) : null;
 }
 
-export function RoomModel({ url, baked }: { url: string; baked: boolean }) {
+export function RoomModel({
+  url,
+  baked,
+  onReady,
+}: {
+  url: string;
+  baked: boolean;
+  onReady?: (root: Object3D) => void;
+}) {
   const { scene } = useGLTF(url);
   const hover = useEngine((state) => state.hover);
   const focus = useEngine((state) => state.focus);
@@ -55,6 +63,13 @@ export function RoomModel({ url, baked }: { url: string; baked: boolean }) {
 
     return root;
   }, [scene, baked]);
+
+  useEffect(() => {
+    onReady?.(prepared);
+    // Intentionally not depending on `onReady`: it is a setState from the
+    // scene, and re-running this on every parent render would thrash it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prepared]);
 
   useEffect(() => {
     return () => {

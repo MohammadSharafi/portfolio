@@ -1,11 +1,14 @@
-import { Suspense } from 'react';
+import { Suspense, useState } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { AdaptiveDpr, Preload } from '@react-three/drei';
 import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing';
-import { ACESFilmicToneMapping } from 'three';
+import { ACESFilmicToneMapping, type Object3D } from 'three';
+import { Physics } from '@react-three/rapier';
 import { RoomModel } from './systems/RoomModel';
 import { CameraRig } from './engine/CameraRig';
 import { SceneEnvironment } from './systems/SceneEnvironment';
+import { Screens } from './systems/Screens';
+import { Props } from './systems/Props';
 import { Overlay } from './ui/Overlay';
 import { useRoomAsset } from './engine/useRoomAsset';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
@@ -19,6 +22,7 @@ import { useReducedMotion } from '@/hooks/useReducedMotion';
  */
 function Scene({ url, baked }: { url: string; baked: boolean }) {
   const reducedMotion = useReducedMotion();
+  const [root, setRoot] = useState<Object3D | null>(null);
 
   return (
     <>
@@ -57,7 +61,16 @@ function Scene({ url, baked }: { url: string; baked: boolean }) {
         </>
       )}
 
-      <RoomModel url={url} baked={baked} />
+      <RoomModel url={url} baked={baked} onReady={setRoot} />
+
+      {root ? <Screens root={root} /> : null}
+
+      {/* Physics runs paused under reduced motion: objects tumbling of their
+        own accord is exactly the kind of unrequested movement the preference
+        is asking us not to produce. */}
+      <Physics gravity={[0, -9.81, 0]} paused={reducedMotion} timeStep="vary">
+        {root ? <Props root={root} /> : null}
+      </Physics>
 
       <EffectComposer enableNormalPass={false}>
         {/* High threshold on purpose: the room has a lot of small bright

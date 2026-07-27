@@ -377,9 +377,11 @@ def build_monitors() -> list[bpy.types.Object]:
 
     for name, x, tilt in (("ix_monitor_health", -0.62, 0.16), ("ix_monitor_code", 0.66, -0.16)):
         body = cube(f"{name}_body", (1.1, 0.05, 0.64), (x, -2.16, 1.2), shell, rotation_z=tilt)
-        screen = cube(f"{name}_screen", (1.03, 0.012, 0.58), (x, -2.13, 1.2), screen_mat, rotation_z=tilt, bevel=0)
-        # Named separately so the runtime can swap in a live canvas texture.
-        screen.name = f"{name}_display"
+        # A single quad, not a thin box. A cube's UVs give every face its own
+        # patch of the image, so a canvas texture applied to one tiles across
+        # all six — which is exactly how the first attempt failed.
+        screen = plane(f"{name}_display", (1.03, 0.58), (x, -2.128, 1.2), screen_mat,
+                       rotation=(math.radians(-90), 0, tilt))
         out.append(join(name, [body]))
         out.append(screen)
 
@@ -393,7 +395,7 @@ def build_monitors() -> list[bpy.types.Object]:
             (0.02, -2.3, 1.3),
             arm_mat,
             vertices=12,
-            rotation=(0, math.radians(90), 0),
+            rotation=(math.radians(90), 0, math.radians(90)),
         ),
     ]
     return out
@@ -412,8 +414,9 @@ def build_laptop() -> list[bpy.types.Object]:
     deck = cube("laptop_deck", (0.72, 0.36, 0.004), (0.06, -1.62, 0.784), material("deck", "keycap"), bevel=0)
 
     lid = cube("ix_laptop_lid", (0.86, 0.02, 0.56), (0.06, -1.85, 1.05), body)
-    lid_screen = cube(
-        "ix_laptop_display", (0.8, 0.006, 0.5), (0.06, -1.835, 1.05), screen_mat, bevel=0
+    lid_screen = plane(
+        "ix_laptop_display", (0.8, 0.5), (0.06, -1.833, 1.05), screen_mat,
+        rotation=(math.radians(-90), 0, 0)
     )
     hinge = Vector((0.06, -1.85, 0.783))
     for obj in (lid, lid_screen):
@@ -557,32 +560,30 @@ def build_whiteboard() -> list[bpy.types.Object]:
     board = cube("board_face", (0.04, 1.5, 1.05), (-3.12, -1.35, 1.72), material("board", "board", roughness=0.35))
     frame = cube("board_frame", (0.05, 1.6, 1.15), (-3.14, -1.35, 1.72), material("board_frame", "metal", roughness=0.4, metallic=0.6))
 
-    # The diagram. Boxes and connectors, drawn as thin insets on the face.
-    ink = material("ink", "dark_metal", roughness=0.6)
-    marks = []
-    nodes = [(-1.79, 2.02), (-1.35, 2.02), (-0.91, 2.02), (-1.57, 1.68), (-1.13, 1.68), (-1.35, 1.36)]
-    for i, (y, z) in enumerate(nodes):
-        marks.append(cube(f"node_{i}", (0.008, 0.34, 0.16), (-3.095, y, z), ink, bevel=0))
-    for i, (y, z) in enumerate([(-1.57, 1.85), (-1.13, 1.85), (-1.35, 1.52)]):
-        marks.append(cube(f"edge_{i}", (0.006, 0.02, 0.2), (-3.095, y, z), ink, bevel=0))
+    # The writing surface is its own quad named `ix_whiteboard_face`, so the
+    # runtime can paint a real drawn diagram onto it. The previous version was
+    # six grey boxes standing in for one — an unlabelled rectangle is not a
+    # diagram, it is a note saying a diagram goes here.
+    face = plane(
+        "ix_whiteboard_face",
+        (1.42, 0.98),
+        (-3.088, -1.35, 1.72),
+        material("board_face_mat", "board", roughness=0.4),
+        rotation=(math.radians(90), 0, math.radians(90)),
+    )
 
-    stickies = []
-    for i in range(6):
-        col = "sticky" if i % 2 == 0 else "sticky_alt"
-        stickies.append(
-            cube(
-                f"sticky_{i}",
-                (0.006, 0.13, 0.13),
-                (-3.09, -1.85 + (i % 3) * 0.17, 1.26 - (i // 3) * 0.18),
-                material(f"sticky_{col}", col, roughness=0.85),
-                bevel=0,
-            )
+    # Sticky notes, likewise one quad rather than six coloured chips.
+    stickies = [
+        plane(
+            "ix_sticky_notes",
+            (0.86, 0.42),
+            (-3.086, -1.42, 1.12),
+            material("sticky_face", "sticky", roughness=0.85),
+            rotation=(math.radians(90), 0, math.radians(90)),
         )
-
-    return [
-        join("ix_whiteboard", [board, frame] + marks),
-        join("ix_sticky_notes", stickies),
     ]
+
+    return [join("ix_whiteboard", [board, frame]), face, stickies[0]]
 
 
 def build_server_rack() -> list[bpy.types.Object]:
