@@ -50,6 +50,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--size", type=int, default=4096, help="atlas resolution")
     parser.add_argument("--samples", type=int, default=256, help="Cycles samples")
     parser.add_argument("--cpu", action="store_true", help="force CPU rendering")
+    parser.add_argument(
+        "--exposure",
+        type=float,
+        default=0.0,
+        help="stops of exposure applied to the bake; +1 doubles the brightness",
+    )
     return parser.parse_args(argv)
 
 
@@ -88,9 +94,14 @@ def ensure_cycles() -> bool:
     return bpy.context.scene.render.engine == "CYCLES"
 
 
-def configure_cycles(samples: int, force_cpu: bool) -> None:
+def configure_cycles(samples: int, force_cpu: bool, exposure: float = 0.0) -> None:
     scene = bpy.context.scene
     scene.cycles.samples = samples
+    # Exposure is a knob rather than a constant because the only way to judge a
+    # bake is to look at one, and that cannot happen on the machine that writes
+    # this script — it has no Cycles. One flag beats editing light energies and
+    # re-running blind.
+    scene.view_settings.exposure = exposure
     scene.cycles.use_denoising = True
     scene.cycles.bake_type = "COMBINED"
 
@@ -218,19 +229,15 @@ def main() -> None:
 
     import build_room
 
-    # The hand-modelled room, not a fresh run of the blockout script. Building
-    # from `build_room` here would bake a room nobody has touched since it was
-    # generated and quietly discard every hour of modelling — the export path
-    # reads the .blend, and so must this, or the two ship different rooms.
-    blend = os.path.join(ROOT, "assets", "room.blend")
-    if not os.path.exists(blend):
-        sys.exit(
-            f"{blend} does not exist.\n"
-            "Generate the blockout to start from:\n"
-            "    blender --background --python scripts/blender/build_room.py -- --blend"
-        )
-    bpy.ops.wm.open_mainfile(filepath=blend)
-    print(f"[bake_room] loaded {blend}")
+    # Built from the script, exactly like the plain export.
+    #
+    # This briefly read `assets/room.blend` instead, from a spell when the room
+    # was going to be modelled by hand. That file is no longer in the repo, so
+    # the bake either died on a clean clone or — worse, and what actually
+    # happened — silently loaded a stale leftover copy and baked a room several
+    # weeks of work out of date, which the site then preferred over the current
+    # one. Whatever the export ships, the bake has to bake.
+    build_room.build_all()
 
     # Procedural wood grain, fabric weave and brushed metal, wired in only for
     # the bake. The plain glTF export cannot carry a node graph — it writes
@@ -250,7 +257,7 @@ def main() -> None:
         )
     print("[bake_room] Cycles enabled")
 
-    configure_cycles(args.samples, args.cpu)
+    configure_cycles(args.samples, args.cpu, args.exposure)
 
     atlas = bpy.data.images.new("room_bake", args.size, args.size, float_buffer=False)
     meshes = prepare_materials(atlas)
