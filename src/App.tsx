@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { LazyMotion, domAnimation } from 'motion/react';
 import { Navbar } from './components/Navbar';
 import { Hero } from './components/Hero';
@@ -7,6 +7,7 @@ import { ScrollProgress } from './components/ScrollProgress';
 import { BackToTop } from './components/BackToTop';
 import { useReducedMotion } from './hooks/useReducedMotion';
 import { useRoom } from './hooks/useRoom';
+import { supportsWebGL } from './lib/webgl';
 
 // Everything below the fold is split out; the first screen ships without it.
 const About = lazy(() => import('./components/About').then((m) => ({ default: m.About })));
@@ -29,8 +30,14 @@ function SectionFallback() {
   return <div className="h-96" aria-hidden="true" />;
 }
 
-// The single-room experience. Behind a flag until it replaces the written site
-// outright, so the live page is never a half-finished migration.
+/**
+ * The single-room experience — the site's front door.
+ *
+ * The written site is still reachable and is not a legacy path: it is what
+ * renders with no WebGL, and `?text=1` forces it for anyone who would rather
+ * read than explore. A portfolio that only exists inside a canvas is one a
+ * recruiter's search cannot find and a screen reader cannot open.
+ */
 const RoomExperience = lazy(() =>
   import('./room/RoomExperience').then((m) => ({ default: m.RoomExperience }))
 );
@@ -89,8 +96,15 @@ export default function App() {
   // Keeps the `.reduce-motion` class on <html> in sync with the OS preference.
   useReducedMotion();
 
-  const showRoom =
-    typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('room');
+  // Decided once on mount: the check touches the GPU and must not run per
+  // render, and `showRoom` starting false means the written site is what
+  // renders if the check never resolves.
+  const [showRoom, setShowRoom] = useState(false);
+
+  useEffect(() => {
+    const forcedText = new URLSearchParams(window.location.search).has('text');
+    setShowRoom(!forcedText && supportsWebGL());
+  }, []);
 
   if (showRoom) {
     return (

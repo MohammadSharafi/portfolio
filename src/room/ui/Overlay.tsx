@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { Volume2, VolumeX, X } from 'lucide-react';
 import { useEngine } from '../engine/store';
 import { roomObjects, roomObjectById } from '../data/objects';
+import { profile } from '@/data/profile';
 import { roomAudio } from '../engine/audio';
 import { cn } from '@/lib/utils';
 
@@ -54,12 +55,54 @@ export function Overlay() {
 
   return (
     <div className="pointer-events-none fixed inset-0 z-40">
+      {/*
+        Everything the room says, in the document.
+
+        The canvas is aria-hidden and carries no text a crawler or a screen
+        reader can reach, and only one panel is ever mounted at a time. Without
+        this the site would be a portfolio that a recruiter's search cannot find
+        and a screen reader cannot open — which is a real regression, not a
+        purist objection. Visually hidden, not display:none, so it is still read.
+      */}
+      <div className="sr-only">
+        <h1>{profile.name}</h1>
+        <p>{profile.tagline}</p>
+        <p>
+          {profile.availability}. Based in {profile.location} ({profile.timezone}).
+        </p>
+        <p>
+          This page is an interactive 3D workspace. <a href="?text=1">Open the written version</a>{' '}
+          for the same information as a document.
+        </p>
+        {roomObjects.map((entry) => (
+          <section key={entry.id}>
+            <h2>{entry.panel.title}</h2>
+            <p>{entry.panel.kicker}</p>
+            <p>{entry.panel.body}</p>
+            {entry.panel.items.length > 0 ? (
+              <ul>
+                {entry.panel.items.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            ) : null}
+          </section>
+        ))}
+      </div>
+
       <p className="absolute left-1/2 top-6 -translate-x-1/2 text-xs uppercase tracking-[0.25em] text-white/45">
         {hovered ? (roomObjectById.get(hovered)?.hint ?? '') : 'Click anything in the room'}
       </p>
 
       {/* The object list. Doubles as the keyboard path and as the "what is
         there to find" affordance, so nothing depends on hunting with a mouse. */}
+      <a
+        href="?text=1"
+        className="pointer-events-auto absolute left-4 top-4 rounded-full bg-black/55 px-3.5 py-2 text-xs font-medium text-white/70 backdrop-blur-md transition-colors hover:text-white"
+      >
+        Read it instead
+      </a>
+
       <button
         type="button"
         onClick={toggleMuted}
