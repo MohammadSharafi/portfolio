@@ -288,8 +288,16 @@ export const roomObjects: readonly RoomObject[] = [
 export const roomObjectById = new Map(roomObjects.map((object) => [object.id, object]));
 
 /** Where the camera rests when nothing is focused. */
+/**
+ * The establishing shot.
+ *
+ * Pulled back from where it started. The room has since grown a lounge half
+ * and a bookshelf that runs to the far wall, and the original framing was
+ * composed around a room that was mostly desk — it cropped the shelf, the
+ * guitar and the plant straight off the edges.
+ */
 export const HOME_STOP: CameraStop = {
-  position: [5.2, 4.0, -5.4],
-  target: [0, 1.15, 1.2],
+  position: [6.35, 4.7, -6.55],
+  target: [-0.22, 1.05, 0.85],
   duration: 1.8,
 };

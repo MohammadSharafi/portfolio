@@ -52,32 +52,43 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def require_cycles() -> None:
-    """
-    Fail early and legibly.
+def cycles_module_present() -> bool:
+    """Cheap up-front check that the add-on ships with this build at all."""
+    try:
+        import addon_utils
 
-    A bake that dies thirty minutes in because the engine was never available
-    wastes the one resource this script actually costs — the operator's evening.
+        return any(module.__name__ == "cycles" for module in addon_utils.modules())
+    except Exception:
+        return False
+
+
+def ensure_cycles() -> bool:
     """
-    engines = [
-        item.identifier
-        for item in bpy.types.Scene.bl_rna.properties["render"]
-        .fixed_type.properties["engine"]
-        .enum_items
-    ]
-    if "CYCLES" not in engines:
-        sys.exit(
-            "Cycles is not available in this Blender build, so nothing can be baked.\n"
-            f"Engines present: {', '.join(engines)}\n\n"
-            "This usually means the script is running against the `bpy` PyPI module\n"
-            "rather than a real Blender install. Run it with the Blender binary:\n"
-            "    blender --background --python scripts/blender/bake_room.py"
-        )
+    Enable Cycles and confirm the engine can actually be selected.
+
+    Two things make this less obvious than it looks. Reading the engine list off
+    the RNA definition returns a static enum that does not reflect engines
+    registered at runtime, so the only honest test is to assign the engine and
+    see whether it takes. And `read_factory_settings()` resets preferences,
+    which disables the add-on again — so this has to run *after* the scene is
+    built, not before it.
+    """
+    try:
+        import addon_utils
+
+        addon_utils.enable("cycles", default_set=True, persistent=True)
+    except Exception as exc:  # pragma: no cover - depends on the install
+        print(f"[bake_room] could not enable the Cycles add-on: {exc}", file=sys.stderr)
+
+    try:
+        bpy.context.scene.render.engine = "CYCLES"
+    except (TypeError, AttributeError):
+        return False
+    return bpy.context.scene.render.engine == "CYCLES"
 
 
 def configure_cycles(samples: int, force_cpu: bool) -> None:
     scene = bpy.context.scene
-    scene.render.engine = "CYCLES"
     scene.cycles.samples = samples
     scene.cycles.use_denoising = True
     scene.cycles.bake_type = "COMBINED"
@@ -196,26 +207,33 @@ def rewire_to_baked(atlas: bpy.types.Image, meshes: list[bpy.types.Object]) -> N
 
 def main() -> None:
     args = parse_args()
-    require_cycles()
+
+    if not cycles_module_present():
+        sys.exit(
+            "This Blender build does not ship the Cycles add-on, so nothing can\n"
+            "be baked. If this is the `bpy` PyPI module it never will; use the\n"
+            "Blender application instead."
+        )
 
     import build_room
 
-    build_room.reset_scene()
-    build_room.build_shell()
-    build_room.build_desk()
-    build_room.build_monitors()
-    build_room.build_laptop()
-    build_room.build_keyboard_and_props()
-    build_room.build_lamp()
-    build_room.build_shelf_and_books()
-    build_room.build_whiteboard()
-    build_room.build_server_rack()
-    build_room.build_window()
-    build_room.build_toronto()
-    build_room.build_certificates()
-    build_room.build_chair_and_plant()
-    build_room.add_lighting()
+    build_room.build_all()
+
+    # Procedural wood grain, fabric weave and brushed metal, wired in only for
+    # the bake. The plain glTF export cannot carry a node graph — it writes
+    # white where one is linked — so the room is built flat and textured here,
+    # where everything resolves into the atlas anyway.
+    print(f"[bake_room] grain applied to {build_room.apply_grain()} materials")
+
     build_room.unwrap_all()
+
+    if not ensure_cycles():
+        sys.exit(
+            "Cycles could not be selected as the render engine.\n"
+            "Open Blender normally, enable Cycles under Preferences > Add-ons,\n"
+            "save preferences, then run this again."
+        )
+    print("[bake_room] Cycles enabled")
 
     configure_cycles(args.samples, args.cpu)
 
