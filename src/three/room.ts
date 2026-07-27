@@ -269,6 +269,112 @@ function buildShelf() {
   return { group, trinket };
 }
 
+/**
+ * The tower, stood on the floor beside the desk rather than hidden under it —
+ * it is one of the things a visitor can open, so it has to be somewhere the
+ * camera can actually see from every stop in the room.
+ */
+function buildTower() {
+  const group = new Group();
+  const caseMat = standard(palette.plastic, { roughness: 0.42, metalness: 0.35 });
+
+  group.add(box([0.42, 0.9, 0.86], [0, 0.45, 0], caseMat));
+
+  // A tempered side panel with the internals glowing behind it. Rendering the
+  // components would cost hundreds of triangles nobody can resolve at this
+  // distance; a tinted panel over a coloured wash reads the same.
+  const interior = new Mesh(
+    new PlaneGeometry(0.72, 0.74),
+    new MeshStandardMaterial({
+      color: palette.primary,
+      emissive: palette.primary,
+      emissiveIntensity: 0.55,
+      roughness: 0.5,
+    })
+  );
+  interior.position.set(0.212, 0.46, 0);
+  interior.rotation.y = Math.PI / 2;
+  group.add(interior);
+
+  const glass = new Mesh(
+    new PlaneGeometry(0.78, 0.8),
+    new MeshStandardMaterial({
+      color: palette.bezel,
+      roughness: 0.08,
+      metalness: 0.1,
+      transparent: true,
+      opacity: 0.55,
+    })
+  );
+  glass.position.set(0.216, 0.46, 0);
+  glass.rotation.y = Math.PI / 2;
+  group.add(glass);
+
+  // Two fans and a front strip, which is what actually reads as a computer.
+  const fanMat = standard(palette.accent, {
+    roughness: 0.4,
+    emissive: palette.accent,
+    emissiveIntensity: 1.4,
+  });
+  const fans = new Group();
+  for (const y of [0.3, 0.62]) {
+    const fan = new Mesh(new TorusGeometry(0.075, 0.014, 8, 20), fanMat);
+    fan.position.set(0.213, y, 0.2);
+    fan.rotation.y = Math.PI / 2;
+    fans.add(fan);
+  }
+  group.add(fans);
+
+  group.add(
+    box(
+      [0.03, 0.5, 0.02],
+      [-0.208, 0.5, -0.3],
+      standard(palette.screenGlow, {
+        roughness: 0.3,
+        emissive: palette.screenGlow,
+        emissiveIntensity: 1.8,
+      })
+    )
+  );
+
+  return { group, fans };
+}
+
+/** The award from the shelf, brought onto the desk where it can be seen. */
+function buildTrophy() {
+  const group = new Group();
+  const metal = standard(palette.lampWarm, {
+    roughness: 0.22,
+    metalness: 0.85,
+    emissive: palette.lampWarm,
+    emissiveIntensity: 0.18,
+  });
+
+  const base = new Mesh(new CylinderGeometry(0.075, 0.085, 0.035, 20), standard(palette.bezel));
+  base.position.y = 0.018;
+  base.castShadow = true;
+  group.add(base);
+
+  const stem = new Mesh(new CylinderGeometry(0.016, 0.022, 0.09, 12), metal);
+  stem.position.y = 0.08;
+  group.add(stem);
+
+  const cup = new Mesh(new SphereGeometry(0.055, 18, 12, 0, Math.PI * 2, 0, Math.PI / 2), metal);
+  cup.position.y = 0.125;
+  cup.rotation.x = Math.PI;
+  cup.scale.set(1, 1.25, 1);
+  group.add(cup);
+
+  for (const side of [-1, 1]) {
+    const handle = new Mesh(new TorusGeometry(0.026, 0.007, 6, 14), metal);
+    handle.position.set(side * 0.058, 0.145, 0);
+    handle.rotation.y = Math.PI / 2;
+    group.add(handle);
+  }
+
+  return group;
+}
+
 export interface RoomBuild {
   root: Group;
   /** Animated in the render loop. */
@@ -276,6 +382,7 @@ export interface RoomBuild {
     leaves: Group;
     trinket: Mesh;
     screens: Mesh[];
+    fans: Group;
   };
   lampPosition: Vec3;
 }
@@ -393,9 +500,18 @@ export function buildRoom(textures: {
   frames.position.set(-2.5, 1.75, -2.16);
   root.add(frames);
 
+  const tower = buildTower();
+  tower.group.position.set(1.62, 0, -1.15);
+  tower.group.rotation.y = -0.42;
+  root.add(tower.group);
+
+  const trophy = buildTrophy();
+  trophy.position.set(-1.32, 0.778, -1.15);
+  root.add(trophy);
+
   return {
     root,
-    animated: { leaves: plant.leaves, trinket: shelf.trinket, screens },
+    animated: { leaves: plant.leaves, trinket: shelf.trinket, screens, fans: tower.fans },
     lampPosition: [
       lamp.group.position.x + lamp.bulbPosition[0],
       lamp.group.position.y + lamp.bulbPosition[1],
