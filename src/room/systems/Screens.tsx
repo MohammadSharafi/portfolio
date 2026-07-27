@@ -1,6 +1,7 @@
 import { useEffect, useMemo } from 'react';
 import { Mesh, MeshBasicMaterial, type Object3D, type Texture } from 'three';
 import {
+  bookSpineTexture,
   clinicalScreen,
   codeScreen,
   stickyTexture,
@@ -36,8 +37,14 @@ const EMISSIVE = new Set([
 ]);
 
 function baseName(name: string) {
+  // Book spines are numbered per project, so their index is meaningful and
+  // must survive; everything else only picks up a suffix from glTF splitting a
+  // multi-material mesh.
+  if (/^ix_book_spine_\d+$/.test(name)) return name;
   return name.replace(/_\d+$/, '');
 }
+
+const SPINE = /^ix_book_spine_(\d+)$/;
 
 export function Screens({ root }: { root: Object3D }) {
   const textures = useMemo(() => {
@@ -53,13 +60,26 @@ export function Screens({ root }: { root: Object3D }) {
     return made;
   }, []);
 
+  const spineTextures = useMemo(() => {
+    const made = new Map<number, Texture>();
+    for (let index = 0; index < 6; index += 1) {
+      try {
+        made.set(index, bookSpineTexture(index));
+      } catch {
+        // One unreadable spine should not cost the shelf.
+      }
+    }
+    return made;
+  }, []);
+
   useEffect(() => {
     const replaced: Mesh[] = [];
 
     root.traverse((node) => {
       if (!(node instanceof Mesh)) return;
       const key = baseName(node.name);
-      const texture = textures.get(key);
+      const spine = SPINE.exec(key);
+      const texture = spine ? spineTextures.get(Number(spine[1])) : textures.get(key);
       if (!texture) return;
 
       const previous = node.material;
@@ -78,8 +98,9 @@ export function Screens({ root }: { root: Object3D }) {
         if (!Array.isArray(material)) material.dispose();
       }
       for (const texture of textures.values()) texture.dispose();
+      for (const texture of spineTextures.values()) texture.dispose();
     };
-  }, [root, textures]);
+  }, [root, textures, spineTextures]);
 
   return null;
 }

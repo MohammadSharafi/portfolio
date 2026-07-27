@@ -538,22 +538,62 @@ def build_shelf_and_books() -> list[bpy.types.Object]:
     shelf = join("bookshelf", parts)
 
     books = []
+    spines = []
     colours = ["book_a", "book_b", "book_c", "book_d"]
+
+    # Level 2 sits at eye height, so that shelf carries the project books: one
+    # per project, each with its own spine quad the runtime paints the title
+    # onto. A quad per book rather than one texture stretched across the row —
+    # the books are separate solids with separate UVs, so a shared image would
+    # tile across every one of them instead of spanning them.
+    TITLED_LEVEL = 2
+    TITLED_COUNT = 6
+    TITLED_WIDTH = 0.075
+
     for level in range(4):
+        if level == TITLED_LEVEL:
+            y = 0.2
+            for index in range(TITLED_COUNT):
+                h = 0.27 + (index % 3) * 0.014
+                z = 0.32 + level * 0.5 + h / 2
+                colour = colours[index % 4]
+                books.append(
+                    cube(
+                        f"book_titled_{index}",
+                        (0.2, TITLED_WIDTH, h),
+                        (-3.05, y + TITLED_WIDTH / 2, z),
+                        material(f"book_{colour}", colour, roughness=0.8),
+                    )
+                )
+                # Proud of the spine face by 2mm so it never z-fights the book.
+                spines.append(
+                    plane(
+                        f"ix_book_spine_{index}",
+                        (TITLED_WIDTH * 0.86, h * 0.9),
+                        (-2.947, y + TITLED_WIDTH / 2, z),
+                        material(f"spine_{index}", colour, roughness=0.75),
+                        rotation=(math.radians(90), 0, math.radians(90)),
+                    )
+                )
+                y += TITLED_WIDTH + 0.008
+            continue
+
         y = 0.18
         while y < 1.62:
             h = 0.24 + (hash((level, round(y, 2))) % 5) * 0.012
             w = 0.036 + (hash((level, round(y, 3))) % 4) * 0.008
+            colour = colours[(level + int(y * 10)) % 4]
             books.append(
                 cube(
                     f"book_{level}_{round(y, 3)}",
                     (0.2, w, h),
                     (-3.05, y, 0.32 + level * 0.5 + h / 2),
-                    material(f"book_{colours[(level + int(y * 10)) % 4]}", colours[(level + int(y * 10)) % 4], roughness=0.8),
+                    material(f"book_{colour}", colour, roughness=0.8),
                 )
             )
             y += w + 0.006
-    return [shelf, join("ix_bookshelf", books)]
+
+    return [shelf, join("ix_bookshelf", books)] + spines
 
 
 def build_whiteboard() -> list[bpy.types.Object]:

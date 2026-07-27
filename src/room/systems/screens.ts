@@ -1,4 +1,5 @@
 import { CanvasTexture, LinearFilter, SRGBColorSpace } from 'three';
+import { projects } from '@/data/projects';
 import { stats } from '@/data/stats';
 import { experience } from '@/data/experience';
 import { profile } from '@/data/profile';
@@ -443,5 +444,57 @@ export function stickyTexture() {
     ctx.restore();
   });
 
+  return finish(canvas);
+}
+
+/**
+ * One book spine, carrying a project title.
+ *
+ * Drawn per book rather than as one strip across the shelf: the books are
+ * separate solids with separate UVs, so a single shared image tiles across
+ * every one of them instead of spanning the row. Each spine is its own quad in
+ * the model with its own 0..1 UV, and gets its own small canvas here.
+ */
+export function bookSpineTexture(index: number) {
+  const project = projects[index % Math.max(projects.length, 1)];
+  const W = 192;
+  const H = 768;
+
+  const palette = ['#2f5fd0', '#7c3aed', '#0f766e', '#c2410c', '#9d174d', '#0369a1'];
+  const base = palette[index % palette.length]!;
+  const { canvas, ctx } = surface(W, H, base);
+
+  // Head and tail bands, and a rule down the fore-edge: the small print
+  // furniture that separates a book from a coloured block.
+  ctx.fillStyle = 'rgba(0,0,0,0.28)';
+  ctx.fillRect(0, 0, W, 26);
+  ctx.fillRect(0, H - 26, W, 26);
+  ctx.fillStyle = 'rgba(255,255,255,0.22)';
+  ctx.fillRect(W - 10, 34, 3, H - 68);
+
+  if (!project) return finish(canvas);
+
+  ctx.save();
+  ctx.translate(W / 2, H / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.textAlign = 'center';
+
+  ctx.fillStyle = '#f8fafc';
+  let size = 52;
+  ctx.font = `700 ${size}px ${FONT_UI}`;
+  // Shrink to fit rather than truncate — a title ending in an ellipsis reads
+  // as a bug on something the visitor is being invited to lean in and read.
+  while (ctx.measureText(project.title).width > H - 120 && size > 22) {
+    size -= 2;
+    ctx.font = `700 ${size}px ${FONT_UI}`;
+  }
+  ctx.fillText(project.title, 0, -6);
+
+  ctx.fillStyle = 'rgba(248,250,252,0.72)';
+  ctx.font = `500 24px ${FONT_UI}`;
+  const stack = project.tags.slice(0, 2).join(' · ');
+  if (stack) ctx.fillText(stack, 0, 34);
+
+  ctx.restore();
   return finish(canvas);
 }
