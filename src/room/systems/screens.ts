@@ -301,7 +301,13 @@ export function terminalScreen() {
   ctx.fillText('$ ', 30, y);
   ctx.fillRect(52, y - 15, 11, 19);
 
-  return finish(canvas, true);
+  const texture = finish(canvas, true);
+  // Where the prompt ended up, so the blinking caret can be drawn over it
+  // rather than at a guessed offset. The terminal grows from the top and its
+  // length depends on how many stats and roles the CV has, so the position is
+  // not a constant anyone can write down.
+  texture.userData['promptY'] = y;
+  return texture;
 }
 
 /**

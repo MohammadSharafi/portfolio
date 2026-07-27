@@ -317,6 +317,25 @@ def join(name: str, objects: list[bpy.types.Object]) -> bpy.types.Object:
     return merged
 
 
+def set_origin(obj: bpy.types.Object, location: tuple[float, float, float]) -> bpy.types.Object:
+    """
+    Move an object's origin without moving the object.
+
+    A join leaves the origin wherever the first part happened to sit, which is
+    fine until something rotates: the runtime spins a chair about its own Y
+    axis, and an origin half a metre off the gas lift turns that into the chair
+    sliding across the floor.
+    """
+    previous = tuple(bpy.context.scene.cursor.location)
+    bpy.context.scene.cursor.location = location
+    bpy.ops.object.select_all(action="DESELECT")
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+    bpy.ops.object.origin_set(type="ORIGIN_CURSOR")
+    bpy.context.scene.cursor.location = previous
+    return obj
+
+
 # --------------------------------------------------------------------------
 # The room
 # --------------------------------------------------------------------------
@@ -883,6 +902,7 @@ def build_chair_and_plant() -> list[bpy.types.Object]:
                               rotation=(0, math.radians(90), angle)))
 
     chair = join("ix_chair", parts)
+    set_origin(chair, (cx, cy, 0.0))
     chair.rotation_euler = (0, 0, math.radians(-24))
 
     return [chair, build_plant(2.78, 0.35)]

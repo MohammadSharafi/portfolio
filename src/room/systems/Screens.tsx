@@ -1,4 +1,5 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
+import { useFrame } from '@react-three/fiber';
 import { Mesh, MeshBasicMaterial, type Object3D, type Texture } from 'three';
 import {
   bookSpineTexture,
@@ -8,6 +9,8 @@ import {
   terminalScreen,
   whiteboardTexture,
 } from './screens';
+import { LIVE_REGIONS, type LiveRegion } from './liveScreens';
+import { useReducedMotion } from '@/hooks/useReducedMotion';
 
 /**
  * Paints the room's readable surfaces.
@@ -46,7 +49,43 @@ function baseName(name: string) {
 
 const SPINE = /^ix_book_spine_(\d+)$/;
 
+/**
+ * Repaints one screen's live regions.
+ *
+ * Each region is cleared to the flat colour it sits on and then redrawn, so a
+ * caret costs one small `fillRect` rather than a whole canvas. Returns whether
+ * anything was drawn, so the caller only re-uploads textures that changed.
+ */
+function repaint(texture: Texture, regions: LiveRegion[], t: number) {
+  const canvas = texture.image as HTMLCanvasElement | undefined;
+  const ctx = canvas?.getContext('2d');
+  if (!ctx) return false;
+
+  for (const region of regions) {
+    ctx.fillStyle = region.background;
+    ctx.fillRect(region.x, region.y, region.w, region.h);
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(region.x, region.y, region.w, region.h);
+    ctx.clip();
+    region.draw(ctx, t);
+    ctx.restore();
+  }
+  return true;
+}
+
+/**
+ * Screens redraw at a fixed 12 Hz, not every frame.
+ *
+ * A canvas texture upload is a full re-send of the image to the GPU, and there
+ * are three of them; doing that at display rate costs far more than the motion
+ * is worth. A blinking caret and a counter read as alive at 12 Hz, and the cost
+ * stops scaling with refresh rate.
+ */
+const TICK = 1 / 12;
+
 export function Screens({ root }: { root: Object3D }) {
+  const reducedMotion = useReducedMotion();
   const textures = useMemo(() => {
     const made = new Map<string, Texture>();
     for (const [name, make] of Object.entries(TARGETS)) {
@@ -101,6 +140,43 @@ export function Screens({ root }: { root: Object3D }) {
       for (const texture of spineTextures.values()) texture.dispose();
     };
   }, [root, textures, spineTextures]);
+
+  const live = useMemo(
+    () =>
+      Object.entries(LIVE_REGIONS).flatMap(([name, build]) => {
+        const texture = textures.get(name);
+        if (!texture) return [];
+        const regions = build(texture);
+        return regions.length > 0 ? [{ texture, regions }] : [];
+      }),
+    [textures]
+  );
+
+  const elapsed = useRef(0);
+  const since = useRef(Infinity);
+
+  // Under reduced motion the screens still get one pass, so they settle on a
+  // drawn caret and a filled counter rather than on the bare background the
+  // regions were cut out of.
+  useEffect(() => {
+    if (!reducedMotion) return;
+    for (const { texture, regions } of live) {
+      if (repaint(texture, regions, 0)) texture.needsUpdate = true;
+    }
+  }, [live, reducedMotion]);
+
+  useFrame((_, delta) => {
+    if (reducedMotion || live.length === 0) return;
+
+    elapsed.current += Math.min(0.05, delta);
+    since.current += delta;
+    if (since.current < TICK) return;
+    since.current = 0;
+
+    for (const { texture, regions } of live) {
+      if (repaint(texture, regions, elapsed.current)) texture.needsUpdate = true;
+    }
+  });
 
   return null;
 }
