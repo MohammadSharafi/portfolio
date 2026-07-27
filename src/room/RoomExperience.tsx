@@ -1,7 +1,7 @@
 import { Suspense, useState } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { AdaptiveDpr, Preload } from '@react-three/drei';
-import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing';
+import { EffectComposer, Bloom, N8AO, Vignette } from '@react-three/postprocessing';
 import { ACESFilmicToneMapping, type Object3D } from 'three';
 import { Physics } from '@react-three/rapier';
 import { RoomModel } from './systems/RoomModel';
@@ -35,18 +35,27 @@ function Scene({ url, baked }: { url: string; baked: boolean }) {
         both wrong and wasted. The lit path gets a full rig instead. */}
       {baked ? null : (
         <>
-          <SceneEnvironment intensity={0.45} />
-          <ambientLight color="#4a5878" intensity={0.6} />
+          <SceneEnvironment intensity={0.62} />
+          {/* Ambient is deliberately low. A high uniform term lights the inside
+            of every corner as brightly as the middle of every wall, which is
+            the single thing that makes a real-time room read as flat — the
+            environment and the ambient-occlusion pass below carry the fill
+            instead, and they both know where the corners are. */}
+          <ambientLight color="#46536f" intensity={0.22} />
           <directionalLight
-            color="#93b0e8"
-            intensity={1.9}
+            color="#a8c2f0"
+            intensity={2.6}
             position={[5, 7, -5]}
             castShadow
             shadow-mapSize={[2048, 2048]}
-            shadow-bias={-0.0009}
+            shadow-bias={-0.0006}
+            shadow-normalBias={0.02}
           >
             <orthographicCamera attach="shadow-camera" args={[-6, 6, 6, -6, 0.1, 30]} />
           </directionalLight>
+          {/* A dim warm bounce off the floor, opposite the key. Nothing in a
+            room is lit from one side only. */}
+          <directionalLight color="#ffb98a" intensity={0.5} position={[-4, 1.5, 4]} />
           {/* The desk lamp is a real light: switching it changes what the room
             is lit by, not just what one bulb looks like. */}
           <pointLight
@@ -79,6 +88,19 @@ function Scene({ url, baked }: { url: string; baked: boolean }) {
       </Physics>
 
       <EffectComposer enableNormalPass={false}>
+        {/* Ambient occlusion, and only on the lit path — a baked room already
+          carries its own occlusion in the lightmap, and a second pass on top
+          would darken every corner twice.
+
+          This is the largest single difference between the real-time room and
+          the baked one. Direct light plus an environment gives no contact
+          shadow at all: every object floats a little, because the crease where
+          it meets the floor is exactly as bright as the floor. */}
+        {baked ? (
+          <></>
+        ) : (
+          <N8AO aoRadius={0.55} intensity={2.4} distanceFalloff={0.8} quality="medium" halfRes />
+        )}
         {/* High threshold on purpose: the room has a lot of small bright
           sources, and a lower one turns their combined bloom into fog. */}
         <Bloom intensity={0.5} luminanceThreshold={0.88} luminanceSmoothing={0.3} mipmapBlur />
@@ -102,7 +124,14 @@ export function RoomExperience() {
         shadows={!asset.baked}
         dpr={[1, 2]}
         gl={{ antialias: true, powerPreference: 'high-performance' }}
-        camera={{ fov: 34, near: 0.1, far: 200, position: [5.4, 4.2, -5.6] }}
+        camera={{
+          fov: 34,
+          near: 0.1,
+          far: 200,
+          // Close to HOME_STOP, so the first frame the visitor sees is roughly
+          // where the rig is about to ease it to rather than a jump.
+          position: [6.55, 4.9, -6.75],
+        }}
         onCreated={({ gl }) => {
           gl.toneMapping = ACESFilmicToneMapping;
           gl.toneMappingExposure = 1.15;
