@@ -36,6 +36,7 @@ export function RoomModel({
   const hover = useEngine((state) => state.hover);
   const focus = useEngine((state) => state.focus);
   const toggleLamp = useEngine((state) => state.toggleLamp);
+  const spinChair = useEngine((state) => state.spinChair);
   const discover = useEngine((state) => state.discover);
 
   const prepared = useMemo(() => {
@@ -62,6 +63,10 @@ export function RoomModel({
 
       const id = toObjectId(node.name);
       if (id) node.userData.objectId = id;
+
+      // The chair is not in the registry — it has nothing to say and no panel
+      // to open. It is marked separately so a click can shove it instead.
+      if (node.name.startsWith('ix_chair')) node.userData.spin = true;
     });
 
     return root;
@@ -91,7 +96,13 @@ export function RoomModel({
       object={prepared}
       onPointerOver={(event: { stopPropagation(): void; object: Object3D }) => {
         const id = event.object.userData.objectId as ObjectId | undefined;
-        if (!id) return;
+        if (!id) {
+          if (event.object.userData.spin) {
+            event.stopPropagation();
+            document.body.style.cursor = 'grab';
+          }
+          return;
+        }
         event.stopPropagation();
         hover(id);
         document.body.style.cursor = 'pointer';
@@ -101,6 +112,17 @@ export function RoomModel({
         document.body.style.cursor = '';
       }}
       onClick={(event: { stopPropagation(): void; object: Object3D }) => {
+        // Shove the chair. It carries no information — everything the room has
+        // to say is reachable from the overlay — so it stays out of the
+        // registry and out of the keyboard order, and is purely something to
+        // play with.
+        if (event.object.userData.spin) {
+          event.stopPropagation();
+          roomAudio.play('knock');
+          spinChair();
+          return;
+        }
+
         const id = event.object.userData.objectId as ObjectId | undefined;
         if (!id) return;
         event.stopPropagation();
