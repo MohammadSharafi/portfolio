@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Mesh, MeshStandardMaterial, type Object3D } from 'three';
 import { useEngine } from '../engine/store';
-import { useReducedMotion } from '@/hooks/useReducedMotion';
 
 /**
  * The room's moving parts.
@@ -11,6 +10,11 @@ import { useReducedMotion } from '@/hooks/useReducedMotion';
  * per-frame fraction, for the same reason the camera does: a fixed fraction
  * makes the lid shut twice as fast on a 120Hz display as on a 60Hz one, and the
  * two feel like different mechanisms.
+ *
+ * The chair is deliberately not here. It used to drift and could be shoved into
+ * a spin; both are on hold until the room's design is settled, and until then a
+ * chair that is simply well placed and well made is worth more than one that
+ * moves.
  */
 
 /**
@@ -25,24 +29,14 @@ const LID_CLOSED = 1.42;
 export function Animations({ root }: { root: Object3D }) {
   const focused = useEngine((state) => state.focused);
   const lampOn = useEngine((state) => state.lampOn);
-  const spins = useEngine((state) => state.spins);
-  const reducedMotion = useReducedMotion();
 
   const parts = useMemo(() => {
     // Each part keeps its own resting rotation: the lid body sits at the hinge
     // tilt, the screen at that tilt plus the rotation that stands it upright.
     const lid: Array<{ node: Object3D; base: number }> = [];
     const bulbs: MeshStandardMaterial[] = [];
-    let chair: { node: Object3D; base: number } | null = null;
 
     root.traverse((node) => {
-      // First match only. The chair carries five materials, so glTF splits it
-      // into a group of five primitives named `ix_chair`, `ix_chair_1`… and
-      // traverse reaches the group first. Taking the last match would turn one
-      // fifth of a chair and leave the rest behind.
-      if (!chair && node.name.startsWith('ix_chair')) {
-        chair = { node, base: node.rotation.y };
-      }
       // The lid body and its screen are separate objects sharing the hinge as
       // their origin, so both turn.
       if (node.name.startsWith('ix_laptop_lid') || node.name.startsWith('ix_laptop_display')) {
@@ -56,7 +50,7 @@ export function Animations({ root }: { root: Object3D }) {
       }
     });
 
-    return { lid, bulbs, chair: chair as { node: Object3D; base: number } | null };
+    return { lid, bulbs };
   }, [root]);
 
   // The lid rests open, which is how the model is authored.
@@ -68,25 +62,11 @@ export function Animations({ root }: { root: Object3D }) {
   // its laptop open.
   const lidProgress = useRef(0);
   const glow = useRef(1);
-  const elapsed = useRef(0);
-  const spinRate = useRef(0);
-  const spun = useRef(0);
-  const seenSpins = useRef(spins);
 
   // The bulb should be lit on arrival if the lamp is on, not fade up from dark.
   useEffect(() => {
     glow.current = lampOn ? 1 : 0;
   }, [parts, lampOn]);
-
-  // Each shove adds to whatever the chair is already doing, so pushing a
-  // spinning chair speeds it up rather than restarting it. Alternating
-  // direction is what a real one does — nobody shoves a chair the same way
-  // twice — and it also keeps repeated clicks from winding it up forever.
-  useEffect(() => {
-    if (spins === seenSpins.current) return;
-    seenSpins.current = spins;
-    spinRate.current += (spins % 2 === 0 ? -1 : 1) * (7 + Math.random() * 4);
-  }, [spins]);
 
   useFrame((_, delta) => {
     const dt = Math.min(0.05, delta);
@@ -104,35 +84,6 @@ export function Animations({ root }: { root: Object3D }) {
     glow.current += (lampTarget - glow.current) * (1 - Math.exp(-6 * dt));
     for (const material of parts.bulbs) {
       material.emissiveIntensity = 0.05 + glow.current * 5.95;
-    }
-
-    // The chair drifts. Two sine waves whose periods do not divide into each
-    // other, so it never visibly repeats — a single sine reads as a mechanism
-    // swinging on a timer, which is worse than not moving at all. The amplitude
-    // is about seven degrees: enough that the room is never quite still, small
-    // enough that nobody catches it happening.
-    //
-    // Held still under reduced motion. The lid and the lamp above are responses
-    // to something the visitor did; this is the room moving on its own, which is
-    // the kind the preference is actually about.
-    if (parts.chair) {
-      // Friction, as an exponential decay on the rate. A chair on castors does
-      // not stop dead and it does not coast forever; it winds down over a few
-      // seconds, and the last half-turn is the part that reads as real.
-      spinRate.current *= Math.exp(-1.15 * dt);
-      if (Math.abs(spinRate.current) < 0.01) spinRate.current = 0;
-      spun.current += spinRate.current * dt;
-
-      // The idle drift is unrequested movement, so it is the part reduced
-      // motion silences. A shove is something the visitor asked for, and still
-      // works.
-      let sway = 0;
-      if (!reducedMotion) {
-        elapsed.current += dt;
-        const t = elapsed.current;
-        sway = Math.sin(t * 0.31) * 0.085 + Math.sin(t * 0.73 + 1.4) * 0.038;
-      }
-      parts.chair.node.rotation.y = parts.chair.base + spun.current + sway;
     }
   });
 

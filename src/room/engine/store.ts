@@ -30,8 +30,6 @@ interface EngineState extends SaveState {
   hovered: ObjectId | null;
   /** Desk lamp, which genuinely changes the room's lighting. */
   lampOn: boolean;
-  /** Bumped on every shove of the chair; the animation reads the change. */
-  spins: number;
   /** Drives the window's outside world and the room's ambient colour. */
   timeOfDay: 'day' | 'dusk' | 'night';
   muted: boolean;
@@ -43,7 +41,6 @@ interface EngineState extends SaveState {
   unfocus: () => void;
   hover: (id: ObjectId | null) => void;
   toggleLamp: () => void;
-  spinChair: () => void;
   cycleTime: () => void;
   toggleMuted: () => void;
   setProgress: (value: number) => void;
@@ -65,7 +62,6 @@ export const useEngine = create<EngineState>()(
       focused: null,
       hovered: null,
       lampOn: true,
-      spins: 0,
       timeOfDay: 'night',
       muted: true,
       progress: 0,
@@ -85,10 +81,6 @@ export const useEngine = create<EngineState>()(
       unfocus: () => set({ focused: null, phase: 'exploring' }),
       hover: (id) => set({ hovered: id }),
       toggleLamp: () => set({ lampOn: !get().lampOn }),
-      // A counter rather than a boolean, so shoving an already-spinning chair
-      // adds to it the way a real one does.
-      spinChair: () => set({ spins: get().spins + 1 }),
-
       cycleTime: () => {
         const next = TIMES[(TIMES.indexOf(get().timeOfDay) + 1) % TIMES.length];
         set({ timeOfDay: next ?? 'night' });

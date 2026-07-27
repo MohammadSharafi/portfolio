@@ -18,6 +18,7 @@ So the export refuses to run against a scene missing a name the runtime needs.
 
 from __future__ import annotations
 
+import math
 import os
 import re
 import sys
@@ -61,6 +62,7 @@ SYSTEM_MESHES = {
     "ix_laptop_display": "Screens.tsx paints the terminal onto this; Animations.tsx swings it",
     "ix_whiteboard_face": "Screens.tsx paints the architecture diagram onto this",
     "ix_sticky_notes": "Screens.tsx paints the notes onto this",
+    "ix_cv_face": "Screens.tsx prints the CV onto this",
     "ix_laptop_lid_body": "Animations.tsx swings the lid on this",
     "ix_chair": "Animations.tsx turns the chair by this",
     "ix_lamp": "Animations.tsx drives the bulb's emission through this",
@@ -123,6 +125,7 @@ RESTS_ON = (
     ("ix_mug", "desk_top"),
     ("ix_notebook", "desk_top"),
     ("ix_headphones", "desk_top"),
+    ("ix_cv", "desk_top"),
     # Joined, so its footprint covers every loose thing on the desk at once —
     # which is what caught the papers sliding off the front.
     ("desk_clutter", "desk_top"),
@@ -189,6 +192,125 @@ def check_resting() -> list[str]:
         )
         if overhang > EDGE_TOLERANCE:
             complaints.append(f"{prop} hangs {overhang * 100:.1f} cm off the edge of {surface}")
+    return complaints
+
+
+# Loose things standing on a surface. None of these should share space with
+# another: a screen inside its own bezel is fine and expected, two objects on a
+# desktop occupying the same 9 cm is not.
+LOOSE = (
+    "ix_keyboard", "ix_mouse", "ix_mug", "ix_notebook", "ix_pencil",
+    "ix_headphones", "ix_cv", "laptop_base", "lamp",
+)
+
+# How far two loose props may interpenetrate before it is a mistake. Contact is
+# fine and a millimetre of bevel poking through is not worth a warning.
+TOUCH_TOLERANCE = 0.004
+
+
+def check_clearance() -> list[str]:
+    """
+    Loose props standing inside one another.
+
+    The headphones spent a long time 9 cm inside the notebook, resting on
+    nothing and passing through the cover, and a document holder was once
+    placed straight inside the desk lamp. Neither looks broken from the
+    establishing shot — one solid ends where another begins and the eye reads
+    it as contact — which is why they both survived being looked at.
+    """
+    boxes: dict[str, tuple[float, ...]] = {}
+    for name in LOOSE:
+        obj = bpy.data.objects.get(name)
+        if obj is None:
+            continue
+        pts = [obj.matrix_world @ v.co for v in obj.data.vertices]
+        boxes[name] = (
+            min(p.x for p in pts), max(p.x for p in pts),
+            min(p.y for p in pts), max(p.y for p in pts),
+            min(p.z for p in pts), max(p.z for p in pts),
+        )
+
+    complaints = []
+    names = sorted(boxes)
+    for index, first in enumerate(names):
+        for second in names[index + 1:]:
+            a, b = boxes[first], boxes[second]
+            overlap = [
+                min(a[1], b[1]) - max(a[0], b[0]),
+                min(a[3], b[3]) - max(a[2], b[2]),
+                min(a[5], b[5]) - max(a[4], b[4]),
+            ]
+            if all(o > TOUCH_TOLERANCE for o in overlap):
+                complaints.append(
+                    f"{first} and {second} overlap by "
+                    f"{overlap[0] * 100:.1f} x {overlap[1] * 100:.1f} x {overlap[2] * 100:.1f} cm"
+                )
+    return complaints
+
+
+# How far a camera stop's target may fall outside the object it is meant to be
+# looking at. Aiming a little in front of a screen is deliberate; aiming at the
+# far side of the room is not.
+AIM_TOLERANCE = 0.25
+
+# Objects whose stop is deliberately nowhere near the mesh, with the reason.
+# Listed rather than handled by loosening the tolerance for everyone, because a
+# tolerance wide enough to cover this one would be wide enough to hide the next
+# genuine mistake.
+AIM_EXEMPT = {
+    "window": "ix_window is the Toronto skyline 26 m outside; the stop frames the opening",
+}
+
+
+def check_stops() -> list[str]:
+    """
+    Camera stops pointing at nothing.
+
+    This is the failure that hides best. A stop is two vectors in a data file,
+    written in glTF space while the model is authored in Blender space, and
+    nothing connects them to the object they name — so when the desk was
+    rearranged, six of the fifteen stops kept the coordinates of where their
+    object used to be. Clicking the lamp flew the camera 2.4 m to the left of
+    it and stopped, framing bare desk, and the room looked like it had simply
+    decided not to respond.
+
+    Blender `(x, y, z)` exports as glTF `(x, z, -y)`, so a target read out of
+    the registry comes back here as `(x, -z, y)`.
+    """
+    source = open(REGISTRY, encoding="utf-8").read()
+    stops = re.findall(
+        r"id: '([a-z0-9-]+)',.*?target: \[\s*([-\d.]+),\s*([-\d.]+),\s*([-\d.]+)\s*\]",
+        source,
+        re.S,
+    )
+
+    complaints = []
+    for object_id, gx, gy, gz in stops:
+        if object_id in AIM_EXEMPT:
+            continue
+        prefix = "ix_" + object_id.replace("-", "_")
+        points = []
+        for obj in bpy.context.scene.objects:
+            if obj.type != "MESH":
+                continue
+            if obj.name == prefix or obj.name.startswith(f"{prefix}_"):
+                points += [obj.matrix_world @ v.co for v in obj.data.vertices]
+        if not points:
+            complaints.append(f"{object_id} has a camera stop but no mesh named {prefix}")
+            continue
+
+        target = (float(gx), -float(gz), float(gy))
+        away = [
+            max(min(p[axis] for p in points) - target[axis],
+                target[axis] - max(p[axis] for p in points), 0.0)
+            for axis in range(3)
+        ]
+        miss = math.sqrt(sum(a * a for a in away))
+        if miss > AIM_TOLERANCE:
+            complaints.append(
+                f"{object_id}'s camera stop aims {miss * 100:.0f} cm off the object — "
+                f"it looks at {target}, and {prefix} is nowhere near there"
+            )
     return complaints
 
 
