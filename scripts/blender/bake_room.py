@@ -52,28 +52,27 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def engine_ids() -> list[str]:
-    return [
-        item.identifier
-        for item in bpy.types.Scene.bl_rna.properties["render"]
-        .fixed_type.properties["engine"]
-        .enum_items
-    ]
+def cycles_module_present() -> bool:
+    """Cheap up-front check that the add-on ships with this build at all."""
+    try:
+        import addon_utils
+
+        return any(module.__name__ == "cycles" for module in addon_utils.modules())
+    except Exception:
+        return False
 
 
-def require_cycles() -> None:
+def ensure_cycles() -> bool:
     """
-    Make sure Cycles is actually available, enabling it if it merely is not on.
+    Enable Cycles and confirm the engine can actually be selected.
 
-    Cycles ships as an add-on rather than as part of the core, and a
-    --background session does not necessarily have it registered — a real
-    Blender install can report only EEVEE until the add-on is enabled. The first
-    version of this checked the engine list and quit before trying, which turned
-    a one-line fix into a hard stop on a perfectly good install.
+    Two things make this less obvious than it looks. Reading the engine list off
+    the RNA definition returns a static enum that does not reflect engines
+    registered at runtime, so the only honest test is to assign the engine and
+    see whether it takes. And `read_factory_settings()` resets preferences,
+    which disables the add-on again — so this has to run *after* the scene is
+    built, not before it.
     """
-    if "CYCLES" in engine_ids():
-        return
-
     try:
         import addon_utils
 
@@ -81,22 +80,15 @@ def require_cycles() -> None:
     except Exception as exc:  # pragma: no cover - depends on the install
         print(f"[bake_room] could not enable the Cycles add-on: {exc}", file=sys.stderr)
 
-    if "CYCLES" in engine_ids():
-        print("[bake_room] enabled the Cycles add-on")
-        return
-
-    sys.exit(
-        "Cycles is not available in this Blender build, so nothing can be baked.\n"
-        f"Engines present: {', '.join(engine_ids())}\n\n"
-        "If this is a real Blender install, enable the Cycles add-on once in\n"
-        "Preferences > Add-ons and try again. If it is the `bpy` PyPI module,\n"
-        "it ships without Cycles at all — use the Blender application instead."
-    )
+    try:
+        bpy.context.scene.render.engine = "CYCLES"
+    except (TypeError, AttributeError):
+        return False
+    return bpy.context.scene.render.engine == "CYCLES"
 
 
 def configure_cycles(samples: int, force_cpu: bool) -> None:
     scene = bpy.context.scene
-    scene.render.engine = "CYCLES"
     scene.cycles.samples = samples
     scene.cycles.use_denoising = True
     scene.cycles.bake_type = "COMBINED"
@@ -215,7 +207,13 @@ def rewire_to_baked(atlas: bpy.types.Image, meshes: list[bpy.types.Object]) -> N
 
 def main() -> None:
     args = parse_args()
-    require_cycles()
+
+    if not cycles_module_present():
+        sys.exit(
+            "This Blender build does not ship the Cycles add-on, so nothing can\n"
+            "be baked. If this is the `bpy` PyPI module it never will; use the\n"
+            "Blender application instead."
+        )
 
     import build_room
 
@@ -235,6 +233,14 @@ def main() -> None:
     build_room.build_chair_and_plant()
     build_room.add_lighting()
     build_room.unwrap_all()
+
+    if not ensure_cycles():
+        sys.exit(
+            "Cycles could not be selected as the render engine.\n"
+            "Open Blender normally, enable Cycles under Preferences > Add-ons,\n"
+            "save preferences, then run this again."
+        )
+    print("[bake_room] Cycles enabled")
 
     configure_cycles(args.samples, args.cpu)
 
