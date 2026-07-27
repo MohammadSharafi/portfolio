@@ -507,6 +507,26 @@ def join(name: str, objects: list[bpy.types.Object]) -> bpy.types.Object:
     # assignment, and they were the only parts that ended up in the wrong place.
     bpy.context.view_layer.update()
 
+    # Bake every part's own modifiers into it before merging.
+    #
+    # A join keeps the *active* object's modifier stack and throws away
+    # everyone else's. Both halves of that are wrong here. The chair's seat
+    # carries a Solidify and a Subsurf, so joining the chair into it applied
+    # both to the gas lift, the castors and the five-star base — 303 vertices
+    # became 7716 and the hardware turned to blobs. The sofa went the other
+    # way: its cushions were joined into a base with no modifiers, so they lost
+    # their subdivision and went back to being the boxes they started as.
+    #
+    # Applying first means each part keeps the shape it was given.
+    for obj in objects:
+        if not obj.modifiers:
+            continue
+        bpy.ops.object.select_all(action="DESELECT")
+        obj.select_set(True)
+        bpy.context.view_layer.objects.active = obj
+        for modifier in list(obj.modifiers):
+            bpy.ops.object.modifier_apply(modifier=modifier.name)
+
     bpy.ops.object.select_all(action="DESELECT")
     for obj in objects:
         obj.select_set(True)
@@ -1749,23 +1769,47 @@ def add_lighting() -> None:
     them — it rigs its own — but a bake needs them, and keeping them here means
     the bake and the real-time render start from the same intent.
     """
+    # A world, first. `read_factory_settings(use_empty=True)` leaves the scene
+    # without one, and Cycles gathers ambient light from the world — with none,
+    # every surface the lamps do not reach directly bakes to black. That is why
+    # the first baked room came out a dark cave with three bright screens
+    # floating in it.
+    world = bpy.data.worlds.get("room_world") or bpy.data.worlds.new("room_world")
+    bpy.context.scene.world = world
+    world.use_nodes = True
+    background = world.node_tree.nodes["Background"]
+    background.inputs["Color"].default_value = (0.075, 0.095, 0.155, 1.0)
+    background.inputs["Strength"].default_value = 1.6
+
+    # Energies are for a room 6.4 x 5.2 m with 2.7 m of usable height. The first
+    # pass used 90 W for the key, which is a desk lamp's worth of light for a
+    # space the size of a bedroom.
     bpy.ops.object.light_add(type="AREA", location=(1.2, 0.6, 2.6))
     key = bpy.context.object
     key.name = "key"
-    key.data.energy = 90
-    key.data.size = 2.2
-    key.data.color = (0.62, 0.72, 1.0)
+    key.data.energy = 520
+    key.data.size = 3.2
+    key.data.color = (0.68, 0.77, 1.0)
+
+    # A second, softer source from the other side, so the room is not lit from
+    # one corner only.
+    bpy.ops.object.light_add(type="AREA", location=(-2.2, 1.4, 2.5))
+    fill = bpy.context.object
+    fill.name = "fill"
+    fill.data.energy = 180
+    fill.data.size = 2.6
+    fill.data.color = (1.0, 0.88, 0.76)
 
     bpy.ops.object.light_add(type="POINT", location=(-1.02, -2.0, 1.15))
     warm = bpy.context.object
     warm.name = "lamp_light"
-    warm.data.energy = 32
+    warm.data.energy = 55
     warm.data.color = (1.0, 0.66, 0.34)
 
     bpy.ops.object.light_add(type="AREA", location=(0, -2.0, 1.25))
     screens = bpy.context.object
     screens.name = "screen_bounce"
-    screens.data.energy = 24
+    screens.data.energy = 45
     screens.data.size = 1.6
     screens.data.color = (0.42, 0.66, 1.0)
     screens.rotation_euler = (math.radians(90), 0, 0)
