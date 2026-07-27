@@ -34,6 +34,8 @@ export function RoomModel({
   const { scene } = useGLTF(url);
   const hover = useEngine((state) => state.hover);
   const focus = useEngine((state) => state.focus);
+  const toggleLamp = useEngine((state) => state.toggleLamp);
+  const discover = useEngine((state) => state.discover);
 
   const prepared = useMemo(() => {
     const root = scene.clone(true);
@@ -101,6 +103,14 @@ export function RoomModel({
         const id = event.object.userData.objectId as ObjectId | undefined;
         if (!id) return;
         event.stopPropagation();
+        // The lamp is a switch, not a subject. Pushing the camera in on it to
+        // explain that it can be switched, instead of just switching it, would
+        // be the least satisfying possible response to clicking a light.
+        if (id === 'lamp') {
+          toggleLamp();
+          discover(id);
+          return;
+        }
         focus(id);
       }}
     />

@@ -1,4 +1,4 @@
-import { CanvasTexture, LinearFilter, SRGBColorSpace } from 'three';
+import { CanvasTexture, LinearFilter, RepeatWrapping, SRGBColorSpace } from 'three';
 import { projects } from '@/data/projects';
 import { stats } from '@/data/stats';
 import { experience } from '@/data/experience';
@@ -31,14 +31,24 @@ function surface(width: number, height: number, background: string) {
   return { canvas, ctx };
 }
 
-function finish(canvas: HTMLCanvasElement) {
+function finish(canvas: HTMLCanvasElement, mirrored = false) {
   const texture = new CanvasTexture(canvas);
   texture.colorSpace = SRGBColorSpace;
   texture.minFilter = LinearFilter;
   texture.magFilter = LinearFilter;
   texture.anisotropy = 8;
-  // Blender's UVs on these faces run the other way up from the canvas.
-  texture.flipY = false;
+
+  // The screens face the room across +Z, and looking down +Z puts world +X on
+  // the left, so their quads sample U back to front and every line of text came
+  // out mirrored. Corrected here rather than by negative-scaling the geometry,
+  // which inverts winding order and culls the face entirely — which is exactly
+  // what the first attempt at this did.
+  if (mirrored) {
+    texture.wrapS = RepeatWrapping;
+    texture.repeat.x = -1;
+    texture.offset.x = 1;
+  }
+
   return texture;
 }
 
@@ -169,7 +179,7 @@ export function clinicalScreen() {
     ctx.fillText(row, 68, y);
   });
 
-  return finish(canvas);
+  return finish(canvas, true);
 }
 
 /** Monitor 2 — the editor, showing code that is actually about this room. */
@@ -256,7 +266,7 @@ export function codeScreen() {
   ctx.fillStyle = '#7d8590';
   ctx.fillText('$ ', 22, H - 12);
 
-  return finish(canvas);
+  return finish(canvas, true);
 }
 
 /** The laptop — a terminal with the verifiable numbers. */
@@ -291,7 +301,7 @@ export function terminalScreen() {
   ctx.fillText('$ ', 30, y);
   ctx.fillRect(52, y - 15, 11, 19);
 
-  return finish(canvas);
+  return finish(canvas, true);
 }
 
 /**

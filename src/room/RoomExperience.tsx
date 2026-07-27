@@ -9,9 +9,11 @@ import { CameraRig } from './engine/CameraRig';
 import { SceneEnvironment } from './systems/SceneEnvironment';
 import { Screens } from './systems/Screens';
 import { Props } from './systems/Props';
+import { Animations } from './systems/Animations';
 import { Overlay } from './ui/Overlay';
 import { useRoomAsset } from './engine/useRoomAsset';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
+import { useEngine } from './engine/store';
 
 /**
  * Scene manager: composes the room, its rig and its UI.
@@ -23,6 +25,7 @@ import { useReducedMotion } from '@/hooks/useReducedMotion';
 function Scene({ url, baked }: { url: string; baked: boolean }) {
   const reducedMotion = useReducedMotion();
   const [root, setRoot] = useState<Object3D | null>(null);
+  const lampOn = useEngine((state) => state.lampOn);
 
   return (
     <>
@@ -44,9 +47,11 @@ function Scene({ url, baked }: { url: string; baked: boolean }) {
           >
             <orthographicCamera attach="shadow-camera" args={[-6, 6, 6, -6, 0.1, 30]} />
           </directionalLight>
+          {/* The desk lamp is a real light: switching it changes what the room
+            is lit by, not just what one bulb looks like. */}
           <pointLight
             color="#ffb367"
-            intensity={9}
+            intensity={lampOn ? 9 : 0}
             distance={5}
             decay={2}
             position={[-1.02, 1.15, 2]}
@@ -64,6 +69,7 @@ function Scene({ url, baked }: { url: string; baked: boolean }) {
       <RoomModel url={url} baked={baked} onReady={setRoot} />
 
       {root ? <Screens root={root} /> : null}
+      {root ? <Animations root={root} /> : null}
 
       {/* Physics runs paused under reduced motion: objects tumbling of their
         own accord is exactly the kind of unrequested movement the preference

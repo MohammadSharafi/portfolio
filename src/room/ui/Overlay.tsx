@@ -19,6 +19,8 @@ export function Overlay() {
   const discovered = useEngine((state) => state.discovered);
   const focus = useEngine((state) => state.focus);
   const unfocus = useEngine((state) => state.unfocus);
+  const lampOn = useEngine((state) => state.lampOn);
+  const toggleLamp = useEngine((state) => state.toggleLamp);
 
   const panelRef = useRef<HTMLDivElement>(null);
   const returnTo = useRef<HTMLButtonElement | null>(null);
@@ -118,6 +120,17 @@ export function Overlay() {
                 </li>
               ))}
             </ul>
+          ) : null}
+
+          {object.id === 'lamp' ? (
+            <button
+              type="button"
+              onClick={toggleLamp}
+              aria-pressed={lampOn}
+              className="mt-4 rounded-full bg-white px-4 py-2 text-sm font-medium text-black transition-opacity hover:opacity-90"
+            >
+              {lampOn ? 'Switch the lamp off' : 'Switch the lamp on'}
+            </button>
           ) : null}
 
           {object.panel.link ? (
