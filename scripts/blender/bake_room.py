@@ -52,27 +52,46 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def require_cycles() -> None:
-    """
-    Fail early and legibly.
-
-    A bake that dies thirty minutes in because the engine was never available
-    wastes the one resource this script actually costs — the operator's evening.
-    """
-    engines = [
+def engine_ids() -> list[str]:
+    return [
         item.identifier
         for item in bpy.types.Scene.bl_rna.properties["render"]
         .fixed_type.properties["engine"]
         .enum_items
     ]
-    if "CYCLES" not in engines:
-        sys.exit(
-            "Cycles is not available in this Blender build, so nothing can be baked.\n"
-            f"Engines present: {', '.join(engines)}\n\n"
-            "This usually means the script is running against the `bpy` PyPI module\n"
-            "rather than a real Blender install. Run it with the Blender binary:\n"
-            "    blender --background --python scripts/blender/bake_room.py"
-        )
+
+
+def require_cycles() -> None:
+    """
+    Make sure Cycles is actually available, enabling it if it merely is not on.
+
+    Cycles ships as an add-on rather than as part of the core, and a
+    --background session does not necessarily have it registered — a real
+    Blender install can report only EEVEE until the add-on is enabled. The first
+    version of this checked the engine list and quit before trying, which turned
+    a one-line fix into a hard stop on a perfectly good install.
+    """
+    if "CYCLES" in engine_ids():
+        return
+
+    try:
+        import addon_utils
+
+        addon_utils.enable("cycles", default_set=True, persistent=True)
+    except Exception as exc:  # pragma: no cover - depends on the install
+        print(f"[bake_room] could not enable the Cycles add-on: {exc}", file=sys.stderr)
+
+    if "CYCLES" in engine_ids():
+        print("[bake_room] enabled the Cycles add-on")
+        return
+
+    sys.exit(
+        "Cycles is not available in this Blender build, so nothing can be baked.\n"
+        f"Engines present: {', '.join(engine_ids())}\n\n"
+        "If this is a real Blender install, enable the Cycles add-on once in\n"
+        "Preferences > Add-ons and try again. If it is the `bpy` PyPI module,\n"
+        "it ships without Cycles at all — use the Blender application instead."
+    )
 
 
 def configure_cycles(samples: int, force_cpu: bool) -> None:
