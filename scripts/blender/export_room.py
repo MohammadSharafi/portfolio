@@ -111,6 +111,53 @@ def validate(names: set[str]) -> list[str]:
     return [f"{name} — {'; '.join(reasons)}" for name, reasons in missing.items()]
 
 
+# What each prop is supposed to be resting on, as (prop prefix, surface object).
+# Checked because it keeps happening: the laptop's body sat entirely inside the
+# desk for weeks, its screen apparently standing on the desktop with nothing
+# under it, and the keyboard and notebook were sunk too. A buried object is
+# invisible rather than obviously wrong, which is exactly why it survives.
+RESTS_ON = (
+    ("laptop_base", "desk_top"),
+    ("ix_keyboard", "desk_top"),
+    ("ix_mouse", "desk_top"),
+    ("ix_mug", "desk_top"),
+    ("ix_notebook", "desk_top"),
+    ("ix_headphones", "desk_top"),
+)
+
+# How far a prop may sink into what carries it before it is a mistake. A
+# millimetre or two is deliberate — it stops a coplanar contact z-fighting.
+SINK_TOLERANCE = 0.006
+
+
+def _top_of(name: str) -> float | None:
+    obj = bpy.data.objects.get(name)
+    if obj is None:
+        return None
+    return max((obj.matrix_world @ v.co).z for v in obj.data.vertices)
+
+
+def _bottom_of(name: str) -> float | None:
+    obj = bpy.data.objects.get(name)
+    if obj is None:
+        return None
+    return min((obj.matrix_world @ v.co).z for v in obj.data.vertices)
+
+
+def check_resting() -> list[str]:
+    """Props that have sunk into the surface they are supposed to sit on."""
+    complaints: list[str] = []
+    for prop, surface in RESTS_ON:
+        top = _top_of(surface)
+        bottom = _bottom_of(prop)
+        if top is None or bottom is None:
+            continue
+        sunk = top - bottom
+        if sunk > SINK_TOLERANCE:
+            complaints.append(f"{prop} is {sunk * 100:.1f} cm inside {surface}")
+    return complaints
+
+
 def ensure_uvs() -> int:
     """
     Give every mesh a UV layer if it has none.

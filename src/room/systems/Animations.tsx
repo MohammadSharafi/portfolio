@@ -58,7 +58,14 @@ export function Animations({ root }: { root: Object3D }) {
     return { lid, bulbs, chair: chair as { node: Object3D; base: number } | null };
   }, [root]);
 
-  const lidProgress = useRef(1);
+  // The lid rests open, which is how the model is authored.
+  //
+  // It used to rest shut and open only while the laptop was the subject. That
+  // read well in close-up and badly everywhere else: from across the room a
+  // closed laptop is a dark slab lying between two lit monitors, and it looked
+  // less like a laptop than like something broken. A desk someone works at has
+  // its laptop open.
+  const lidProgress = useRef(0);
   const glow = useRef(1);
   const elapsed = useRef(0);
 
@@ -70,10 +77,10 @@ export function Animations({ root }: { root: Object3D }) {
   useFrame((_, delta) => {
     const dt = Math.min(0.05, delta);
 
-    // Open only while the laptop is the subject. Leaving it open afterwards
-    // would mean the room slowly accumulates the state of everywhere the
-    // visitor has been, which reads as clutter rather than as memory.
-    const target = focused === 'laptop' ? 0 : 1;
+    // The lid only shuts while the visitor is looking at something across the
+    // room, and even then only part way — enough that the room has a moving
+    // part, not so much that the screen ever reads as dead.
+    const target = focused === null || focused === 'laptop' ? 0 : 0.22;
     lidProgress.current += (target - lidProgress.current) * (1 - Math.exp(-4.5 * dt));
     for (const part of parts.lid) {
       part.node.rotation.x = part.base + lidProgress.current * LID_CLOSED;
