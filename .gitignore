@@ -45,3 +45,6 @@ __pycache__/
 # Blender save backups
 *.blend1
 *.blend2
+
+# Optional Blender artifact, regenerate with build_room.py -- --blend
+assets/room.blend

@@ -1,15 +1,24 @@
 # The room
 
-`assets/room.blend` is the source of truth for the 3D room. Open it, model in
-it, save it, then run the export.
+`build_room.py` is the source of truth for the 3D room. It builds every object
+from code and exports the model the site loads.
 
 ```bash
-# .blend -> public/models/room.glb   (what the site loads)
-blender --background --python scripts/blender/export_room.py
+# build the room and export it     -> public/models/room.glb
+blender --background --python scripts/blender/build_room.py
 
-# .blend -> public/models/room-baked.glb + room-bake.png   (the good lighting)
+# bake the lighting into an atlas  -> public/models/room-baked.glb + room-bake.png
 blender --background --python scripts/blender/bake_room.py -- --size 4096 --samples 256
+
+# optional: write a .blend to open and look at, or model on top of
+blender --background --python scripts/blender/build_room.py -- --blend
 ```
+
+The room is a script rather than a saved .blend because a binary file cannot be
+reviewed in a diff, cannot be regenerated, and rots the moment someone nudges a
+vertex without telling anyone. The cost is that everything has to be
+expressible in code — see _Making shapes_ below for what that actually allows,
+which is more than boxes.
 
 The runtime prefers the baked room and falls back to the plain one, so you can
 export while modelling and bake only when you are happy with the shape.
@@ -69,21 +78,26 @@ atlas shared by every object in the room, which works out around 200 texels/m
 on the larger surfaces; anything finer aliases into a shimmer rather than
 resolving as texture.
 
-## Where the blockout came from
+## Making shapes
 
-`build_room.py` generated the room procedurally and used to feed the site
-directly. It is kept because it produced the blockout, and because the layout
-reasoning in it — wall positions, what collides with what, why the floor stops
-where it does — is worth reading before moving furniture.
+Boxes and cylinders are not the ceiling. Four helpers cover most of what the
+room needs:
 
-```bash
-# Regenerate the blockout from scratch. Overwrites assets/room.blend.
-blender --background --python scripts/blender/build_room.py -- --blend
-```
+- `cube` / `cylinder` / `plane` — bevelled primitives, for anything that really
+  is a box.
+- `poly(name, verts, faces, ...)` — a mesh from explicit control points. This is
+  how anything with a real silhouette gets made: the chair's seat pan and back
+  shell are each one cage of about thirty points.
+- `smooth(obj, levels, crease=…)` — a subdivision surface. This is the
+  difference between a room made of boxes and a room made of things. A bevel
+  softens an edge; subdivision changes the shape, and it is what turns a box
+  into a cushion. `crease` from 0 to 1 controls how much of the original cage
+  survives — low for cushions, high for panels.
+- `lathe(name, profile, ...)` — spins a list of (radius, height) pairs around Z,
+  for anything turned on a wheel.
 
-**It will destroy hand modelling.** It is a starting point, not a build step.
-Once a human has moved a vertex, the .blend is the record and the script is
-history.
+A control cage plus `smooth` is how most stylised 3D is actually modelled; it
+just happens to be done by dragging points rather than listing them.
 
 ## Notes from building this
 
