@@ -436,8 +436,18 @@ def build_toronto() -> list[bpy.types.Object]:
         "sky", (60, 0.2, 34), (2.05, -34, 8), material("sky", "screen", roughness=1.0, emission=0.35), bevel=0
     )
 
-    # Lake Ontario, flat and dark, catching the city above it.
-    lake = cube("lake", (34, 22, 0.2), (2.05, -26, -1.6), material("lake", "screen", roughness=0.65, metallic=0.0), bevel=0)
+    # Lake Ontario. Flat and almost black, with a trace of its own glow so it
+    # reads as water carrying the city's light rather than as a pale slab —
+    # an upward-facing plane this size picks up more from the environment than
+    # its albedo suggests, and at 0.65 roughness it was the brightest thing in
+    # the view.
+    lake = cube(
+        "lake",
+        (34, 22, 0.2),
+        (2.05, -26, -1.6),
+        material("lake", "screen", roughness=0.95, metallic=0.0, emission=0.5),
+        bevel=0,
+    )
 
     # The CN Tower. Unmistakable, and the one object that fixes the city.
     cn: list[bpy.types.Object] = [
@@ -450,7 +460,13 @@ def build_toronto() -> list[bpy.types.Object]:
     beacon = cylinder("cn_beacon", 0.2, 0.2, (2.6, -14, 20.2), material("beacon", "red", roughness=0.3, emission=8.0), vertices=8)
     parts.append(join("cn_tower", cn + [beacon]))
 
-    # The bank towers behind and beside it.
+    # The bank towers behind and beside it, each with a grid of lit windows on
+    # the face turned toward the room.
+    #
+    # These were continuous horizontal bands, which is not what a city at night
+    # looks like from across a lake — it looks like thousands of small separate
+    # points, most of them dark. A band reads as a lit strip on a dark box; a
+    # sparse grid reads as a building with people in some of the offices.
     blocks: list[bpy.types.Object] = []
     lights: list[bpy.types.Object] = []
     for i in range(26):
@@ -460,17 +476,28 @@ def build_toronto() -> list[bpy.types.Object]:
         d = 1.1 + rand() * 2.2
         h = 3 + rand() * rand() * 13
         blocks.append(cube(f"sky_block_{i}", (w, d, h), (x, y, h / 2 - 1.2), tower_mat, bevel=0))
-        for band in range(1 + int(rand() * 3)):
-            z = 0.8 + rand() * (h - 1.6)
-            lights.append(
-                cube(
-                    f"sky_light_{i}_{band}",
-                    (w + 0.04, d + 0.04, 0.1 + rand() * 0.14),
-                    (x, y, z),
-                    lit_mat if rand() > 0.35 else cool_lit,
-                    bevel=0,
+
+        columns = max(2, int(w / 0.34))
+        rows = max(2, int(h / 0.55))
+        for col in range(columns):
+            for row in range(rows):
+                # Most windows are dark. Lighting them all turns the tower back
+                # into a glowing slab, which is the same failure as the bands.
+                if rand() > 0.34:
+                    continue
+                lights.append(
+                    cube(
+                        f"sky_window_{i}_{col}_{row}",
+                        (w / columns * 0.52, 0.05, h / rows * 0.42),
+                        (
+                            x - w / 2 + (col + 0.5) * (w / columns),
+                            y + d / 2 + 0.02,
+                            -1.2 + (row + 0.5) * (h / rows),
+                        ),
+                        lit_mat if rand() > 0.42 else cool_lit,
+                        bevel=0,
+                    )
                 )
-            )
     parts.append(join("ix_window", [parts_sky, lake] + blocks + lights))
     return parts
 
@@ -849,8 +876,8 @@ def build_server_rack() -> list[bpy.types.Object]:
 
 def build_window() -> list[bpy.types.Object]:
     """
-    The window onto Antalya. The view is a separate object so the runtime can
-    cross-fade it between times of day.
+    The window onto Toronto. The view itself is `build_toronto` — a separate
+    object, so the runtime can cross-fade it between times of day.
     """
     frame_mat = material("win_frame", "paper", roughness=0.5)
     parts = [
@@ -860,18 +887,20 @@ def build_window() -> list[bpy.types.Object]:
         cube("win_right", (0.09, 0.1, 1.3), (2.75, -2.53, 1.7), frame_mat),
         cube("win_mullion", (0.03, 0.06, 1.25), (2.05, -2.53, 1.7), frame_mat),
     ]
-    # A sill, and glass with almost no roughness so it catches a reflection.
+    # A sill, and no glass.
+    #
+    # There was a tinted pane here, and it cost the view. It started as a mirror
+    # — roughness 0.05, metallic 0.1 — which reflected the lit room back at the
+    # camera hard enough that the window read as a solid blue panel with nothing
+    # behind it. Roughing it off and dropping the alpha to seven percent got the
+    # skyline back but left everything beyond it washed pale blue, which is the
+    # opposite of what a city at night should look like.
+    #
+    # An aperture with nothing in it reads as glass perfectly well at this
+    # scale, and it lets the one thing the window exists to show come through
+    # undimmed.
     parts.append(cube("win_sill", (1.6, 0.22, 0.06), (2.05, -2.46, 1.08), frame_mat))
-    glass = cube(
-        "win_glass",
-        (1.34, 0.012, 1.2),
-        (2.05, -2.58, 1.7),
-        material("glass", "cyan", roughness=0.05, metallic=0.1),
-        bevel=0,
-    )
-    glass.data.materials[0].blend_method = "BLEND" if hasattr(glass.data.materials[0], "blend_method") else None
-    glass.data.materials[0].node_tree.nodes["Principled BSDF"].inputs["Alpha"].default_value = 0.12
-    return [join("window_frame", parts + [glass])]
+    return [join("window_frame", parts)]
 
 
 def build_certificates() -> list[bpy.types.Object]:
@@ -1332,12 +1361,17 @@ def build_details() -> list[bpy.types.Object]:
     out.append(join("shelf_top", top))
     out.append(build_plant(-3.02, 1.66, scale=0.42, base_z=deck))
 
-    # A roller blind, half down, and a plant on the sill.
+    # A roller blind, mostly retracted, and a plant on the sill.
+    #
+    # It used to hang far enough to cover the top third of the glass. The window
+    # is the one place in the room with something to look at through it, and a
+    # blind that half closes it is spending the best surface in the room on a
+    # rectangle of beige.
     blind = [
         cylinder("blind_roller", 0.035, 1.5, (2.05, -2.44, 2.33), dark, vertices=12,
                  rotation=(0, math.radians(90), 0)),
-        cube("blind_sheet", (1.44, 0.012, 0.42), (2.05, -2.45, 2.12), paper_mat, bevel=0),
-        cube("blind_bar", (1.46, 0.02, 0.03), (2.05, -2.45, 1.9), dark, bevel=0.004),
+        cube("blind_sheet", (1.44, 0.012, 0.16), (2.05, -2.45, 2.24), paper_mat, bevel=0),
+        cube("blind_bar", (1.46, 0.02, 0.028), (2.05, -2.45, 2.15), dark, bevel=0.004),
     ]
     out.append(join("blind", blind))
     out.append(build_plant(1.6, -2.44, scale=0.34, base_z=1.11))
