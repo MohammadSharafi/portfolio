@@ -802,12 +802,17 @@ def build_laptop() -> list[bpy.types.Object]:
     body = material("laptop_body", "metal", roughness=0.3, metallic=0.75)
     screen_mat = material("laptop_screen", "screen", roughness=0.15)
 
-    base = cube("laptop_base", (0.86, 0.6, 0.018), (0.06, -1.55, 0.774), body)
-    deck = cube("laptop_deck", (0.72, 0.36, 0.004), (0.06, -1.62, 0.784), material("deck", "keycap"), bevel=0)
+    # The desk's surface is at z = 0.79. The base used to sit at 0.774 with a
+    # half-thickness of 0.009, which put its *top* at 0.783 — the whole laptop
+    # body was buried inside the desk, and the screen stood on the desktop with
+    # nothing under it. Everything here is lifted to rest on the surface rather
+    # than inside it.
+    base = cube("laptop_base", (0.86, 0.6, 0.02), (-1.12, -1.55, 0.8), body)
+    deck = cube("laptop_deck", (0.72, 0.36, 0.004), (-1.12, -1.62, 0.812), material("deck", "keycap"), bevel=0)
 
-    lid = cube("ix_laptop_lid_body", (0.86, 0.02, 0.56), (0.06, -1.85, 1.05), body)
+    lid = cube("ix_laptop_lid_body", (0.86, 0.02, 0.56), (-1.12, -1.85, 1.078), body)
     lid_screen = plane(
-        "ix_laptop_display", (0.8, 0.5), (0.06, -1.833, 1.05), screen_mat,
+        "ix_laptop_display", (0.8, 0.5), (-1.12, -1.833, 1.078), screen_mat,
         rotation=(math.radians(-90), 0, 0)
     )
     # Bake the screen's facing rotation into its vertices before re-origining.
@@ -820,7 +825,7 @@ def build_laptop() -> list[bpy.types.Object]:
     lid_screen.select_set(True)
     bpy.ops.object.transform_apply(location=False, rotation=True, scale=False)
 
-    hinge = Vector((0.06, -1.85, 0.783))
+    hinge = Vector((-1.12, -1.85, 0.811))
     for obj in (lid, lid_screen):
         # Re-origin onto the hinge line so the lid rotates about it rather than
         # about its own centre, which would swing it through the desk.
@@ -842,6 +847,10 @@ def build_keyboard_and_props() -> list[bpy.types.Object]:
     key_mat = material("keycap", "keycap", roughness=0.7)
     body_mat = material("kb_body", "plastic", roughness=0.5)
 
+    # The desk's front edge is at y = -1.20. The keyboard used to sit at -1.23
+    # with 0.19 of depth either side of it, so a third of it hung over the edge
+    # in mid-air — and the mouse balanced on the lip. Both are pulled back to
+    # leave a hand's width of desk in front of them.
     keys = []
     for row in range(5):
         for col in range(15):
@@ -849,23 +858,26 @@ def build_keyboard_and_props() -> list[bpy.types.Object]:
                 cube(
                     f"key_{row}_{col}",
                     (0.042, 0.042, 0.012),
-                    (-0.46 + col * 0.066, -1.36 + row * 0.066, 0.8),
+                    (-0.46 + col * 0.066, -1.57 + row * 0.066, 0.812),
                     key_mat,
                     bevel=0.003,
                 )
             )
     keyboard = join(
         "ix_keyboard",
-        [cube("kb_body", (1.06, 0.38, 0.022), (0.04, -1.23, 0.789), body_mat)] + keys,
+        [cube("kb_body", (1.06, 0.38, 0.022), (0.04, -1.44, 0.801), body_mat)] + keys,
     )
 
-    mouse = cylinder("ix_mouse", 0.045, 0.028, (0.78, -1.28, 0.797), body_mat, vertices=20)
-    mouse.scale = (0.85, 1.5, 1.0)
+    # A mouse is a dome, not a disc. Subdividing a short box rounds the top and
+    # keeps the base flat on the desk, which a scaled cylinder cannot do — it
+    # was reading as a pebble someone had left there.
+    mouse = cube("ix_mouse", (0.062, 0.105, 0.032), (0.78, -1.46, 0.803), body_mat, bevel=0)
+    smooth(mouse, 2, crease=0.12)
 
     mug_mat = material("mug", "mug", roughness=0.35)
-    mug_body = cylinder("mug_body", 0.055, 0.11, (-0.98, -1.34, 0.845), mug_mat)
+    mug_body = cylinder("mug_body", 0.055, 0.11, (0.90, -1.30, 0.845), mug_mat)
     bpy.ops.mesh.primitive_torus_add(
-        major_radius=0.038, minor_radius=0.009, location=(-0.905, -1.34, 0.85)
+        major_radius=0.038, minor_radius=0.009, location=(0.975, -1.30, 0.85)
     )
     handle = bpy.context.object
     handle.name = "mug_handle"
@@ -882,7 +894,7 @@ def build_keyboard_and_props() -> list[bpy.types.Object]:
         "ix_pencil",
         0.007,
         0.19,
-        (0.62, -1.52, 0.796),
+        (1.66, -1.62, 0.802),
         material("pencil", "sticky", roughness=0.6),
         vertices=6,
         rotation=(0, math.radians(90), math.radians(18)),
@@ -891,12 +903,12 @@ def build_keyboard_and_props() -> list[bpy.types.Object]:
     notebook = cube(
         "ix_notebook",
         (0.34, 0.46, 0.03),
-        (-1.05, -1.62, 0.785),
+        (1.35, -1.38, 0.805),
         material("notebook", "book_a", roughness=0.6),
         rotation_z=math.radians(-9),
     )
 
-    return [keyboard, mouse, mug, pencil, notebook, build_headphones(-1.42, -1.72, 0.79)]
+    return [keyboard, mouse, mug, pencil, notebook, build_headphones(1.45, -2.10, 0.79)]
 
 
 def build_headphones(hx: float, hy: float, deck: float) -> bpy.types.Object:
@@ -1676,7 +1688,7 @@ def build_details() -> list[bpy.types.Object]:
 
     # Desk clutter.
     desk_bits = []
-    cup = (1.42, -1.5)
+    cup = (-1.62, -2.28)
     desk_bits.append(cylinder("pen_cup", 0.05, 0.11, (cup[0], cup[1], 0.845), dark, vertices=16))
     for i, (lean, key) in enumerate(((0.1, "cyan"), (-0.14, "sticky"), (0.06, "paper"))):
         pen = cylinder(f"pen_{i}", 0.006, 0.17, (cup[0] + i * 0.012 - 0.012, cup[1], 0.93),
@@ -1693,7 +1705,7 @@ def build_details() -> list[bpy.types.Object]:
         sheet.rotation_euler = (0, 0, math.radians(4 - i * 5))
         desk_bits.append(sheet)
 
-    desk_bits.append(cylinder("coaster", 0.07, 0.008, (-0.98, -1.34, 0.788), material("cork", "pot", roughness=0.95)))
+    desk_bits.append(cylinder("coaster", 0.07, 0.008, (0.90, -1.30, 0.794), material("cork", "pot", roughness=0.95)))
     out.append(join("desk_clutter", desk_bits))
 
     # On the capping board of the bookshelf: a photo, a horizontal book stack,
@@ -1907,6 +1919,12 @@ def main() -> None:
         for problem in problems:
             print(f"  · {problem}", file=sys.stderr)
         sys.exit("\nNothing was exported — the site is still running the last good room.")
+
+    # A warning rather than a failure: sinking a prop into a surface is
+    # sometimes deliberate, and refusing to export over it would be worse than
+    # the bug. Saying so out loud is enough.
+    for complaint in export_room.check_resting():
+        print(f"[build_room] {complaint}", file=sys.stderr)
 
     try:
         unwrap_all()
