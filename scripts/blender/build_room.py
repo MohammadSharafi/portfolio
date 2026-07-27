@@ -215,7 +215,7 @@ def _wall_with_opening(wall_mat: bpy.types.Material) -> bpy.types.Object:
     parallax between the frame and the skyline as the camera moves is the whole
     reason the window reads as an opening and not as a poster.
     """
-    wall = cube("wall_back", (6.4, 0.12, 3.2), (0, -2.6, 1.6), wall_mat, bevel=0)
+    wall = cube("wall_back", (11.0, 0.12, 5.4), (0, -2.6, 2.7), wall_mat, bevel=0)
 
     bpy.ops.mesh.primitive_cube_add(size=1, location=(2.05, -2.6, 1.7))
     cutter = bpy.context.object
@@ -261,7 +261,7 @@ def build_toronto() -> list[bpy.types.Object]:
     )
 
     # Lake Ontario, flat and dark, catching the city above it.
-    lake = cube("lake", (60, 26, 0.2), (2.05, -28, -1.6), material("lake", "screen", roughness=0.65, metallic=0.0), bevel=0)
+    lake = cube("lake", (34, 22, 0.2), (2.05, -26, -1.6), material("lake", "screen", roughness=0.65, metallic=0.0), bevel=0)
 
     # The CN Tower. Unmistakable, and the one object that fixes the city.
     cn: list[bpy.types.Object] = [
@@ -278,11 +278,11 @@ def build_toronto() -> list[bpy.types.Object]:
     blocks: list[bpy.types.Object] = []
     lights: list[bpy.types.Object] = []
     for i in range(26):
-        x = -7 + rand() * 20
-        y = -18 - rand() * 16
+        x = -3 + rand() * 12
+        y = -16 - rand() * 12
         w = 1.1 + rand() * 2.2
         d = 1.1 + rand() * 2.2
-        h = 3 + rand() * rand() * 17
+        h = 3 + rand() * rand() * 13
         blocks.append(cube(f"sky_block_{i}", (w, d, h), (x, y, h / 2 - 1.2), tower_mat, bevel=0))
         for band in range(1 + int(rand() * 3)):
             z = 0.8 + rand() * (h - 1.6)
@@ -310,7 +310,7 @@ def build_shell() -> list[bpy.types.Object]:
         # Floorboards, as shallow insets rather than a texture: they survive a
         # bake and cost a handful of triangles each.
         _wall_with_opening(wall),
-        cube("wall_left", (0.12, 5.2, 3.2), (-3.2, 0, 1.6), accent, bevel=0),
+        cube("wall_left", (0.12, 5.2, 5.4), (-3.2, 0, 2.7), accent, bevel=0),
         cube("skirting_back", (6.4, 0.05, 0.11), (0, -2.52, 0.055), material("skirt", "dark_metal")),
         cube("skirting_left", (0.05, 5.2, 0.11), (-3.12, 0, 0.055), material("skirt", "dark_metal")),
         plane("rug", (3.6, 2.8), (0.2, 0.6, 0.004), material("rug", "rug", roughness=1.0)),

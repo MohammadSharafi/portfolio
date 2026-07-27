@@ -7,6 +7,19 @@ import { profile } from '@/data/profile';
 
 export type Vec3 = [number, number, number];
 
+/**
+ * All coordinates here are glTF space, not Blender space.
+ *
+ * Blender is Z-up and the exporter converts to Y-up, so a point authored in
+ * `build_room.py` at `(x, y, z)` arrives in the browser at `(x, z, -y)`. The
+ * first pass of these stops was written in Blender coordinates and every one of
+ * them aimed the camera at empty space — the room was behind it the whole time.
+ * When adding an object, take its Blender placement and swap it, rather than
+ * eyeballing a position in the wrong basis.
+ *
+ * The room's walls are on -X and +Z, so cameras live toward +X and -Z.
+ */
+
 export const objectIds = [
   'monitor-health',
   'monitor-code',
@@ -70,7 +83,7 @@ export const roomObjects: readonly RoomObject[] = [
     id: 'monitor-health',
     label: 'Clinical monitor',
     hint: 'The healthcare work',
-    stop: { position: [-0.55, 1.35, 0.35], target: [-0.62, 1.2, -0.95], duration: 1.4 },
+    stop: { position: [0.35, 1.34, 0.55], target: [-0.62, 1.2, 2.0], duration: 1.4 },
     panel: {
       kicker: 'Healthcare technology',
       title: 'The EHR AI Clinical Assistant',
@@ -83,7 +96,7 @@ export const roomObjects: readonly RoomObject[] = [
     id: 'monitor-code',
     label: 'Dev monitor',
     hint: 'How I build',
-    stop: { position: [0.75, 1.35, 0.35], target: [0.66, 1.2, -0.95], duration: 1.4 },
+    stop: { position: [1.72, 1.34, 0.65], target: [0.66, 1.2, 2.0], duration: 1.4 },
     panel: {
       kicker: 'Engineering',
       title: 'Architecture chosen for the constraint',
@@ -96,7 +109,7 @@ export const roomObjects: readonly RoomObject[] = [
     id: 'laptop',
     label: 'Laptop',
     hint: 'Open it',
-    stop: { position: [0.06, 1.14, -0.05], target: [0.06, 0.86, -0.62], duration: 1.2 },
+    stop: { position: [0.62, 1.12, 0.42], target: [0.06, 0.86, 1.5], duration: 1.2 },
     panel: {
       kicker: 'Terminal',
       title: 'Numbers that hold up',
@@ -110,7 +123,7 @@ export const roomObjects: readonly RoomObject[] = [
     id: 'notebook',
     label: 'Notebook',
     hint: 'Selected work',
-    stop: { position: [-1.05, 1.12, -0.18], target: [-1.05, 0.82, -0.68], duration: 1.1 },
+    stop: { position: [-0.35, 1.1, 0.5], target: [-1.05, 0.83, 1.58], duration: 1.1 },
     panel: {
       kicker: 'Projects',
       title: 'Selected work',
@@ -123,7 +136,7 @@ export const roomObjects: readonly RoomObject[] = [
     id: 'bookshelf',
     label: 'Bookshelf',
     hint: 'Still reading',
-    stop: { position: [-1.2, 1.55, 0.75], target: [-2.1, 1.5, -0.6], duration: 1.6 },
+    stop: { position: [-1.15, 1.5, -0.95], target: [-3.0, 1.15, -0.95], duration: 1.6 },
     panel: {
       kicker: 'Education',
       title: education[0]?.institution ?? 'Isfahan University of Technology',
@@ -136,7 +149,7 @@ export const roomObjects: readonly RoomObject[] = [
     id: 'whiteboard',
     label: 'Whiteboard',
     hint: 'How the systems fit together',
-    stop: { position: [1.15, 1.62, 0.5], target: [2.05, 1.6, -0.7], duration: 1.6 },
+    stop: { position: [-1.25, 1.75, 1.35], target: [-3.05, 1.72, 1.35], duration: 1.6 },
     panel: {
       kicker: 'Systems',
       title: 'What is actually drawn on it',
@@ -154,7 +167,7 @@ export const roomObjects: readonly RoomObject[] = [
     id: 'sticky-notes',
     label: 'Sticky notes',
     hint: 'Off the record',
-    stop: { position: [1.5, 1.45, 0.25], target: [2.05, 1.32, -0.35], duration: 1.2 },
+    stop: { position: [-1.85, 1.35, 1.72], target: [-3.02, 1.2, 1.72], duration: 1.2 },
     panel: {
       kicker: 'Off the record',
       title: 'Things that did not fit on the CV',
@@ -172,7 +185,7 @@ export const roomObjects: readonly RoomObject[] = [
     id: 'server-rack',
     label: 'Server rack',
     hint: 'Local-first',
-    stop: { position: [1.35, 1.05, 0.95], target: [2.1, 0.65, 0.55], duration: 1.5 },
+    stop: { position: [1.55, 0.95, 1.15], target: [2.55, 0.62, 2.05], duration: 1.5 },
     panel: {
       kicker: 'Infrastructure',
       title: 'Local-first, by preference',
@@ -189,7 +202,7 @@ export const roomObjects: readonly RoomObject[] = [
     id: 'certificates',
     label: 'Certificates',
     hint: 'Recognition',
-    stop: { position: [-1.35, 1.85, 0.35], target: [-2.1, 1.95, -0.5], duration: 1.5 },
+    stop: { position: [-1.55, 2.05, 1.35], target: [-2.05, 2.0, 2.45], duration: 1.5 },
     panel: {
       kicker: 'Recognition',
       title: 'Attributable, with an issuer',
@@ -205,7 +218,7 @@ export const roomObjects: readonly RoomObject[] = [
     id: 'lamp',
     label: 'Desk lamp',
     hint: 'Click to switch',
-    stop: { position: [-0.9, 1.25, 0.1], target: [-1.28, 1.05, -0.6], duration: 0.9 },
+    stop: { position: [-0.35, 1.28, 1.15], target: [-1.02, 1.12, 1.95], duration: 0.9 },
     panel: {
       kicker: 'Lighting',
       title: 'The lamp works',
@@ -217,7 +230,7 @@ export const roomObjects: readonly RoomObject[] = [
     id: 'window',
     label: 'Window',
     hint: 'Change the hour',
-    stop: { position: [0.9, 1.75, 0.9], target: [2.1, 1.75, 0.2], duration: 1.6 },
+    stop: { position: [1.95, 1.75, 0.55], target: [2.05, 1.7, 2.45], duration: 1.6 },
     panel: {
       kicker: 'Outside',
       title: 'Toronto — next',
@@ -237,7 +250,7 @@ export const roomObjects: readonly RoomObject[] = [
     id: 'mug',
     label: 'Coffee mug',
     hint: 'Push it',
-    stop: { position: [0.5, 1.05, -0.1], target: [0.42, 0.84, -0.5], duration: 0.9 },
+    stop: { position: [-0.42, 1.02, 0.72], target: [-0.98, 0.85, 1.3], duration: 0.9 },
     panel: {
       kicker: 'Physics',
       title: 'Yes, it falls',
@@ -249,7 +262,7 @@ export const roomObjects: readonly RoomObject[] = [
     id: 'headphones',
     label: 'Headphones',
     hint: 'Sound on',
-    stop: { position: [-0.75, 1.08, -0.1], target: [-0.82, 0.86, -0.5], duration: 0.9 },
+    stop: { position: [-0.85, 1.02, 0.95], target: [-1.42, 0.83, 1.68], duration: 0.9 },
     panel: {
       kicker: 'Audio',
       title: 'Room tone',
@@ -261,7 +274,7 @@ export const roomObjects: readonly RoomObject[] = [
     id: 'keyboard',
     label: 'Keyboard',
     hint: 'Type on it',
-    stop: { position: [0.02, 1.05, -0.15], target: [0.02, 0.8, -0.45], duration: 0.9 },
+    stop: { position: [0.05, 1.05, 0.42], target: [0.04, 0.8, 1.2], duration: 0.9 },
     panel: {
       kicker: 'Contact',
       title: 'Get in touch',
@@ -276,7 +289,7 @@ export const roomObjectById = new Map(roomObjects.map((object) => [object.id, ob
 
 /** Where the camera rests when nothing is focused. */
 export const HOME_STOP: CameraStop = {
-  position: [3.4, 2.6, 3.6],
-  target: [0, 1.1, -0.6],
+  position: [5.2, 4.0, -5.4],
+  target: [0, 1.15, 1.2],
   duration: 1.8,
 };

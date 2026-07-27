@@ -29,9 +29,18 @@ function SectionFallback() {
   return <div className="h-96" aria-hidden="true" />;
 }
 
-export default function App() {
-  // Keeps the `.reduce-motion` class on <html> in sync with the OS preference.
-  useReducedMotion();
+// The single-room experience. Behind a flag until it replaces the written site
+// outright, so the live page is never a half-finished migration.
+const RoomExperience = lazy(() =>
+  import('./room/RoomExperience').then((m) => ({ default: m.RoomExperience }))
+);
+
+/**
+ * The written site. Split out from `App` so the room can be chosen before any
+ * of its hooks run — a conditional return above `useRoom()` would change hook
+ * order between the two branches.
+ */
+function WrittenSite() {
   // Owned here so the navbar can switch to dark styling while it floats over
   // the lit 3D scene, and the hero can drive the camera from the same state.
   const room = useRoom();
@@ -74,4 +83,22 @@ export default function App() {
       <BackToTop />
     </LazyMotion>
   );
+}
+
+export default function App() {
+  // Keeps the `.reduce-motion` class on <html> in sync with the OS preference.
+  useReducedMotion();
+
+  const showRoom =
+    typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('room');
+
+  if (showRoom) {
+    return (
+      <Suspense fallback={<div className="fixed inset-0 bg-[#05070c]" />}>
+        <RoomExperience />
+      </Suspense>
+    );
+  }
+
+  return <WrittenSite />;
 }
