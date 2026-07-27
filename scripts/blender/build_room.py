@@ -74,6 +74,8 @@ _grain_wanted: list[tuple[bpy.types.Material, tuple[float, ...], str]] = []
 
 
 def reset_scene() -> None:
+    global _plants
+    _plants = 0
     _materials.clear()
     _grain_wanted.clear()
     bpy.ops.wm.read_factory_settings(use_empty=True)
@@ -290,6 +292,47 @@ def plane(
     obj.scale = (size[0], size[1], 1)
     obj.rotation_euler = rotation
     bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+    return shade(obj, mat)
+
+
+def cable(
+    name: str,
+    points: list[tuple[float, float, float]],
+    radius: float,
+    mat: bpy.types.Material,
+) -> bpy.types.Object:
+    """
+    A cable, as a bevelled bezier through the given points.
+
+    Cables are worth the curve rather than a chain of cylinders. A cable is
+    read almost entirely by its sag — the shape a hanging cable takes is
+    something everyone has seen ten thousand times, and a straight segment
+    between two points reads as a rod instantly. Auto handles give a smooth
+    catenary-ish curve through the control points for free.
+    """
+    curve = bpy.data.curves.new(name, "CURVE")
+    curve.dimensions = "3D"
+    curve.bevel_depth = radius
+    curve.bevel_resolution = 1
+    curve.resolution_u = 5
+
+    spline = curve.splines.new("BEZIER")
+    spline.bezier_points.add(len(points) - 1)
+    for point, location in zip(spline.bezier_points, points):
+        point.co = location
+        point.handle_left_type = "AUTO"
+        point.handle_right_type = "AUTO"
+
+    obj = bpy.data.objects.new(name, curve)
+    bpy.context.collection.objects.link(obj)
+    bpy.ops.object.select_all(action="DESELECT")
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+    bpy.ops.object.convert(target="MESH")
+
+    obj = bpy.context.object
+    obj.name = name
+    obj.data.name = name
     return shade(obj, mat)
 
 
@@ -684,9 +727,13 @@ def build_lamp() -> list[bpy.types.Object]:
 def build_shelf_and_books() -> list[bpy.types.Object]:
     """The bookshelf on the left wall. Each book is a project."""
     wood = material("shelf_wood", "desk", roughness=0.6, grain="wood")
+    # The sides run past the top row of books to a capping board, so the case
+    # has a real top surface. Without it the sides stopped level with the books
+    # and anything "put on top" was standing inside them.
     parts = [
-        cube("shelf_side_l", (0.05, 0.3, 1.9), (-3.05, 0.05, 0.95), wood),
-        cube("shelf_side_r", (0.05, 0.3, 1.9), (-3.05, 1.85, 0.95), wood),
+        cube("shelf_side_l", (0.05, 0.3, 2.2), (-3.05, 0.05, 1.1), wood),
+        cube("shelf_side_r", (0.05, 0.3, 2.2), (-3.05, 1.85, 1.1), wood),
+        cube("shelf_top", (0.3, 1.9, 0.04), (-3.05, 0.95, 2.16), wood),
     ]
     for i in range(4):
         parts.append(cube(f"shelf_{i}", (0.28, 1.85, 0.04), (-3.05, 0.95, 0.3 + i * 0.5), wood))
@@ -831,7 +878,9 @@ def build_certificates() -> list[bpy.types.Object]:
     frame_mat = material("cert_frame", "dark_metal", roughness=0.45, metallic=0.4)
     mat_mat = material("cert_paper", "paper", roughness=0.8)
     parts = []
-    for i, (x, z, w, h) in enumerate([(-2.25, 2.0, 0.42, 0.54), (-1.7, 2.15, 0.3, 0.24), (-1.7, 1.83, 0.3, 0.24)]):
+    # Moved right along the wall to clear the doorway. They sit above the
+    # monitors, which top out at z = 1.52.
+    for i, (x, z, w, h) in enumerate([(-1.55, 2.02, 0.42, 0.54), (-1.0, 2.17, 0.3, 0.24), (-1.0, 1.85, 0.3, 0.24)]):
         parts.append(cube(f"cert_frame_{i}", (w, 0.04, h), (x, -2.52, z), frame_mat))
         parts.append(cube(f"cert_paper_{i}", (w - 0.06, 0.01, h - 0.06), (x, -2.49, z), mat_mat, bevel=0))
     return [join("ix_certificates", parts)]
@@ -908,7 +957,10 @@ def build_chair_and_plant() -> list[bpy.types.Object]:
     return [chair, build_plant(2.78, 0.35)]
 
 
-def build_plant(px: float, py: float) -> bpy.types.Object:
+_plants = 0
+
+
+def build_plant(px: float, py: float, *, scale: float = 1.0, base_z: float = 0.0) -> bpy.types.Object:
     """
     A potted plant: a pot with a rim, soil, and leaves sitting on real stems.
 
@@ -917,14 +969,24 @@ def build_plant(px: float, py: float) -> bpy.types.Object:
     its leaf independently and let a rotation tilt the stem afterwards, so the
     two disagreed about where the stem actually pointed — the leaves ended up
     strewn across the floor a metre from the pot.
+
+    `scale` and `base_z` let the same plant stand on the floor, on a shelf or on
+    a windowsill. Sizes multiply rather than the object being scaled after the
+    fact, so the pot walls and the stems stay in proportion to each other.
     """
+    global _plants
+    _plants += 1
+    tag = f"plant_{_plants}"
+
     pot_mat = material("pot", "pot", roughness=0.9, grain="plaster")
-    soil_top = 0.3
+    s = scale
+    soil_top = base_z + 0.3 * s
 
     parts = [
-        cylinder("pot", 0.17, 0.3, (px, py, 0.15), pot_mat),
-        cylinder("pot_rim", 0.185, 0.05, (px, py, 0.28), pot_mat),
-        cylinder("soil", 0.155, 0.02, (px, py, soil_top), material("soil", "earth", roughness=1.0, grain="pile")),
+        cylinder(f"{tag}_pot", 0.17 * s, 0.3 * s, (px, py, base_z + 0.15 * s), pot_mat),
+        cylinder(f"{tag}_rim", 0.185 * s, 0.05 * s, (px, py, base_z + 0.28 * s), pot_mat),
+        cylinder(f"{tag}_soil", 0.155 * s, 0.02 * s, (px, py, soil_top),
+                 material("soil", "earth", roughness=1.0, grain="pile")),
     ]
 
     leaf_mat = material("leaf", "leaf", roughness=0.62)
@@ -933,7 +995,7 @@ def build_plant(px: float, py: float) -> bpy.types.Object:
     for i in range(12):
         angle = i / 12 * math.tau * 2.6
         lean = 0.28 + (i % 4) * 0.16
-        length = 0.24 + (i % 5) * 0.08
+        length = (0.24 + (i % 5) * 0.08) * s
 
         # The direction the stem grows in, straight from the lean angle. The
         # centre sits at half its length along that direction and the leaf sits
@@ -943,8 +1005,8 @@ def build_plant(px: float, py: float) -> bpy.types.Object:
         dz = math.cos(lean)
 
         stem = cylinder(
-            f"stem_{i}",
-            0.008,
+            f"{tag}_stem_{i}",
+            0.008 * s,
             length,
             (px + dx * length / 2, py + dy * length / 2, soil_top + dz * length / 2),
             stem_mat,
@@ -955,17 +1017,17 @@ def build_plant(px: float, py: float) -> bpy.types.Object:
 
         bpy.ops.mesh.primitive_ico_sphere_add(
             subdivisions=1,
-            radius=0.055,
+            radius=0.055 * s,
             location=(px + dx * length, py + dy * length, soil_top + dz * length),
         )
         leaf = bpy.context.object
-        leaf.name = f"leaf_{i}"
-        leaf.data.name = f"leaf_{i}"
+        leaf.name = f"{tag}_leaf_{i}"
+        leaf.data.name = f"{tag}_leaf_{i}"
         leaf.scale = (1.7, 0.62, 0.16)
         leaf.rotation_euler = (0, 0.4, angle)
         parts.append(shade(leaf, leaf_mat))
 
-    return join("plant", parts)
+    return join(tag, parts)
 
 
 def build_lounge() -> list[bpy.types.Object]:
@@ -1072,19 +1134,42 @@ def build_lounge() -> list[bpy.types.Object]:
                         material(f"print_{i}", ("cyan", "violet")[i], roughness=0.7), bevel=0))
 
     # Guitar on a stand, in the gap between the bookshelf and the corner.
+    #
+    # The body is three overlapping discs, not two. Two gave a bulb on a stick:
+    # a guitar is read almost entirely by its waist, and without a narrow disc
+    # pinched between two wide ones there is no waist to read.
     guitar = []
     gx, gy = -2.86, 2.3
     lean = math.radians(11)
-    for name, radius, z in (("guitar_lower", 0.19, 0.32), ("guitar_upper", 0.145, 0.52)):
+    body_mat = material("guitar_body", "book_d", roughness=0.3)
+    for name, radius, z in (
+        ("guitar_lower", 0.2, 0.3),
+        ("guitar_waist", 0.135, 0.46),
+        ("guitar_upper", 0.165, 0.61),
+    ):
         guitar.append(
-            cylinder(name, radius, 0.09, (gx + z * math.tan(lean), gy, z),
-                     material("guitar_body", "book_d", roughness=0.3),
-                     vertices=20, rotation=(0, math.radians(90), 0))
+            cylinder(name, radius, 0.1, (gx + z * math.tan(lean), gy, z), body_mat,
+                     vertices=22, rotation=(0, math.radians(90), 0))
         )
+    guitar.append(
+        cylinder("guitar_soundhole", 0.05, 0.012, (gx + 0.44 * math.tan(lean), gy - 0.052, 0.44),
+                 material("soundhole", "plastic", roughness=0.7), vertices=18,
+                 rotation=(0, math.radians(90), 0))
+    )
+    guitar.append(
+        cube("guitar_bridge", (0.02, 0.11, 0.035), (gx + 0.27 * math.tan(lean) - 0.05, gy, 0.27),
+             material("guitar_bridge", "dark_metal", roughness=0.5), bevel=0.004)
+    )
+
     neck = cube("guitar_neck", (0.05, 0.055, 0.72), (gx + 0.95 * math.tan(lean), gy, 0.95),
                 material("guitar_neck", "pot", roughness=0.5))
     neck.rotation_euler = (0, -lean, 0)
     guitar.append(neck)
+    fretboard = cube("guitar_fretboard", (0.014, 0.05, 0.7),
+                     (gx + 0.95 * math.tan(lean) - 0.032, gy, 0.95),
+                     material("fretboard", "dark_metal", roughness=0.55), bevel=0.003)
+    fretboard.rotation_euler = (0, -lean, 0)
+    guitar.append(fretboard)
     head = cube("guitar_head", (0.055, 0.07, 0.17), (gx + 1.38 * math.tan(lean), gy, 1.38),
                 material("guitar_head", "dark_metal", roughness=0.4))
     head.rotation_euler = (0, -lean, 0)
@@ -1099,6 +1184,184 @@ def build_lounge() -> list[bpy.types.Object]:
         join("wall_art", art),
         join("guitar", guitar),
     ]
+
+
+def build_door() -> list[bpy.types.Object]:
+    """
+    A door on the back wall, left of the desk.
+
+    A room with no way in reads as a set even when everything in it is right —
+    it is the one thing every real room has that a modelled one usually skips.
+    The door is closed and set into an architrave standing proud of the wall
+    rather than cut through it: at this scale the shadow line around the frame
+    is what sells the opening, and a boolean would buy nothing the architrave
+    does not already give.
+    """
+    wood = material("door", "desk", roughness=0.4, grain="wood")
+    trim = material("door_trim", "paper", roughness=0.55)
+    metal = material("door_handle", "metal", roughness=0.25, metallic=0.9, grain="brushed")
+
+    dx = -2.6
+    width = 0.88
+    height = 2.04
+    face = -2.52
+
+    parts = [
+        cube("door_head", (width + 0.16, 0.05, 0.08), (dx, face, height + 0.04), trim),
+        cube("door_jamb_l", (0.08, 0.05, height + 0.08), (dx - width / 2 - 0.04, face, (height + 0.08) / 2), trim),
+        cube("door_jamb_r", (0.08, 0.05, height + 0.08), (dx + width / 2 + 0.04, face, (height + 0.08) / 2), trim),
+        cube("door_panel", (width, 0.045, height), (dx, face + 0.01, height / 2), wood, bevel=0.01),
+    ]
+
+    # Two raised panels, which is what stops a door reading as a plank. They sit
+    # proud of the panel face, not behind it — set back, they were inside the
+    # door and then inside the wall, and the door came out a flat board.
+    for i, (z, h) in enumerate(((0.62, 0.94), (1.66, 0.6))):
+        parts.append(
+            cube(f"door_inset_{i}", (width - 0.2, 0.018, h), (dx, face + 0.03, z), wood, bevel=0.012)
+        )
+
+    parts.append(cylinder("door_handle", 0.028, 0.09, (dx + 0.33, face - 0.05, 1.02), metal,
+                          vertices=14, rotation=(math.radians(90), 0, 0)))
+    parts.append(cylinder("door_rose", 0.045, 0.014, (dx + 0.33, face - 0.02, 1.02), metal,
+                          vertices=16, rotation=(math.radians(90), 0, 0)))
+
+    return [join("door", parts)]
+
+
+def build_details() -> list[bpy.types.Object]:
+    """
+    The layer of small stuff.
+
+    Everything here is individually beneath notice, which is the point — the
+    difference between a modelled room and a lived-in one is almost never a
+    missing piece of furniture, it is the absence of the things nobody would
+    think to put in: cables, a pen pot, a clock, a phone left face-down.
+    """
+    dark = material("detail_dark", "plastic", roughness=0.55)
+    metal = material("detail_metal", "metal", roughness=0.3, metallic=0.85, grain="brushed")
+    paper_mat = material("detail_paper", "paper", roughness=0.85, grain="paper")
+    rubber = material("cable", "dark_metal", roughness=0.85)
+
+    out: list[bpy.types.Object] = []
+
+    # Cables. Down the back of each monitor, along the floor to a power strip
+    # under the desk, and the kettle lead from the strip to the wall.
+    strip = (0.55, -2.34, 0.04)
+    cables = [
+        cable("cable_monitor_l", [(-0.62, -2.2, 1.0), (-0.6, -2.36, 0.72), (-0.2, -2.42, 0.1), strip], 0.009, rubber),
+        cable("cable_monitor_r", [(0.66, -2.2, 1.0), (0.7, -2.38, 0.74), (0.68, -2.44, 0.12), strip], 0.009, rubber),
+        cable("cable_lamp", [(-1.02, -2.02, 0.82), (-0.9, -2.3, 0.5), (-0.2, -2.4, 0.08), strip], 0.007, rubber),
+        cable("cable_wall", [strip, (1.1, -2.42, 0.1), (1.5, -2.48, 0.3)], 0.009, rubber),
+    ]
+    cables.append(cube("power_strip", (0.34, 0.09, 0.045), strip, dark, bevel=0.008))
+    for i in range(4):
+        cables.append(
+            cube(f"strip_socket_{i}", (0.06, 0.05, 0.008), (0.44 + i * 0.075, -2.34, 0.063),
+                 material("socket", "dark_metal", roughness=0.6), bevel=0.002)
+        )
+    cables.append(
+        cube("strip_led", (0.016, 0.012, 0.008), (0.7, -2.3, 0.05),
+             material("led_red", "red", roughness=0.3, emission=6.0), bevel=0)
+    )
+    out.append(join("cables", cables))
+
+    # An LED strip behind the monitors, bouncing off the wall. Every developer's
+    # room has one and it is the cheapest possible source of coloured fill.
+    #
+    # Emission 1.0, not 4: glTF carries emission as a factor that saturates, so
+    # anything much above unity ships as flat white and the strip stopped being
+    # violet at all. It also sits low enough and short enough that the monitor
+    # bodies occlude it — the strip itself is not the effect, the coloured wash
+    # it throws on the wall behind them is, and a visible bright line across the
+    # plaster reads as a fluorescent tube instead.
+    out.append(
+        cube("led_strip", (2.15, 0.02, 0.016), (0.02, -2.51, 1.14),
+             material("led_strip", "violet", roughness=0.4, emission=1.0), bevel=0)
+    )
+
+    # Desk clutter.
+    desk_bits = []
+    cup = (1.42, -1.5)
+    desk_bits.append(cylinder("pen_cup", 0.05, 0.11, (cup[0], cup[1], 0.845), dark, vertices=16))
+    for i, (lean, key) in enumerate(((0.1, "cyan"), (-0.14, "sticky"), (0.06, "paper"))):
+        pen = cylinder(f"pen_{i}", 0.006, 0.17, (cup[0] + i * 0.012 - 0.012, cup[1], 0.93),
+                       material(f"pen_{key}", key, roughness=0.5), vertices=6)
+        pen.rotation_euler = (lean, lean * 0.7, 0)
+        desk_bits.append(pen)
+
+    phone = cube("phone", (0.072, 0.148, 0.009), (1.02, -1.62, 0.795), dark, bevel=0.004)
+    phone.rotation_euler = (0, 0, math.radians(-14))
+    desk_bits.append(phone)
+
+    for i in range(3):
+        sheet = cube(f"paper_{i}", (0.21, 0.29, 0.004), (-1.52, -1.3, 0.793 + i * 0.005), paper_mat, bevel=0)
+        sheet.rotation_euler = (0, 0, math.radians(4 - i * 5))
+        desk_bits.append(sheet)
+
+    desk_bits.append(cylinder("coaster", 0.07, 0.008, (-0.98, -1.34, 0.788), material("cork", "pot", roughness=0.95)))
+    out.append(join("desk_clutter", desk_bits))
+
+    # On the capping board of the bookshelf: a photo, a horizontal book stack,
+    # an award and a small plant.
+    deck = 2.18
+    top = []
+    photo = cube("photo_frame", (0.03, 0.2, 0.24), (-3.02, 0.32, deck + 0.12),
+                 material("photo_frame", "desk_frame", roughness=0.5))
+    photo.rotation_euler = (0, math.radians(-8), 0)
+    top.append(photo)
+    photo_face = cube("photo_face", (0.008, 0.16, 0.2), (-2.99, 0.32, deck + 0.12),
+                      material("photo", "cyan", roughness=0.7), bevel=0)
+    photo_face.rotation_euler = (0, math.radians(-8), 0)
+    top.append(photo_face)
+
+    for i, key in enumerate(("book_b", "book_c", "book_a")):
+        top.append(
+            cube(f"flat_book_{i}", (0.22, 0.16, 0.035), (-3.05, 0.78, deck + 0.018 + i * 0.037),
+                 material(f"flat_{key}", key, roughness=0.55), bevel=0.005)
+        )
+
+    top.append(cylinder("award_base", 0.06, 0.04, (-3.05, 1.24, deck + 0.02),
+                        material("award_base", "dark_metal", roughness=0.5)))
+    bpy.ops.mesh.primitive_cone_add(radius1=0.05, radius2=0.018, depth=0.16, vertices=12,
+                                    location=(-3.05, 1.24, deck + 0.12))
+    award = bpy.context.object
+    award.name = "award"
+    award.data.name = "award"
+    top.append(shade(award, material("award", "warm", roughness=0.2, metallic=0.9)))
+    out.append(join("shelf_top", top))
+    out.append(build_plant(-3.02, 1.66, scale=0.42, base_z=deck))
+
+    # A roller blind, half down, and a plant on the sill.
+    blind = [
+        cylinder("blind_roller", 0.035, 1.5, (2.05, -2.44, 2.33), dark, vertices=12,
+                 rotation=(0, math.radians(90), 0)),
+        cube("blind_sheet", (1.44, 0.012, 0.42), (2.05, -2.45, 2.12), paper_mat, bevel=0),
+        cube("blind_bar", (1.46, 0.02, 0.03), (2.05, -2.45, 1.9), dark, bevel=0.004),
+    ]
+    out.append(join("blind", blind))
+    out.append(build_plant(1.6, -2.44, scale=0.34, base_z=1.11))
+
+    # A clock over the door. The room is at y > -2.54, so nearer the room means
+    # a *larger* y — which the first version had backwards: the rim sat in front
+    # of the face and the hands sat inside the wall, and the whole thing read as
+    # a dark smudge on the plaster.
+    hand_mat = material("clock_hand", "desk_frame", roughness=0.5)
+    clock = [
+        cylinder("clock_rim", 0.155, 0.035, (-2.6, -2.505, 2.42),
+                 material("clock_rim", "dark_metal", roughness=0.4), vertices=28,
+                 rotation=(math.radians(90), 0, 0)),
+        cylinder("clock_face", 0.135, 0.03, (-2.6, -2.487, 2.42),
+                 material("clock_face", "paper", roughness=0.5), vertices=28,
+                 rotation=(math.radians(90), 0, 0)),
+        cube("clock_hour", (0.014, 0.012, 0.075), (-2.6, -2.47, 2.452), hand_mat, bevel=0),
+        cube("clock_minute", (0.085, 0.012, 0.012), (-2.558, -2.47, 2.42), hand_mat, bevel=0),
+        cylinder("clock_pin", 0.012, 0.014, (-2.6, -2.468, 2.42), hand_mat, vertices=10,
+                 rotation=(math.radians(90), 0, 0)),
+    ]
+    out.append(join("clock", clock))
+
+    return out
 
 
 def add_lighting() -> None:
@@ -1182,6 +1445,8 @@ def build_all() -> None:
     build_certificates()
     build_chair_and_plant()
     build_lounge()
+    build_door()
+    build_details()
     add_lighting()
 
 
