@@ -328,6 +328,55 @@ def plane(
     return shade(obj, mat)
 
 
+def aim(direction: tuple[float, float, float]) -> tuple[float, float, float]:
+    """
+    The euler rotation that points a cylinder's +Z axis along `direction`.
+
+    Worth being a function rather than three hand-derived approximations,
+    because it has now been got wrong three times in three places and each
+    failure looked like something else entirely. The plant's stems leaned the
+    opposite way to the leaves they carried and read as foliage floating in
+    mid-air; the guitar's neck hung on the wrong side of the corner from its
+    body; the lamp's arm missed its own post.
+
+    Blender composes euler XYZ as Rz·Ry·Rx, which sends +Z to
+    `(sin b·cos a, −sin a, cos b·cos a)`. Solving that for a unit direction
+    gives the two angles below exactly. There is no small-angle approximation
+    here to drift, and no sign to get backwards by inspection.
+    """
+    x, y, z = direction
+    length = math.sqrt(x * x + y * y + z * z)
+    if length == 0:
+        return (0.0, 0.0, 0.0)
+    x, y, z = x / length, y / length, z / length
+
+    rot_x = -math.asin(max(-1.0, min(1.0, y)))
+    rot_y = math.atan2(x, z)
+    return (rot_x, rot_y, 0.0)
+
+
+def strut(
+    name: str,
+    start: tuple[float, float, float],
+    end: tuple[float, float, float],
+    radius: float,
+    mat: bpy.types.Material,
+    *,
+    vertices: int = 12,
+) -> bpy.types.Object:
+    """
+    A cylinder that spans two points.
+
+    Placing a strut by its centre and a guessed angle is how the lamp ended up
+    with an arm that met neither the post it grew from nor the shade it
+    carried. Given both ends there is nothing left to get wrong.
+    """
+    delta = tuple(e - s for s, e in zip(start, end))
+    middle = tuple((s + e) / 2 for s, e in zip(start, end))
+    length = math.sqrt(sum(d * d for d in delta))
+    return cylinder(name, radius, length, middle, mat, vertices=vertices, rotation=aim(delta))
+
+
 def smooth(
     obj: bpy.types.Object,
     levels: int = 2,
@@ -908,7 +957,7 @@ def build_keyboard_and_props() -> list[bpy.types.Object]:
         rotation_z=math.radians(-9),
     )
 
-    return [keyboard, mouse, mug, pencil, notebook, build_headphones(1.45, -2.10, 0.79)]
+    return [keyboard, mouse, mug, pencil, notebook, build_headphones(0.32, -2.20, 0.79)]
 
 
 def build_headphones(hx: float, hy: float, deck: float) -> bpy.types.Object:
@@ -978,29 +1027,41 @@ def build_lamp() -> list[bpy.types.Object]:
     metal = material("lamp_metal", "metal", roughness=0.3, metallic=0.7)
     bulb_mat = material("bulb", "warm", roughness=0.4, emission=6.0)
 
+    # Every joint is a point, and every tube spans two of them, so the parts
+    # cannot fail to meet. The previous lamp placed each piece by its centre
+    # with an angle chosen by eye, and its three parts sat at three different
+    # depths — post at y = -2.06, arm at -2.02, shade at -2.00 — so the arm
+    # grew out of nothing and stopped short of what it was holding.
+    # The desk's back-right corner, leaning out over it. The lamp used to stand
+    # at the left end, which is where the laptop now lives — and the
+    # establishing camera looks along +X, so the open lid stood squarely
+    # between the viewer and the lamp. Nothing was wrong with the lamp; it was
+    # simply never visible.
+    foot = (1.58, -2.28, 0.79)
+    elbow = (1.58, -2.28, 1.32)
+    head = (1.40, -2.03, 1.18)
+
     parts = [
-        cylinder("lamp_base", 0.1, 0.02, (-1.32, -2.06, 0.8), metal),
-        cylinder("lamp_post", 0.012, 0.48, (-1.32, -2.06, 1.03), metal, vertices=12),
-        cylinder(
-            "lamp_arm",
-            0.011,
-            0.34,
-            (-1.18, -2.02, 1.25),
-            metal,
-            vertices=12,
-            rotation=(0, math.radians(64), 0),
-        ),
+        cylinder("lamp_base", 0.095, 0.02, (foot[0], foot[1], foot[2] + 0.01), metal),
+        strut("lamp_post", (foot[0], foot[1], foot[2] + 0.01), elbow, 0.013, metal),
+        strut("lamp_arm", elbow, head, 0.011, metal),
+        cylinder("lamp_elbow", 0.02, 0.03, elbow, metal, vertices=12),
     ]
+
+    # The shade hangs off the head, opening down at the desk. A cone's wide end
+    # is at its -Z, so aiming its axis straight down puts the opening beneath
+    # the bulb where the light is wanted.
     bpy.ops.mesh.primitive_cone_add(
-        radius1=0.1, radius2=0.03, depth=0.15, location=(-1.02, -2.0, 1.2)
+        radius1=0.105, radius2=0.032, depth=0.15, location=(head[0], head[1], head[2] - 0.05)
     )
     shade_obj = bpy.context.object
     shade_obj.name = "lamp_shade"
-    shade_obj.rotation_euler = (0, math.radians(28), 0)
+    shade_obj.data.name = "lamp_shade"
+    shade_obj.rotation_euler = aim((-0.3, -0.42, 1.0))
     shade(shade_obj, metal)
     parts.append(shade_obj)
 
-    bulb = cylinder("ix_lamp", 0.032, 0.032, (-1.02, -2.0, 1.15), bulb_mat, vertices=12)
+    bulb = cylinder("ix_lamp", 0.03, 0.03, (head[0] - 0.012, head[1] - 0.016, head[2] - 0.042), bulb_mat, vertices=12)
     return [join("lamp", parts), bulb]
 
 
@@ -1322,19 +1383,11 @@ def build_plant(px: float, py: float, *, scale: float = 1.0, base_z: float = 0.0
         dy = math.sin(lean) * math.sin(angle)
         dz = math.cos(lean)
 
-        # The euler that actually points the cylinder's +Z along `dir`.
-        #
-        # This was a small-angle approximation with both signs inverted, so
-        # every stem leaned the opposite way to the leaf it was supposed to be
-        # carrying — the stem tip ended up as far the wrong side of the pot's
-        # axis as the leaf was the right side, and the plant read as foliage
-        # hovering in mid-air beside a bundle of sticks. Blender composes euler
-        # XYZ as Rz·Ry·Rx, which sends +Z to (sin b·cos a, −sin a, cos b·cos a);
-        # solving that for `dir` gives the two angles below exactly, with no
-        # approximation to drift.
-        rot_x = -math.asin(max(-1.0, min(1.0, math.sin(lean) * math.sin(angle))))
-        rot_y = math.atan2(math.sin(lean) * math.cos(angle), math.cos(lean))
-
+        # `aim` points the stem along the direction its leaf is placed on, so
+        # the two cannot disagree. They used to: the rotation was a small-angle
+        # approximation with both signs inverted, every stem leaned the opposite
+        # way to the leaf it carried, and the plant read as foliage hovering in
+        # mid-air beside a bundle of sticks.
         stem = cylinder(
             f"{tag}_stem_{i}",
             0.014 * s,
@@ -1342,7 +1395,7 @@ def build_plant(px: float, py: float, *, scale: float = 1.0, base_z: float = 0.0
             (px + dx * length / 2, py + dy * length / 2, soil_top + dz * length / 2),
             stem_mat,
             vertices=6,
-            rotation=(rot_x, rot_y, 0),
+            rotation=aim((dx, dy, dz)),
         )
         parts.append(stem)
 
@@ -1688,7 +1741,7 @@ def build_details() -> list[bpy.types.Object]:
 
     # Desk clutter.
     desk_bits = []
-    cup = (-1.62, -2.28)
+    cup = (1.12, -2.20)
     desk_bits.append(cylinder("pen_cup", 0.05, 0.11, (cup[0], cup[1], 0.845), dark, vertices=16))
     for i, (lean, key) in enumerate(((0.1, "cyan"), (-0.14, "sticky"), (0.06, "paper"))):
         pen = cylinder(f"pen_{i}", 0.006, 0.17, (cup[0] + i * 0.012 - 0.012, cup[1], 0.93),

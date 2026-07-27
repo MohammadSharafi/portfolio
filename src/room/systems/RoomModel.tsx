@@ -120,4 +120,9 @@ export function RoomModel({
   );
 }
 
-useGLTF.preload('/models/room.glb');
+// Deliberately no `useGLTF.preload` here.
+//
+// Preloading the lit room unconditionally fetched 3.4 MB that a baked build
+// never uses — the asset manager resolves to `room-baked.glb` instead, and both
+// models ended up on the wire. What the preload bought was a head start of one
+// HEAD request and a small JSON, which is not worth a second copy of the room.

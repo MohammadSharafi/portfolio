@@ -20,6 +20,7 @@ hold 120fps on a laptop.
 Output:
     public/models/room-baked.glb   the model, materials pointing at the atlas
     public/models/room-bake.png    the atlas itself
+    public/models/room-baked.json  which room.glb this was baked from
 
 The runtime prefers room-baked.glb when it is present and falls back to the
 real-time lit room.glb when it is not, so running this is an upgrade rather than
@@ -29,8 +30,11 @@ a requirement.
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import os
 import sys
+from datetime import datetime, timezone
 
 import bpy
 
@@ -39,6 +43,7 @@ ROOT = os.path.normpath(os.path.join(HERE, "..", ".."))
 OUT_DIR = os.path.join(ROOT, "public", "models")
 OUT_GLB = os.path.join(OUT_DIR, "room-baked.glb")
 OUT_PNG = os.path.join(OUT_DIR, "room-bake.png")
+OUT_STAMP = os.path.join(OUT_DIR, "room-baked.json")
 
 sys.path.insert(0, HERE)
 
@@ -288,6 +293,27 @@ def main() -> None:
         export_image_format="AUTO",
     )
     print(f"[bake_room] wrote {OUT_GLB} ({os.path.getsize(OUT_GLB) / 1024 / 1024:.1f} MB)")
+
+    # Record which room this was baked from.
+    #
+    # The runtime prefers the baked model over the live one, so a bake that has
+    # fallen behind does not degrade the site quietly — it *replaces* it with an
+    # older room, and every change made since becomes invisible. That has now
+    # happened twice, and both times the room looked broken in ways the code
+    # said were already fixed.
+    #
+    # The fix is not to remember to re-bake. It is for the baked model to carry
+    # the fingerprint of the room it came from, so the runtime can notice and
+    # fall back on its own.
+    source = os.path.join(OUT_DIR, "room.glb")
+    stamp = {
+        "source": hashlib.sha256(open(source, "rb").read()).hexdigest() if os.path.exists(source) else "",
+        "baked": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    }
+    with open(OUT_STAMP, "w", encoding="utf-8") as handle:
+        json.dump(stamp, handle, indent=2)
+        handle.write("\n")
+    print(f"[bake_room] wrote {OUT_STAMP} (source {stamp['source'][:12]}…)")
     print("[bake_room] done — the runtime will now prefer the baked room")
 
 
