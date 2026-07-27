@@ -45,10 +45,16 @@ PALETTE = {
     "plastic": (0.063, 0.071, 0.094, 1),
     "keycap": (0.129, 0.145, 0.192, 1),
     "screen": (0.020, 0.031, 0.055, 1),
+    "bezel": (0.035, 0.039, 0.051, 1),
     "paper": (0.827, 0.855, 0.910, 1),
     "board": (0.882, 0.898, 0.929, 1),
-    "leaf": (0.161, 0.373, 0.243, 1),
+    "leaf": (0.208, 0.427, 0.267, 1),
+    "leaf_dark": (0.129, 0.290, 0.180, 1),
+    "chair_dark": (0.106, 0.114, 0.145, 1),
+    "chair_light": (0.180, 0.192, 0.235, 1),
+    "sofa": (0.243, 0.255, 0.318, 1),
     "pot": (0.443, 0.286, 0.208, 1),
+    "earth": (0.129, 0.094, 0.063, 1),
     "mug": (0.847, 0.353, 0.290, 1),
     "sticky": (0.988, 0.804, 0.294, 1),
     "sticky_alt": (0.541, 0.831, 0.925, 1),
@@ -64,9 +70,12 @@ PALETTE = {
 }
 
 _materials: dict[str, bpy.types.Material] = {}
+_grain_wanted: list[tuple[bpy.types.Material, tuple[float, ...], str]] = []
 
 
 def reset_scene() -> None:
+    _materials.clear()
+    _grain_wanted.clear()
     bpy.ops.wm.read_factory_settings(use_empty=True)
     scene = bpy.context.scene
     scene.unit_settings.system = "METRIC"
@@ -80,8 +89,14 @@ def material(
     roughness: float = 0.75,
     metallic: float = 0.0,
     emission: float = 0.0,
+    grain: str | None = None,
 ) -> bpy.types.Material:
-    """A Principled BSDF material, cached by name so the GLB ships one copy."""
+    """
+    A Principled BSDF material, cached by name so the GLB ships one copy.
+
+    `grain` names a procedural surface break-up, but only *records* it — see
+    `apply_grain`, which the bake calls and the plain export does not.
+    """
     if name in _materials:
         return _materials[name]
 
@@ -95,8 +110,107 @@ def material(
     if emission > 0:
         bsdf.inputs["Emission Color"].default_value = colour
         bsdf.inputs["Emission Strength"].default_value = emission
+    if grain:
+        _grain_wanted.append((mat, colour, grain))
     _materials[name] = mat
     return mat
+
+
+def apply_grain() -> int:
+    """
+    Wire the recorded procedural grain into every material that asked for one.
+
+    This is deliberately not part of building the room. The glTF exporter can
+    only carry a *flat* base colour or an image texture; hand it a procedural
+    node graph and it gives up and writes white, which turned every wooden and
+    upholstered surface in the room into bare plastic. So the unbaked export
+    keeps its flat colours, and the bake — which resolves the whole node tree
+    down into one atlas anyway — calls this first and gets the texture.
+    """
+    for mat, colour, kind in _grain_wanted:
+        _add_grain(mat, colour, kind)
+    return len(_grain_wanted)
+
+
+# How each grain type is shaped: its mapping scale (which is the frequency, in
+# cycles per metre of object space), the noise distortion, how far the colour
+# swings either side of the base, and how much the roughness varies with it. A
+# single flat albedo is the thing that most reliably makes a rendered room look
+# rendered — real surfaces vary across a few centimetres, and the eye reads the
+# absence of that as plastic.
+#
+# Frequencies are held under ~110 cycles/m. The bake writes into a 4096 px atlas
+# shared by every object in the room, which works out around 200 texels/m on the
+# larger surfaces; anything finer than half of that aliases into a shimmer
+# instead of resolving as texture.
+_GRAIN = {
+    # Long stretched noise along one axis, which is what wood grain is.
+    "wood": ((0.6, 34.0, 34.0), 3.0, 0.055, 0.12),
+    # Fine isotropic weave.
+    "fabric": ((90.0, 90.0, 90.0), 0.0, 0.035, 0.06),
+    # Broad soft mottling, for painted plaster.
+    "plaster": ((5.5, 5.5, 5.5), 0.4, 0.022, 0.05),
+    # Tight pile with a visible direction.
+    "pile": ((70.0, 18.0, 70.0), 1.4, 0.05, 0.09),
+    # Brushed metal: fine scratches running one way.
+    "brushed": ((150.0, 5.0, 150.0), 0.0, 0.03, 0.14),
+    # Paper tooth, barely there.
+    "paper": ((110.0, 110.0, 110.0), 0.0, 0.018, 0.04),
+}
+
+
+def _add_grain(mat: bpy.types.Material, colour: tuple[float, ...], kind: str) -> None:
+    """Wire a noise texture into base colour and roughness."""
+    spec = _GRAIN.get(kind)
+    if spec is None:
+        return
+    scale, distortion, spread, rough_spread = spec
+
+    tree = mat.node_tree
+    bsdf = tree.nodes["Principled BSDF"]
+
+    coord = tree.nodes.new("ShaderNodeTexCoord")
+    mapping = tree.nodes.new("ShaderNodeMapping")
+    mapping.inputs["Scale"].default_value = scale
+
+    noise = tree.nodes.new("ShaderNodeTexNoise")
+    noise.inputs["Scale"].default_value = 1.0
+    noise.inputs["Detail"].default_value = 6.0
+    noise.inputs["Roughness"].default_value = 0.55
+    noise.inputs["Distortion"].default_value = distortion
+
+    ramp = tree.nodes.new("ShaderNodeValToRGB")
+    ramp.color_ramp.elements[0].position = 0.35
+    ramp.color_ramp.elements[1].position = 0.65
+
+    mix = tree.nodes.new("ShaderNodeMix")
+    mix.data_type = "RGBA"
+    mix.inputs["Factor"].default_value = 1.0
+    dark = tuple(max(0.0, c - spread) for c in colour[:3]) + (1.0,)
+    light = tuple(min(1.0, c + spread) for c in colour[:3]) + (1.0,)
+    mix.inputs[6].default_value = dark
+    mix.inputs[7].default_value = light
+
+    rough = tree.nodes.new("ShaderNodeMapRange")
+    base_rough = bsdf.inputs["Roughness"].default_value
+    rough.inputs["To Min"].default_value = max(0.0, base_rough - rough_spread)
+    rough.inputs["To Max"].default_value = min(1.0, base_rough + rough_spread)
+
+    # Bump, so the grain catches light rather than only tinting.
+    bump = tree.nodes.new("ShaderNodeBump")
+    bump.inputs["Strength"].default_value = 0.12
+    bump.inputs["Distance"].default_value = 0.004
+
+    links = tree.links
+    links.new(coord.outputs["Object"], mapping.inputs["Vector"])
+    links.new(mapping.outputs["Vector"], noise.inputs["Vector"])
+    links.new(noise.outputs["Fac"], ramp.inputs["Fac"])
+    links.new(ramp.outputs["Color"], mix.inputs["Factor"])
+    links.new(mix.outputs[2], bsdf.inputs["Base Color"])
+    links.new(ramp.outputs["Color"], rough.inputs["Value"])
+    links.new(rough.outputs["Result"], bsdf.inputs["Roughness"])
+    links.new(noise.outputs["Fac"], bump.inputs["Height"])
+    links.new(bump.outputs["Normal"], bsdf.inputs["Normal"])
 
 
 def shade(obj: bpy.types.Object, mat: bpy.types.Material) -> bpy.types.Object:
@@ -301,39 +415,46 @@ def build_toronto() -> list[bpy.types.Object]:
 
 def build_shell() -> list[bpy.types.Object]:
     """Floor, two walls and skirting. An open box, so the camera can see in."""
-    wall = material("wall", "wall", roughness=0.95)
-    accent = material("wall_accent", "wall_accent", roughness=0.95)
-    floor_mat = material("floor", "floor", roughness=0.6)
+    wall = material("wall", "wall", roughness=0.95, grain="plaster")
+    accent = material("wall_accent", "wall_accent", roughness=0.95, grain="plaster")
+    floor_mat = material("floor", "floor", roughness=0.6, grain="wood")
 
     parts = [
-        plane("floor", (6.4, 6.4), (0, 0, 0), floor_mat),
+        # The floor stops where the walls do. It used to run 0.6 m past them at
+        # both ends, which left a bare strip of board in the foreground of every
+        # shot and made the room read as a set with the flats pulled in.
+        plane("floor", (6.4, 5.2), (0, 0, 0), floor_mat),
         # Floorboards, as shallow insets rather than a texture: they survive a
         # bake and cost a handful of triangles each.
         _wall_with_opening(wall),
         cube("wall_left", (0.12, 5.2, 5.4), (-3.2, 0, 2.7), accent, bevel=0),
         cube("skirting_back", (6.4, 0.05, 0.11), (0, -2.52, 0.055), material("skirt", "dark_metal")),
         cube("skirting_left", (0.05, 5.2, 0.11), (-3.12, 0, 0.055), material("skirt", "dark_metal")),
-        plane("rug", (3.6, 2.8), (0.2, 0.6, 0.004), material("rug", "rug", roughness=1.0)),
+        plane("rug", (3.9, 3.5), (0.2, 0.8, 0.004), material("rug", "rug", roughness=1.0, grain="pile")),
     ]
 
+    # Floorboards. At 0.34 m apart these read as decking, not as a floor — real
+    # boards are 12–18 cm wide, and getting that wrong is one of the loudest
+    # scale cues in the room because everyone has a floor to compare it to. The
+    # short cross-cuts break the run into planks of varying length so the eye
+    # does not read one 6 m board.
     boards = []
-    for i in range(16):
-        boards.append(
-            cube(
-                f"board_{i}",
-                (6.4, 0.012, 0.004),
-                (0, -2.5 + i * 0.34, 0.004),
-                material("board_line", "dark_metal", roughness=0.9),
-                bevel=0,
-            )
-        )
+    line = material("board_line", "dark_metal", roughness=0.9)
+    for i in range(31):
+        y = -2.55 + i * 0.17
+        boards.append(cube(f"board_{i}", (6.4, 0.01, 0.004), (0, y, 0.004), line, bevel=0))
+        for j in range(3):
+            # Staggered plank ends. Clamped inside the floor: an end-cut that
+            # runs past the edge is a floating white dash in the void.
+            cut = -2.9 + (j * 2.1 + (i % 4) * 0.55) % 5.8
+            boards.append(cube(f"board_end_{i}_{j}", (0.01, 0.17, 0.004), (cut, y + 0.085, 0.004), line, bevel=0))
     parts.append(join("floorboards", boards))
     return parts
 
 
 def build_desk() -> list[bpy.types.Object]:
-    top = material("desk", "desk", roughness=0.45)
-    frame = material("desk_frame", "desk_frame", roughness=0.4, metallic=0.5)
+    top = material("desk", "desk", roughness=0.45, grain="wood")
+    frame = material("desk_frame", "desk_frame", roughness=0.4, metallic=0.5, grain="brushed")
 
     parts = [
         cube("desk_top", (3.5, 1.3, 0.07), (0, -1.85, 0.755), top),
@@ -543,7 +664,7 @@ def build_lamp() -> list[bpy.types.Object]:
 
 def build_shelf_and_books() -> list[bpy.types.Object]:
     """The bookshelf on the left wall. Each book is a project."""
-    wood = material("shelf_wood", "desk", roughness=0.6)
+    wood = material("shelf_wood", "desk", roughness=0.6, grain="wood")
     parts = [
         cube("shelf_side_l", (0.05, 0.3, 1.9), (-3.05, 0.05, 0.95), wood),
         cube("shelf_side_r", (0.05, 0.3, 1.9), (-3.05, 1.85, 0.95), wood),
@@ -642,7 +763,7 @@ def build_whiteboard() -> list[bpy.types.Object]:
 
 
 def build_server_rack() -> list[bpy.types.Object]:
-    case = material("rack", "plastic", roughness=0.4, metallic=0.3)
+    case = material("rack", "plastic", roughness=0.4, metallic=0.3, grain="brushed")
     parts = [cube("rack_body", (0.5, 0.62, 1.2), (2.62, -2.1, 0.6), case)]
     leds = []
     for i in range(6):
@@ -698,44 +819,266 @@ def build_certificates() -> list[bpy.types.Object]:
 
 
 def build_chair_and_plant() -> list[bpy.types.Object]:
-    fabric = material("chair", "dark_metal", roughness=0.85)
-    metal = material("chair_metal", "metal", roughness=0.35, metallic=0.7)
+    """
+    A task chair with a shaped back, armrests and a five-star castor base.
+
+    The previous version was a box on a stick, which is the single object that
+    most gave the room away as placeholder geometry: a chair is the thing in an
+    office everyone has looked at closely, so any shortcut in it reads instantly.
+    """
+    fabric = material("chair_fabric", "chair_dark", roughness=0.92, grain="fabric")
+    trim = material("chair_trim", "chair_light", roughness=0.85, grain="fabric")
+    metal = material("chair_metal", "metal", roughness=0.35, metallic=0.75, grain="brushed")
+
+    cx, cy = -0.25, -0.75
+    parts = []
+
+    # Seat: a pan with a rolled front edge rather than a flat slab.
+    parts.append(cube("seat_pan", (0.52, 0.5, 0.1), (cx, cy, 0.46), fabric, bevel=0.03))
+    parts.append(cube("seat_front", (0.5, 0.12, 0.07), (cx, cy - 0.28, 0.45), fabric, bevel=0.03))
+    parts.append(cube("seat_wing_l", (0.06, 0.44, 0.09), (cx - 0.25, cy, 0.5), trim, bevel=0.025))
+    parts.append(cube("seat_wing_r", (0.06, 0.44, 0.09), (cx + 0.25, cy, 0.5), trim, bevel=0.025))
+
+    # Backrest: four segments, each leaning back a little further than the one
+    # below it so the spine curves. They are deliberately taller than their
+    # spacing — a tilted box pivots about its own centre, so segments sized to
+    # exactly meet would open a wedge-shaped gap at every seam.
+    for index in range(4):
+        z = 0.62 + index * 0.17
+        tilt = -0.07 - index * 0.05
+        width = 0.46 - index * 0.025
+        seg = cube(f"back_{index}", (width, 0.1, 0.28), (cx, cy - 0.2, z), fabric)
+        seg.rotation_euler = (tilt, 0, 0)
+        parts.append(seg)
+
+    # One trim rail up each side of the back, rather than a shell around every
+    # segment. Wrapping each segment separately drew a hard edge at all four
+    # seams, and four hard horizontal edges is exactly how a stack of boxes
+    # looks — the shape was right and the outline gave it away.
+    for side in (-1, 1):
+        rail = cube("back_rail", (0.035, 0.075, 0.78), (cx + side * 0.23, cy - 0.24, 0.87), trim, bevel=0.015)
+        rail.rotation_euler = (-0.15, 0, 0)
+        parts.append(rail)
+
+    # Headrest, leaning further still.
+    head = cube("headrest", (0.32, 0.1, 0.16), (cx, cy - 0.16, 1.36), fabric, bevel=0.03)
+    head.rotation_euler = (-0.3, 0, 0)
+    parts.append(head)
+
+    # Armrests: a post and a padded top, both sides.
+    for side in (-1, 1):
+        parts.append(cube(f"arm_post_{side}", (0.05, 0.05, 0.24), (cx + side * 0.3, cy - 0.02, 0.62), metal))
+        parts.append(cube(f"arm_pad_{side}", (0.08, 0.3, 0.045), (cx + side * 0.3, cy + 0.02, 0.75), fabric, bevel=0.02))
+
+    # Gas lift and the five-star base with real castors.
+    parts.append(cylinder("gas_lift", 0.035, 0.34, (cx, cy, 0.24), metal, vertices=14))
+    parts.append(cylinder("lift_shroud", 0.055, 0.16, (cx, cy, 0.16), material("shroud", "plastic", roughness=0.5), vertices=14))
+    for i in range(5):
+        angle = i / 5 * math.tau
+        dx, dy = math.cos(angle), math.sin(angle)
+        spoke = cube(f"spoke_{i}", (0.055, 0.3, 0.035), (cx + dx * 0.15, cy + dy * 0.15, 0.075), metal, rotation_z=angle + math.pi / 2)
+        parts.append(spoke)
+        parts.append(cylinder(f"castor_{i}", 0.032, 0.022, (cx + dx * 0.29, cy + dy * 0.29, 0.032),
+                              material("castor", "plastic", roughness=0.45), vertices=12,
+                              rotation=(0, math.radians(90), angle)))
+
+    chair = join("ix_chair", parts)
+    chair.rotation_euler = (0, 0, math.radians(-24))
+
+    return [chair, build_plant(2.78, 0.35)]
+
+
+def build_plant(px: float, py: float) -> bpy.types.Object:
+    """
+    A potted plant: a pot with a rim, soil, and leaves sitting on real stems.
+
+    Each stem leans out of the pot by an angle, and every other position is
+    derived from that one angle. The first attempt placed the stem's centre and
+    its leaf independently and let a rotation tilt the stem afterwards, so the
+    two disagreed about where the stem actually pointed — the leaves ended up
+    strewn across the floor a metre from the pot.
+    """
+    pot_mat = material("pot", "pot", roughness=0.9, grain="plaster")
+    soil_top = 0.3
 
     parts = [
-        cube("seat", (0.54, 0.52, 0.09), (-0.25, -0.75, 0.47), fabric),
-        cube("back", (0.5, 0.09, 0.68), (-0.25, -0.48, 0.85), fabric),
-        cylinder("chair_post", 0.035, 0.42, (-0.25, -0.75, 0.24), metal, vertices=12),
+        cylinder("pot", 0.17, 0.3, (px, py, 0.15), pot_mat),
+        cylinder("pot_rim", 0.185, 0.05, (px, py, 0.28), pot_mat),
+        cylinder("soil", 0.155, 0.02, (px, py, soil_top), material("soil", "earth", roughness=1.0, grain="pile")),
     ]
-    for i in range(5):
-        a = i / 5 * math.tau
-        parts.append(
-            cube(
-                f"caster_{i}",
-                (0.05, 0.3, 0.03),
-                (-0.25 + math.cos(a) * 0.15, -0.75 + math.sin(a) * 0.15, 0.05),
-                metal,
-                rotation_z=a,
-            )
-        )
-    chair = join("ix_chair", parts)
 
-    pot = cylinder("pot", 0.17, 0.28, (2.55, 0.9, 0.14), material("pot", "pot", roughness=0.9))
-    leaves = []
-    for i in range(9):
-        a = i / 9 * math.tau
-        r = 0.11 + (i % 3) * 0.05
+    leaf_mat = material("leaf", "leaf", roughness=0.62)
+    stem_mat = material("stem", "leaf_dark", roughness=0.7)
+
+    for i in range(12):
+        angle = i / 12 * math.tau * 2.6
+        lean = 0.28 + (i % 4) * 0.16
+        length = 0.24 + (i % 5) * 0.08
+
+        # The direction the stem grows in, straight from the lean angle. The
+        # centre sits at half its length along that direction and the leaf sits
+        # at the end of it, so the three can never drift apart.
+        dx = math.sin(lean) * math.cos(angle)
+        dy = math.sin(lean) * math.sin(angle)
+        dz = math.cos(lean)
+
+        stem = cylinder(
+            f"stem_{i}",
+            0.008,
+            length,
+            (px + dx * length / 2, py + dy * length / 2, soil_top + dz * length / 2),
+            stem_mat,
+            vertices=6,
+            rotation=(lean * math.sin(angle), -lean * math.cos(angle), 0),
+        )
+        parts.append(stem)
+
         bpy.ops.mesh.primitive_ico_sphere_add(
             subdivisions=1,
-            radius=0.12,
-            location=(2.55 + math.cos(a) * r, 0.9 + math.sin(a) * r, 0.42 + (i % 4) * 0.12),
+            radius=0.055,
+            location=(px + dx * length, py + dy * length, soil_top + dz * length),
         )
         leaf = bpy.context.object
         leaf.name = f"leaf_{i}"
-        leaf.scale = (1, 1, 1.8)
-        leaf.rotation_euler = (0.3, 0, a)
-        leaves.append(shade(leaf, material("leaf", "leaf", roughness=0.7)))
+        leaf.data.name = f"leaf_{i}"
+        leaf.scale = (1.7, 0.62, 0.16)
+        leaf.rotation_euler = (0, 0.4, angle)
+        parts.append(shade(leaf, leaf_mat))
 
-    return [chair, join("plant", [pot] + leaves)]
+    return join("plant", parts)
+
+
+def build_lounge() -> list[bpy.types.Object]:
+    """
+    The other half of the room: sofa, low table, TV on a unit.
+
+    A workspace with nothing but a desk in it reads as a stage set. The point of
+    these is not that a visitor inspects the sofa — it is that the room stops
+    looking like it was built solely to hold one desk.
+    """
+    fabric = material("sofa_fabric", "sofa", roughness=0.95, grain="fabric")
+    wood = material("lounge_wood", "desk", roughness=0.55, grain="wood")
+    dark = material("lounge_dark", "bezel", roughness=0.4, metallic=0.2)
+    metal = material("lounge_metal", "metal", roughness=0.35, metallic=0.8, grain="brushed")
+
+    # Nothing here shares a face with anything else. Two coplanar surfaces of
+    # different objects z-fight, and upholstery is where that bites hardest,
+    # because a sofa is one shape assembled from six boxes that all want to end
+    # in the same place. Every cushion sinks a centimetre into what carries it.
+    parts = []
+    sx, sy = 0.2, 1.6
+    parts.append(cube("sofa_base", (2.05, 0.86, 0.32), (sx, sy, 0.18), fabric, bevel=0.03))
+    parts.append(cube("sofa_back", (2.0, 0.22, 0.56), (sx, sy + 0.38, 0.58), fabric, bevel=0.04))
+    for side in (-1, 1):
+        parts.append(
+            cube(f"sofa_arm_{side}", (0.22, 0.9, 0.36), (sx + side * 0.95, sy, 0.48), fabric, bevel=0.06)
+        )
+    for i in range(3):
+        parts.append(
+            cube(f"cushion_{i}", (0.58, 0.7, 0.15), (sx - 0.62 + i * 0.62, sy - 0.06, 0.4), fabric, bevel=0.05)
+        )
+    for i, x in enumerate((-0.52, 0.52)):
+        back = cube(f"back_cushion_{i}", (0.56, 0.17, 0.42), (sx + x, sy + 0.23, 0.63), fabric, bevel=0.06)
+        back.rotation_euler = (0.14, 0, 0)
+        parts.append(back)
+    # A throw over one arm, and two scatter cushions. Perfect symmetry is what
+    # makes furniture look modelled rather than used.
+    throw = cube("throw", (0.5, 0.72, 0.05), (sx - 0.72, sy - 0.02, 0.5),
+                 material("throw", "rug", roughness=1.0, grain="pile"), bevel=0.02)
+    throw.rotation_euler = (0, 0.16, 0)
+    parts.append(throw)
+    for i, (x, tilt) in enumerate(((-0.34, 0.5), (0.72, -0.42))):
+        scatter = cube(f"scatter_{i}", (0.32, 0.12, 0.32), (sx + x, sy + 0.16, 0.62),
+                       material("scatter", "wall_accent", roughness=0.95, grain="fabric"), bevel=0.05)
+        scatter.rotation_euler = (0.2, tilt, 0)
+        parts.append(scatter)
+    for i in range(4):
+        dx = -0.88 if i % 2 == 0 else 0.88
+        dy = -0.36 if i < 2 else 0.36
+        parts.append(cube(f"sofa_foot_{i}", (0.06, 0.06, 0.07), (sx + dx, sy + dy, 0.035), wood))
+
+    sofa = join("sofa", parts)
+
+    # Coffee table, with a magazine stack and a tray on it.
+    table = [cube("table_top", (1.15, 0.6, 0.055), (0.25, 0.5, 0.37), wood, bevel=0.012)]
+    for i in range(4):
+        dx = -0.5 if i % 2 == 0 else 0.5
+        dy = -0.22 if i < 2 else 0.22
+        table.append(cube(f"table_leg_{i}", (0.055, 0.055, 0.35), (0.25 + dx, 0.5 + dy, 0.175), wood))
+    table.append(cube("table_shelf", (1.0, 0.5, 0.028), (0.25, 0.5, 0.15), wood, bevel=0.008))
+    for i, key in enumerate(("book_a", "book_c", "book_d")):
+        mag = cube(f"magazine_{i}", (0.3, 0.23, 0.022), (0.0, 0.5, 0.41 + i * 0.023),
+                   material(f"magazine_{key}", key, roughness=0.5), bevel=0.004)
+        mag.rotation_euler = (0, 0, 0.12 * (i - 1))
+        table.append(mag)
+    table.append(cylinder("table_bowl", 0.11, 0.05, (0.62, 0.52, 0.42), material("bowl", "metal", roughness=0.25, metallic=0.9)))
+
+    # A floor lamp behind the far arm of the sofa. It stands where the TV used
+    # to: this room has two walls and both are spoken for, so a screen on the
+    # third had nothing behind it and read as furniture floating at the edge of
+    # a stage.
+    lx, ly = -1.22, 1.85
+    lamp = [
+        cylinder("floor_lamp_base", 0.14, 0.028, (lx, ly, 0.014), metal),
+        cylinder("floor_lamp_pole", 0.016, 1.42, (lx, ly, 0.72), metal, vertices=12),
+    ]
+    bpy.ops.mesh.primitive_cone_add(
+        radius1=0.16, radius2=0.11, depth=0.22, vertices=20, location=(lx, ly, 1.51)
+    )
+    shade_obj = bpy.context.object
+    shade_obj.name = "floor_lamp_shade"
+    shade_obj.data.name = "floor_lamp_shade"
+    lamp.append(shade(shade_obj, material("lamp_shade", "paper", roughness=0.85, grain="paper")))
+
+    # A side table by the near arm of the sofa, with a speaker on it.
+    tx, ty = 1.62, 0.55
+    side = [
+        cylinder("side_top", 0.22, 0.04, (tx, ty, 0.52), wood),
+        cylinder("side_post", 0.032, 0.5, (tx, ty, 0.26), metal, vertices=12),
+        cylinder("side_foot", 0.17, 0.022, (tx, ty, 0.011), metal),
+        cube("speaker", (0.12, 0.12, 0.2), (tx + 0.02, ty, 0.64), dark, bevel=0.015),
+        cylinder("speaker_grille", 0.045, 0.012, (tx - 0.05, ty, 0.65),
+                 material("grille", "dark_metal", roughness=0.9), rotation=(0, math.radians(90), 0)),
+    ]
+
+    # Framed prints on the accent wall. The wall runs to y = 2.6, and the
+    # bookshelf occupies y = 0.05 to 1.85 — anything hung outside that band
+    # either floats off the end of the wall or grows through a shelf.
+    art = []
+    for i, (y, z, h) in enumerate(((2.15, 1.62, 0.52), (2.15, 2.24, 0.46))):
+        art.append(cube(f"frame_{i}", (0.04, 0.46, h), (-3.11, y, z),
+                        material("art_frame", "desk_frame", roughness=0.5)))
+        art.append(cube(f"print_{i}", (0.01, 0.4, h - 0.06), (-3.08, y, z),
+                        material(f"print_{i}", ("cyan", "violet")[i], roughness=0.7), bevel=0))
+
+    # Guitar on a stand, in the gap between the bookshelf and the corner.
+    guitar = []
+    gx, gy = -2.86, 2.3
+    lean = math.radians(11)
+    for name, radius, z in (("guitar_lower", 0.19, 0.32), ("guitar_upper", 0.145, 0.52)):
+        guitar.append(
+            cylinder(name, radius, 0.09, (gx + z * math.tan(lean), gy, z),
+                     material("guitar_body", "book_d", roughness=0.3),
+                     vertices=20, rotation=(0, math.radians(90), 0))
+        )
+    neck = cube("guitar_neck", (0.05, 0.055, 0.72), (gx + 0.95 * math.tan(lean), gy, 0.95),
+                material("guitar_neck", "pot", roughness=0.5))
+    neck.rotation_euler = (0, -lean, 0)
+    guitar.append(neck)
+    head = cube("guitar_head", (0.055, 0.07, 0.17), (gx + 1.38 * math.tan(lean), gy, 1.38),
+                material("guitar_head", "dark_metal", roughness=0.4))
+    head.rotation_euler = (0, -lean, 0)
+    guitar.append(head)
+    guitar.append(cube("guitar_stand", (0.28, 0.32, 0.03), (gx + 0.06, gy, 0.055), dark))
+
+    return [
+        sofa,
+        join("coffee_table", table),
+        join("floor_lamp", lamp),
+        join("side_table", side),
+        join("wall_art", art),
+        join("guitar", guitar),
+    ]
 
 
 def add_lighting() -> None:
@@ -794,7 +1137,15 @@ def unwrap_all() -> None:
         obj.data.uv_layers.active = obj.data.uv_layers["UVMap"]
 
 
-def main() -> None:
+def build_all() -> None:
+    """
+    Every builder, in order, into a fresh scene.
+
+    The bake script builds the same room from the same code, and for a while it
+    did so from its own copy of this list — which silently went stale the moment
+    a builder was added here, so the baked room was missing furniture the
+    exported one had. There is one list now, and both callers use it.
+    """
     reset_scene()
 
     build_shell()
@@ -810,7 +1161,12 @@ def main() -> None:
     build_toronto()
     build_certificates()
     build_chair_and_plant()
+    build_lounge()
     add_lighting()
+
+
+def main() -> None:
+    build_all()
 
     try:
         unwrap_all()

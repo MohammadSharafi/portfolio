@@ -217,21 +217,14 @@ def main() -> None:
 
     import build_room
 
-    build_room.reset_scene()
-    build_room.build_shell()
-    build_room.build_desk()
-    build_room.build_monitors()
-    build_room.build_laptop()
-    build_room.build_keyboard_and_props()
-    build_room.build_lamp()
-    build_room.build_shelf_and_books()
-    build_room.build_whiteboard()
-    build_room.build_server_rack()
-    build_room.build_window()
-    build_room.build_toronto()
-    build_room.build_certificates()
-    build_room.build_chair_and_plant()
-    build_room.add_lighting()
+    build_room.build_all()
+
+    # Procedural wood grain, fabric weave and brushed metal, wired in only for
+    # the bake. The plain glTF export cannot carry a node graph — it writes
+    # white where one is linked — so the room is built flat and textured here,
+    # where everything resolves into the atlas anyway.
+    print(f"[bake_room] grain applied to {build_room.apply_grain()} materials")
+
     build_room.unwrap_all()
 
     if not ensure_cycles():
