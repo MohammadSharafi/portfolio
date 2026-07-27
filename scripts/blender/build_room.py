@@ -817,28 +817,48 @@ def build_monitors() -> list[bpy.types.Object]:
     out: list[bpy.types.Object] = []
 
     for name, x, tilt in (("ix_monitor_health", -0.62, 0.16), ("ix_monitor_code", 0.66, -0.16)):
-        body = cube(f"{name}_body", (1.1, 0.05, 0.64), (x, -2.16, 1.2), shell, rotation_z=tilt)
+        # A panel and a chin, not one slab. The bezel is 1 cm at the sides and
+        # top and 3 cm along the bottom, which is how every monitor made in the
+        # last decade is proportioned — a uniform 3.5 cm border all the way
+        # round was the single thing dating these most.
+        panel = cube(f"{name}_body", (1.1, 0.032, 0.64), (x, -2.16, 1.2), shell, rotation_z=tilt)
+        parts = [panel]
+        # The housing behind it, thicker in the middle where the electronics go.
+        parts.append(
+            cube(f"{name}_housing", (0.62, 0.05, 0.34), (x + math.sin(tilt) * 0.04, -2.19, 1.19), shell,
+                 rotation_z=tilt)
+        )
+        # Power LED, tucked under the chin.
+        parts.append(
+            cube(f"{name}_led", (0.018, 0.008, 0.008),
+                 (x + math.cos(tilt) * 0.42, -2.142, 0.906),
+                 material("monitor_led", "cyan", roughness=0.3, emission=1.0), bevel=0)
+        )
         # A single quad, not a thin box. A cube's UVs give every face its own
         # patch of the image, so a canvas texture applied to one tiles across
         # all six — which is exactly how the first attempt failed.
-        screen = plane(f"{name}_display", (1.03, 0.58), (x, -2.128, 1.2), screen_mat,
+        screen = plane(f"{name}_display", (1.08, 0.575), (x, -2.1425, 1.213), screen_mat,
                        rotation=(math.radians(-90), 0, tilt))
-        out.append(join(name, [body]))
+        out.append(join(name, parts))
         out.append(screen)
 
+    # A dual arm: one weighted foot, one post, and a jointed reach out to each
+    # panel. The old version was a single bar running behind both screens with
+    # nothing attaching it to either.
     out += [
-        cylinder("arm_post", 0.026, 0.62, (0.02, -2.34, 1.06), arm_mat, vertices=16),
-        cube("arm_base", (0.26, 0.16, 0.03), (0.02, -2.34, 0.79), arm_mat),
-        cylinder(
-            "arm_cross",
-            0.02,
-            1.5,
-            (0.02, -2.3, 1.3),
-            arm_mat,
-            vertices=12,
-            rotation=(math.radians(90), 0, math.radians(90)),
-        ),
+        cube("arm_base", (0.3, 0.2, 0.022), (0.02, -2.36, 0.801), arm_mat, bevel=0.006),
+        cylinder("arm_post", 0.024, 0.66, (0.02, -2.36, 1.13), arm_mat, vertices=16),
+        cylinder("arm_hub", 0.034, 0.05, (0.02, -2.36, 1.28), arm_mat, vertices=16),
     ]
+    for name, x, tilt in (("health", -0.62, 0.16), ("code", 0.66, -0.16)):
+        # Each reach spans from the hub to the back of its own panel, so both
+        # ends are attached to something.
+        out.append(
+            strut(f"arm_reach_{name}", (0.02, -2.36, 1.28), (x, -2.21, 1.2), 0.017, arm_mat)
+        )
+        out.append(
+            cube(f"arm_plate_{name}", (0.1, 0.03, 0.1), (x, -2.205, 1.2), arm_mat, rotation_z=tilt, bevel=0.004)
+        )
     return out
 
 
@@ -856,12 +876,64 @@ def build_laptop() -> list[bpy.types.Object]:
     # body was buried inside the desk, and the screen stood on the desktop with
     # nothing under it. Everything here is lifted to rest on the surface rather
     # than inside it.
-    base = cube("laptop_base", (0.86, 0.6, 0.02), (-1.12, -1.55, 0.8), body)
-    deck = cube("laptop_deck", (0.72, 0.36, 0.004), (-1.12, -1.62, 0.812), material("deck", "keycap"), bevel=0)
+    lx, ly = -1.12, -1.55
+    deck_top = 0.812
 
-    lid = cube("ix_laptop_lid_body", (0.86, 0.02, 0.56), (-1.12, -1.85, 1.078), body)
+    base = cube("laptop_base", (0.86, 0.6, 0.022), (lx, ly, 0.801), body)
+
+    # The deck is a recessed well with real keys in it, not a painted-on
+    # rectangle. A laptop is seen from above more than from any other angle, so
+    # the deck is most of what there is to look at — a flat panel there is the
+    # single biggest thing between this and a real machine.
+    parts_base = [base]
+    parts_base.append(
+        cube("laptop_well", (0.66, 0.25, 0.004), (lx, ly - 0.13, deck_top - 0.002),
+             material("deck", "keycap"), bevel=0)
+    )
+
+    key_mat = material("laptop_key", "plastic", roughness=0.68)
+    for row in range(5):
+        # The bottom row is the space bar and its neighbours, so it is drawn as
+        # three wide keys rather than fourteen narrow ones.
+        if row == 4:
+            for name, width, offset in (("lkey_ctl", 0.13, -0.22), ("lkey_space", 0.26, 0.0), ("lkey_alt", 0.13, 0.22)):
+                parts_base.append(
+                    cube(f"{name}", (width, 0.032, 0.006), (lx + offset, ly - 0.055, deck_top + 0.003), key_mat, bevel=0.001)
+                )
+            continue
+        for col in range(14):
+            parts_base.append(
+                cube(
+                    f"lkey_{row}_{col}",
+                    (0.036, 0.032, 0.006),
+                    (lx - 0.286 + col * 0.044, ly - 0.235 + row * 0.042, deck_top + 0.003),
+                    key_mat,
+                    bevel=0.001,
+                )
+            )
+
+    # Trackpad, palm rest side.
+    parts_base.append(
+        cube("laptop_trackpad", (0.19, 0.115, 0.003), (lx, ly + 0.155, deck_top + 0.001),
+             material("trackpad", "chair_light", roughness=0.35), bevel=0.002)
+    )
+    # Hinge barrel and four rubber feet.
+    parts_base.append(
+        cylinder("laptop_hinge", 0.011, 0.5, (lx, ly - 0.295, 0.806), material("hinge", "dark_metal", roughness=0.45),
+                 vertices=12, rotation=(0, math.radians(90), 0))
+    )
+    for fx in (-0.36, 0.36):
+        for fy in (-0.24, 0.24):
+            parts_base.append(
+                cylinder(f"laptop_foot_{fx}_{fy}", 0.012, 0.006, (lx + fx, ly + fy, 0.7925),
+                         material("foot", "plastic", roughness=0.9), vertices=8)
+            )
+
+    lid = cube("ix_laptop_lid_body", (0.86, 0.018, 0.56), (lx, -1.85, 1.078), body)
+    # A 1.5 cm bezel rather than 3 cm. Screens have got to the edge of their
+    # lids since about 2018 and a fat border is the first thing that dates one.
     lid_screen = plane(
-        "ix_laptop_display", (0.8, 0.5), (-1.12, -1.833, 1.078), screen_mat,
+        "ix_laptop_display", (0.83, 0.53), (lx, -1.838, 1.078), screen_mat,
         rotation=(math.radians(-90), 0, 0)
     )
     # Bake the screen's facing rotation into its vertices before re-origining.
@@ -889,7 +961,7 @@ def build_laptop() -> list[bpy.types.Object]:
     lid.rotation_euler = (math.radians(-14), 0, 0)
     lid_screen.rotation_euler = (math.radians(-14), 0, 0)
 
-    return [lid, lid_screen, join("laptop_base", [base, deck])]
+    return [lid, lid_screen, join("laptop_base", parts_base)]
 
 
 def build_keyboard_and_props() -> list[bpy.types.Object]:
@@ -952,12 +1024,12 @@ def build_keyboard_and_props() -> list[bpy.types.Object]:
     notebook = cube(
         "ix_notebook",
         (0.34, 0.46, 0.03),
-        (1.35, -1.38, 0.805),
+        (1.30, -1.52, 0.805),
         material("notebook", "book_a", roughness=0.6),
         rotation_z=math.radians(-9),
     )
 
-    return [keyboard, mouse, mug, pencil, notebook, build_headphones(0.32, -2.20, 0.79)]
+    return [keyboard, mouse, mug, pencil, notebook, build_headphones(1.05, -1.78, 0.79)]
 
 
 def build_headphones(hx: float, hy: float, deck: float) -> bpy.types.Object:
@@ -1279,19 +1351,21 @@ def build_chair_and_plant() -> list[bpy.types.Object]:
     # four separately rotated boxes. Stacking tilted segments left a visible
     # seam at every joint no matter how far they overlapped, and four hard
     # horizontal lines is exactly how a stack of boxes looks.
+    # A racing back: tall, with the shoulder wings a gaming chair is recognised
+    # by. The `wrap` column is what makes them — it pulls the outer edge of each
+    # row forward, so the shell curls around where a back would sit instead of
+    # being a flat panel. It is strongest across the shoulders and eases off at
+    # the waist and the top, which is the whole silhouette.
     back_rows = (
-        # (height, how far back, half width, how much the sides wrap forward)
-        #
-        # 0.68 m tall and 0.48 m wide. The first pass ran to 1.40 m on the same
-        # width and read as an ironing board — a task chair's back is only a
-        # little taller than it is wide, and getting that ratio wrong reads as
-        # wrong instantly even though no one could tell you the numbers.
-        (0.50, -0.185, 0.225, 0.018),
-        (0.66, -0.205, 0.240, 0.040),
-        (0.82, -0.235, 0.242, 0.048),
-        (0.98, -0.275, 0.234, 0.042),
-        (1.10, -0.315, 0.210, 0.028),
-        (1.18, -0.345, 0.172, 0.014),
+        # (height, how far back, half width, how far the sides wrap forward)
+        (0.50, -0.180, 0.215, 0.014),
+        (0.66, -0.200, 0.243, 0.036),
+        (0.82, -0.230, 0.255, 0.054),
+        (0.98, -0.265, 0.258, 0.062),
+        (1.14, -0.300, 0.246, 0.056),
+        (1.30, -0.340, 0.218, 0.038),
+        (1.42, -0.375, 0.176, 0.020),
+        (1.50, -0.400, 0.126, 0.008),
     )
     verts = []
     for z, dy, half, wrap in back_rows:
@@ -1304,8 +1378,23 @@ def build_chair_and_plant() -> list[bpy.types.Object]:
             faces.append((a, a + 1, a + stride + 1, a + stride))
 
     back = poly("back_shell", verts, faces, (cx, cy, 0), fabric)
-    back.modifiers.new("Thickness", "SOLIDIFY").thickness = 0.075
+    back.modifiers.new("Thickness", "SOLIDIFY").thickness = 0.08
     parts.append(smooth(back, 2, crease=0.15))
+
+    # Headrest and lumbar cushion, each slung on a strap. These are the two
+    # details that say "gaming chair" rather than "office chair", and they are
+    # also the only places the trim colour appears at any size.
+    head = cube("headrest", (0.24, 0.11, 0.13), (cx, cy - 0.36, 1.44), trim, bevel=0)
+    head.rotation_euler = (-0.34, 0, 0)
+    parts.append(smooth(head, 2, crease=0.35))
+
+    lumbar = cube("lumbar", (0.26, 0.12, 0.15), (cx, cy - 0.155, 0.72), trim, bevel=0)
+    lumbar.rotation_euler = (-0.1, 0, 0)
+    parts.append(smooth(lumbar, 2, crease=0.3))
+
+    # No separate contrast stripes. The shell's own wings already carry the
+    # racing shape, and a rail laid over them read as something bolted on
+    # rather than as part of the seat.
 
     # Armrests: a post rising off the seat frame and a rounded pad. The pads
     # used to be 8 cm wide slabs, which from the side is a blade rather than
@@ -1754,7 +1843,7 @@ def build_details() -> list[bpy.types.Object]:
     desk_bits.append(phone)
 
     for i in range(3):
-        sheet = cube(f"paper_{i}", (0.21, 0.29, 0.004), (-1.52, -1.3, 0.793 + i * 0.005), paper_mat, bevel=0)
+        sheet = cube(f"paper_{i}", (0.21, 0.29, 0.004), (-1.52, -1.42, 0.793 + i * 0.005), paper_mat, bevel=0)
         sheet.rotation_euler = (0, 0, math.radians(4 - i * 5))
         desk_bits.append(sheet)
 

@@ -123,11 +123,18 @@ RESTS_ON = (
     ("ix_mug", "desk_top"),
     ("ix_notebook", "desk_top"),
     ("ix_headphones", "desk_top"),
+    # Joined, so its footprint covers every loose thing on the desk at once —
+    # which is what caught the papers sliding off the front.
+    ("desk_clutter", "desk_top"),
 )
 
 # How far a prop may sink into what carries it before it is a mistake. A
 # millimetre or two is deliberate — it stops a coplanar contact z-fighting.
 SINK_TOLERANCE = 0.006
+
+# And how far it may hang off the edge. Nothing should, but a millimetre of
+# float error is not a bug.
+EDGE_TOLERANCE = 0.004
 
 
 def _top_of(name: str) -> float | None:
@@ -144,17 +151,44 @@ def _bottom_of(name: str) -> float | None:
     return min((obj.matrix_world @ v.co).z for v in obj.data.vertices)
 
 
+def _footprint(name: str) -> tuple[float, float, float, float] | None:
+    obj = bpy.data.objects.get(name)
+    if obj is None:
+        return None
+    pts = [obj.matrix_world @ v.co for v in obj.data.vertices]
+    return (min(p.x for p in pts), max(p.x for p in pts), min(p.y for p in pts), max(p.y for p in pts))
+
+
 def check_resting() -> list[str]:
-    """Props that have sunk into the surface they are supposed to sit on."""
+    """
+    Props that have sunk into the surface they sit on, or slid off its edge.
+
+    Both have happened, and neither announces itself: a buried object is
+    invisible, and an overhanging one just looks slightly wrong from the one
+    angle that shows the edge. The keyboard spent weeks with a third of itself
+    hanging in mid-air.
+    """
     complaints: list[str] = []
     for prop, surface in RESTS_ON:
         top = _top_of(surface)
         bottom = _bottom_of(prop)
-        if top is None or bottom is None:
+        if top is not None and bottom is not None:
+            sunk = top - bottom
+            if sunk > SINK_TOLERANCE:
+                complaints.append(f"{prop} is {sunk * 100:.1f} cm inside {surface}")
+
+        under = _footprint(surface)
+        over = _footprint(prop)
+        if under is None or over is None:
             continue
-        sunk = top - bottom
-        if sunk > SINK_TOLERANCE:
-            complaints.append(f"{prop} is {sunk * 100:.1f} cm inside {surface}")
+        overhang = max(
+            under[0] - over[0],  # off the -X edge
+            over[1] - under[1],  # off the +X edge
+            under[2] - over[2],  # off the -Y edge
+            over[3] - under[3],  # off the +Y edge
+        )
+        if overhang > EDGE_TOLERANCE:
+            complaints.append(f"{prop} hangs {overhang * 100:.1f} cm off the edge of {surface}")
     return complaints
 
 

@@ -25,6 +25,7 @@ const LID_CLOSED = 1.42;
 export function Animations({ root }: { root: Object3D }) {
   const focused = useEngine((state) => state.focused);
   const lampOn = useEngine((state) => state.lampOn);
+  const spins = useEngine((state) => state.spins);
   const reducedMotion = useReducedMotion();
 
   const parts = useMemo(() => {
@@ -68,11 +69,24 @@ export function Animations({ root }: { root: Object3D }) {
   const lidProgress = useRef(0);
   const glow = useRef(1);
   const elapsed = useRef(0);
+  const spinRate = useRef(0);
+  const spun = useRef(0);
+  const seenSpins = useRef(spins);
 
   // The bulb should be lit on arrival if the lamp is on, not fade up from dark.
   useEffect(() => {
     glow.current = lampOn ? 1 : 0;
   }, [parts, lampOn]);
+
+  // Each shove adds to whatever the chair is already doing, so pushing a
+  // spinning chair speeds it up rather than restarting it. Alternating
+  // direction is what a real one does — nobody shoves a chair the same way
+  // twice — and it also keeps repeated clicks from winding it up forever.
+  useEffect(() => {
+    if (spins === seenSpins.current) return;
+    seenSpins.current = spins;
+    spinRate.current += (spins % 2 === 0 ? -1 : 1) * (7 + Math.random() * 4);
+  }, [spins]);
 
   useFrame((_, delta) => {
     const dt = Math.min(0.05, delta);
@@ -101,11 +115,24 @@ export function Animations({ root }: { root: Object3D }) {
     // Held still under reduced motion. The lid and the lamp above are responses
     // to something the visitor did; this is the room moving on its own, which is
     // the kind the preference is actually about.
-    if (parts.chair && !reducedMotion) {
-      elapsed.current += dt;
-      const t = elapsed.current;
-      const sway = Math.sin(t * 0.31) * 0.085 + Math.sin(t * 0.73 + 1.4) * 0.038;
-      parts.chair.node.rotation.y = parts.chair.base + sway;
+    if (parts.chair) {
+      // Friction, as an exponential decay on the rate. A chair on castors does
+      // not stop dead and it does not coast forever; it winds down over a few
+      // seconds, and the last half-turn is the part that reads as real.
+      spinRate.current *= Math.exp(-1.15 * dt);
+      if (Math.abs(spinRate.current) < 0.01) spinRate.current = 0;
+      spun.current += spinRate.current * dt;
+
+      // The idle drift is unrequested movement, so it is the part reduced
+      // motion silences. A shove is something the visitor asked for, and still
+      // works.
+      let sway = 0;
+      if (!reducedMotion) {
+        elapsed.current += dt;
+        const t = elapsed.current;
+        sway = Math.sin(t * 0.31) * 0.085 + Math.sin(t * 0.73 + 1.4) * 0.038;
+      }
+      parts.chair.node.rotation.y = parts.chair.base + spun.current + sway;
     }
   });
 
