@@ -4,11 +4,31 @@ import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react-swc';
 import tailwindcss from '@tailwindcss/vite';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type { Plugin } from 'vite';
 import { SITE_URL } from './src/lib/site';
 
 const rootDir = path.dirname(fileURLToPath(import.meta.url));
+
+/**
+ * A fingerprint of the room model this build ships with.
+ *
+ * The runtime prefers `room-baked.glb` over `room.glb`, so a bake that has
+ * fallen behind does not degrade the room quietly — it *replaces* it with an
+ * older one, and every change made since becomes invisible. That happened
+ * twice, and both times the room looked broken in ways the code said were
+ * already fixed, which is an expensive way to find out.
+ *
+ * Baking it in here lets the browser compare what it was given against what the
+ * bake claims it came from, and fall back on its own. Nobody has to remember.
+ */
+function roomHash(): string {
+  const model = path.join(rootDir, 'public', 'models', 'room.glb');
+  if (!existsSync(model)) return '';
+  return createHash('sha256').update(readFileSync(model)).digest('hex');
+}
 
 /**
  * Keeps the deployed origin in exactly one place: substitutes `%SITE_URL%` in
@@ -44,6 +64,9 @@ function siteUrl(): Plugin {
 
 export default defineConfig({
   plugins: [react(), tailwindcss(), siteUrl()],
+  define: {
+    __ROOM_HASH__: JSON.stringify(roomHash()),
+  },
   resolve: {
     alias: {
       '@': path.resolve(rootDir, './src'),
