@@ -146,12 +146,14 @@ def configure_cycles(samples: int, force_cpu: bool, exposure: float = 0.0) -> No
     print("[bake_room] no GPU backend found, baking on CPU")
 
 
-def prepare_materials(atlas: bpy.types.Image) -> list[bpy.types.Object]:
+def prepare_materials(atlas: bpy.types.Image, build_room) -> list[bpy.types.Object]:
     """
     Gives every material an Image Texture node pointing at the shared atlas and
     makes it active, which is where Cycles writes.
     """
-    meshes = [obj for obj in bpy.context.scene.objects if obj.type == "MESH"]
+    # The same set `unwrap_all` gave Bake UVs to. Anything excluded there has no
+    # island in the atlas, so baking it would write over someone else's texels.
+    meshes = build_room.bake_meshes()
 
     for obj in meshes:
         if "Bake" in obj.data.uv_layers:
@@ -282,7 +284,7 @@ def main() -> None:
     configure_cycles(args.samples, args.cpu, args.exposure)
 
     atlas = bpy.data.images.new("room_bake", args.size, args.size, float_buffer=False)
-    meshes = prepare_materials(atlas)
+    meshes = prepare_materials(atlas, build_room)
 
     bpy.ops.object.select_all(action="DESELECT")
     for obj in meshes:
