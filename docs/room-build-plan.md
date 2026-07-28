@@ -420,7 +420,7 @@ Get these wrong and nothing else lands. These are derived from your room's real 
 
 ### Abilities
 
-Seven, each found somewhere that means something. Start with nothing but walk and jump — the room should feel too big before it starts feeling navigable.
+Eight, each found somewhere that means something. Start with nothing but walk and jump — the room should feel too big before it starts feeling navigable.
 
 - [ ] **Scanner — the eyes** `M` — the ability that replaces the info panel
   - **What it does.** Hold a key and nearby objects outline and label themselves. Release and the nearest one opens its panel. This is your existing click-to-focus system, made diegetic.
@@ -462,6 +462,14 @@ Seven, each found somewhere that means something. Start with nothing but walk an
   - **It has to be a real dynamic light**, which is the one place the baked room needs a runtime light. Budget one.
   - **Found:** the first thing you get, right after the scanner.
 
+- [ ] **Shoulder charge — the only way to move anything** `M` — you have no hands, and that is the design
+  - **What it does.** A short run-up and a charge that transfers real impulse into a rigid body. That is the whole verb.
+  - **No carrying, ever.** A 12 cm toy that can pick up a mug has no scale. Everything is pushed, tipped, rolled or dropped, and the room stays heavy.
+  - **Mass matters.** The mouse shifts a centimetre a charge; the mug takes a dozen; the chair rolls freely because it is on castors; the monitor will not move at all. The player learns the room's weights by trying, which is the best kind of teaching.
+  - **Your physics bodies already exist.** The mug, pencil and mouse are Rapier rigid bodies today. What is missing is the character being able to transfer force to them.
+  - **This is what makes the room a toy.** Everything else in this document is a route or a reveal. This is the one ability that lets someone play with your room rather than in it.
+  - **Found:** you start with it. It is the second thing the tutorial teaches, right after walking.
+
 - [ ] **Paper glider — getting down** `S` — solves a problem you will hit immediately
   - **The problem:** once climbing works, every ascent ends with the player stranded on a desk with no way down but falling. That is a bad feeling and it will happen constantly.
   - **What it does.** Fold one of the desk papers into a glider. Slow, controlled descent from any height.
@@ -470,7 +478,7 @@ Seven, each found somewhere that means something. Start with nothing but walk an
 
 ### Scenarios
 
-Ten, ordered roughly as a player would meet them. Each one is built around a real piece of your history, and in every case **the mechanic is the metaphor** — the shape of the challenge says the thing, so the panel does not have to.
+Eleven, ordered roughly as a player would meet them. Each one is built around a real piece of your history, and in every case **the mechanic is the metaphor** — the shape of the challenge says the thing, so the panel does not have to.
 
 - [ ] **1. Boot sequence — the tutorial** `S` — teaches walk, scan, plug · reveals the current role
   - You wake on the desk mat. Everything is dark except the monitors.
@@ -500,34 +508,50 @@ Ten, ordered roughly as a player would meet them. Each one is built around a rea
   - **Failure is a retry, never a reset.** Nobody loses progress on a portfolio.
   - **The only timed challenge in the game.** One is tension; three is a chore.
 
-- [ ] **5. The floor is lava** `M` — the one challenge that is purely about play
-  - Cross the room from door to window without touching the floor. Desk, chair, sofa, coffee table, shelf.
-  - **Reveals nothing, and that is deliberate.** Every game needs one challenge that is only about being good at it. Without one, the play never stops feeling like a delivery mechanism.
-  - **It is also your difficulty exam** — it uses every ability at once and will find every hole in your collision.
-  - **Reward:** the toy car.
+- [ ] **5. The pile — the rug is the level** `M` — where the realism work and the game design turn out to be the same thing
+  - **Run the numbers first.** Wool pile stands 5–8 mm. Your character is 120 mm. That is 6% of its height — the equivalent of a person wading through 12 cm of undergrowth. The rug is not a flat surface with a picture on it; it is **terrain**.
+  - **Crossing it is slow and loud in the legs.** Movement drops to about 40%, the character lifts its knees, and the footsteps go soft. The player feels the change before they understand it.
+  - **Here is the good part.** The traffic wear already on your detail list — pile crushed flat along the path from door to desk, and where the chair castors run — becomes the **fast lane**. The worn track is the road. You are not designing a level on top of the rug; the rug's own history _is_ the level, and the texture that makes it look real is the same data that makes it play.
+  - **The fringe is a thicket.** Knotted warp threads as tall as you are. Push through slowly, or find the gap where it has worn away.
+  - **Things dropped on the rug sink in and vanish.** Anything knocked off the desk lands in the pile and has to be hunted for with the torch. This is where the dropping mechanic and the rug meet.
+  - **The toy car hates it.** Wheels bog down, so the car owns the bare floorboards and the rug owns your feet. Two surfaces, two movement modes, one clean rule.
+  - **Reveals** the rug itself — Isfahan, hand-knotted, where you are from. It is the only object in the room whose story is older than your career.
+  - **Technically:** a walkable-surface tag on the rug material driving a speed multiplier, plus a mask sampled from the wear map for the fast lanes. Cheap. The expensive part is the rug texture, which you are building anyway.
 
-- [ ] **6. The spill** `M` — consequence, and a reason to care about the room
+- [ ] **6. Knock it off — the room is your toolbox** `L` — the mechanic that makes this a toy rather than a tour
+  - **The rule:** you are 12 cm and you weigh nothing, so **you cannot carry anything — you can only push.** That single constraint generates every puzzle below, and it is honest to the scale.
+  - **Pushing takes a run-up.** Shoulder-charge the mouse and it shifts a centimetre. Charge it five times and it goes over the edge. The effort is the point; instant object manipulation would make the room weightless.
+  - **What you knock down becomes level design.** The mouse dropped onto the chair, then off the chair, is a staircase you built. A book pushed off the shelf lands flat and is a ramp. The pencil rolled across a gap is a bridge. **The player authors their own route out of your props.**
+  - **The best one: the mouse is on a cable.** Push it off the desk and it does not fall — it dangles. Now there is a rope from the desktop to the floor, and you made it. Same trick with the headphone lead and the blind cord.
+  - **The chair is a vehicle.** Castors, so charging it rolls it. Park it under the shelf and you have reached a place you otherwise could not. This is also the answer to "the chair should move by the character, not by a click".
+  - **The drawer is a staircase** once opened, and opening it needs the chair pushed into position first. Two mechanics composing into a third is what makes a toy feel deep rather than wide.
+  - **The laptop lid is a ramp when shut and a wall when open.** One object, two level layouts, and the player controls which.
+  - **Consequences stick.** Everything knocked down stays down. The mug spills and the papers are ruined. Come back tomorrow and the room is how you left it — your store already persists state, so this is nearly free.
+  - **Why this replaces a pure platforming challenge.** "Cross the room without touching the floor" tests whether the player is good at the controls. This tests whether they understand the room. The second is far more interesting, and it is the only mechanic here that could not exist in any other portfolio.
+  - **Reward:** the toy car, parked under the desk where you need the torch to find it.
+
+- [ ] **7. The spill** `M` — consequence, and a reason to care about the room
   - Push the mug too far and it goes over. Coffee spreads toward the papers.
   - Drag the papers clear before the stain reaches them. Succeed and you can read them; fail and they are ruined until the room resets.
   - **The papers are notes on a real project**, so the stakes are content the player wanted.
   - **This is the moment the room stops being scenery.** The first time something is genuinely lost by carelessness is the first time a player believes the world is real.
   - Pairs directly with the spill work in Phase 4.
 
-- [ ] **7. The drawer** `M` — reveals the origin story
+- [ ] **8. The drawer** `M` — reveals the origin story
   - The drawer is shut and its handle is above your head. Solve it: ride the chair, or grapple the pull, or find the one left ajar.
   - Inside, in the dark, needing the torch: **the first phone you ever shipped an app on.**
   - **Reveals** the Byte Group and Robintel years — 50,000 downloads, the banking apps, where it began.
   - **A closed drawer is a promise.** Making the player work to open one and putting something genuinely personal inside is the cheapest emotional beat available to you.
   - **Also holds the grip pads.** The origin story is what unlocks climbing, which is a nice thing for it to mean.
 
-- [ ] **8. The window — the endgame** `M` — reveals where you are going
+- [ ] **9. The window — the endgame** `M` — reveals where you are going
   - The sill is the highest reachable point and needs every ability to get to.
   - From up there, Toronto. The one thing in the room that is not about the past.
   - **The hardest climb should lead to the thing you want most.** That is what makes it read as an aspiration rather than a line on a page.
   - **Reveals** the honest version already in your registry: the desk is in Türkiye, Toronto is next.
   - **Make this the last thing found**, and let the room say so when it is.
 
-- [ ] **9 and 10. Six strings, and the whiteboard** `M` — the two that show how you think and who you are
+- [ ] **10 and 11. Six strings, and the whiteboard** `M` — the two that show how you think and who you are
   - **Six strings.** Climb the guitar and walk the strings. Each one sounds. A four-note phrase to match, and the room plays it back.
   - Reveals the part of you that is not work — and every portfolio needs exactly one moment that has nothing to prove.
   - **The whiteboard.** Reach it and the architecture diagram becomes walkable: stand on the boxes, follow the arrows between them.
@@ -558,8 +582,8 @@ Ten, ordered roughly as a player would meet them. Each one is built around a rea
   - **Everything above is roughly six months of evenings.** That is not a reason not to do it, but it is a reason not to start at the top and work down.
   - **Ship this first:** the scanner, the torch, the data jack, and two scenarios — the tutorial and the bookshelf climb. That is a complete, satisfying thing.
   - **It is also the cheapest slice,** because it needs no climbing system. Walk, jump, look, plug in.
-  - **Add grip pads only if people actually explore.** Climbing is the single most expensive item in this document. Prove the appetite before paying for it.
-  - **Cut first if time runs short:** the timed challenge, the spill, and the guitar. They are the most work for the least revealed about you.
+  - **Add the shoulder charge next, not climbing.** Pushing things off the desk is a fraction of the cost of a climbing system and it is what makes the room a toy. Prove people want to play before paying for grip pads.
+  - **Cut first if time runs short:** the timed challenge, the glider and the guitar. They are the most work for the least revealed about you.
   - **Never cut:** the way out. A recruiter who cannot get from the game to your CV in one click is a recruiter you have lost.
 
 ---
