@@ -72,6 +72,9 @@ PALETTE = {
     "screen": (0.020, 0.031, 0.055, 1),
     "bezel": (0.035, 0.039, 0.051, 1),
     "paper": (0.827, 0.855, 0.910, 1),
+    # Ceiling white. High albedo on purpose — it is there to bounce, and every
+    # point of reflectance is light the room gets back.
+    "ceiling": (0.855, 0.845, 0.820, 1),
     "board": (0.882, 0.898, 0.929, 1),
     "leaf": (0.208, 0.427, 0.267, 1),
     "leaf_dark": (0.129, 0.290, 0.180, 1),
@@ -83,10 +86,29 @@ PALETTE = {
     "mug": (0.847, 0.353, 0.290, 1),
     "sticky": (0.988, 0.804, 0.294, 1),
     "sticky_alt": (0.541, 0.831, 0.925, 1),
-    "book_a": (0.192, 0.376, 0.769, 1),
-    "book_b": (0.541, 0.259, 0.788, 1),
-    "book_c": (0.153, 0.475, 0.373, 1),
-    "book_d": (0.867, 0.478, 0.243, 1),
+    # The six pads, matching the colours `stickyTexture` draws. The runtime
+    # repaints these faces with its own canvas, so strictly these only show in a
+    # Cycles render — but a preview where all six are the same yellow is a
+    # preview you cannot judge the arrangement from, and the arrangement is the
+    # whole point of them.
+    "note_yellow": (0.982, 0.792, 0.255, 1),
+    "note_mint": (0.383, 0.898, 0.635, 1),
+    "note_blue": (0.523, 0.714, 0.991, 1),
+    "note_pink": (0.991, 0.601, 0.601, 1),
+    "note_violet": (0.723, 0.673, 0.991, 1),
+    "note_peach": (0.991, 0.680, 0.407, 1),
+    # Eight, mostly muted, spanning a real range of *value*. A cream spine next
+    # to a charcoal one is what makes a shelf read as a collection; four
+    # saturated mid-tones cycled in a fixed order read as a pattern, and under
+    # one coloured wash they all resolve to the same brightness anyway.
+    "book_a": (0.152, 0.208, 0.392, 1),
+    "book_b": (0.298, 0.157, 0.278, 1),
+    "book_c": (0.125, 0.271, 0.204, 1),
+    "book_d": (0.545, 0.298, 0.137, 1),
+    "book_e": (0.776, 0.714, 0.596, 1),
+    "book_f": (0.416, 0.137, 0.137, 1),
+    "book_g": (0.125, 0.129, 0.149, 1),
+    "book_h": (0.196, 0.353, 0.376, 1),
     "warm": (1.0, 0.702, 0.353, 1),
     "cyan": (0.416, 0.749, 1.0, 1),
     "violet": (0.659, 0.482, 1.0, 1),
@@ -170,6 +192,12 @@ CHAIR_X = KEY_X - 0.55
 # only one of them is obvious, which is exactly the sort of thing that gets
 # broken by a change that looks safe.
 WALL_TOP = 5.4
+
+# Where the ceiling sits. The walls run to 5.4 m so the room reads as an open
+# box from outside, but a room a person lives in is 2.7 m — and the difference
+# matters enormously to the light, because everything above the ceiling is
+# hidden anyway and everything below it gets a huge soft reflector.
+CEILING_HEIGHT = 2.72
 
 # How thick the carpet is. A hand-knotted wool Isfahan runs 10-14 mm including
 # the pile, and having it as a real dimension rather than a fudge factor is what
@@ -971,6 +999,38 @@ def build_toronto() -> list[bpy.types.Object]:
     return parts
 
 
+def _ceiling() -> bpy.types.Object:
+    """
+    The ceiling: a light source in everything but name.
+
+    Bake-only — `EXPORT_EXCLUDE` drops it before the GLB is written, so the
+    browser still gets an open box it can look down into. It exists entirely
+    for the light. Without one, everything a lamp throws upward leaves the room
+    and never comes back, so nothing gets a second bounce and the room reads as
+    evenly lit in some places and abruptly black in others.
+
+    Hidden from camera rays but not from everything else. That distinction is
+    the whole trick: `visible_camera = False` means Cycles will not draw it when
+    something looks at it, while diffuse and glossy rays still hit it and still
+    carry its bounce. Without it the ceiling sits between the establishing
+    camera and the room, and both the preview render and any bake done from a
+    camera angle show a black band across the top of the frame instead of a
+    room.
+
+    White, and slightly warm — ceilings are painted white precisely because of
+    this, and the warmth keeps the bounce from reading as moonlight.
+    """
+    obj = plane(
+        "ceiling",
+        (6.4, 5.2),
+        (0, 0, CEILING_HEIGHT),
+        material("ceiling", "ceiling", roughness=0.95, grain="plaster"),
+        rotation=(math.radians(180), 0, 0),
+    )
+    obj.visible_camera = False
+    return obj
+
+
 def build_shell() -> list[bpy.types.Object]:
     """Floor, two walls and skirting. An open box, so the camera can see in."""
     wall = material("wall", "wall", roughness=0.95, grain="plaster")
@@ -988,6 +1048,19 @@ def build_shell() -> list[bpy.types.Object]:
         cube("wall_left", (0.12, 5.2, WALL_TOP), (-3.2, 0, WALL_TOP / 2), accent, bevel=0),
         cube("skirting_back", (6.4, 0.05, 0.11), (0, -2.52, 0.055), material("skirt", "dark_metal")),
         cube("skirting_left", (0.05, 5.2, 0.11), (-3.12, 0, 0.055), material("skirt", "dark_metal")),
+        # The ceiling. Bake-only — `EXPORT_EXCLUDE` drops it before the GLB is
+        # written, so the browser still gets an open box it can look down into.
+        #
+        # It exists entirely for the light. Without one, everything a lamp
+        # throws upward leaves the room and never comes back, which is why the
+        # room read as evenly lit in some places and abruptly black in others:
+        # there was no second bounce anywhere. A ceiling is the largest soft
+        # reflector in any room and the cheapest possible source of the fill
+        # that makes a space read as enclosed.
+        #
+        # White, and slightly warm. Ceilings are painted white precisely because
+        # of this, and the warmth is what stops the bounce reading as moonlight.
+        _ceiling(),
         # The carpet's body, and then its face.
         #
         # The face has to clear the floorboards, and by more than it looks. The
@@ -1288,6 +1361,24 @@ def build_keyboard_and_props() -> list[bpy.types.Object]:
 
     body = cube("kb_body", (15 * U + 0.016, len(rows) * U + 0.014, 0.016),
                 (KX, KY + (len(rows) - 1) * U / 2, DESK_TOP + 0.008), body_mat, bevel=0.003)
+    # A desk mat under the keyboard and mouse.
+    #
+    # Almost universal on a desk like this, and it changes the read of the whole
+    # surface: it gives the keyboard and the mouse something to sit on other
+    # than bare wood, and it puts a soft dark rectangle under the brightest part
+    # of the room, which is what stops the desktop reading as one flat plank.
+    #
+    # Very thin, and sunk a hair into the desk so its underside never z-fights
+    # the wood.
+    mat_pad = cube(
+        "desk_mat",
+        (0.90, 0.40, 0.003),
+        (KEY_X + 0.06, DESK_FRONT - 0.18, DESK_TOP + 0.0012),
+        material("desk_mat", "rug", roughness=0.92, grain="fabric"),
+        bevel=0.002,
+        rotation_z=math.radians(-1.2),
+    )
+
     keyboard = join("ix_keyboard", [body] + keys)
 
     # A mouse is a dome, not a disc. Subdividing a short box rounds the top and
@@ -1330,7 +1421,7 @@ def build_keyboard_and_props() -> list[bpy.types.Object]:
         rotation=(0, math.radians(90), math.radians(14)),
     )
 
-    return [keyboard, mouse, mug, pencil, notebook,
+    return [mat_pad, keyboard, mouse, mug, pencil, notebook,
             build_headphones(-0.95, DESK_FRONT - 0.09, DESK_TOP)]
 
 
@@ -1529,7 +1620,9 @@ def build_shelf_and_books() -> list[bpy.types.Object]:
 
     books = []
     spines = []
-    colours = ["book_a", "book_b", "book_c", "book_d"]
+    # Stepped by a stride coprime with the count, so the run visits all eight
+    # before repeating and no two neighbours match.
+    colours = ["book_a", "book_b", "book_c", "book_d", "book_e", "book_f", "book_g", "book_h"]
 
     # Level 2 sits at eye height, so that shelf carries the project books: one
     # per project, each with its own spine quad the runtime paints the title
@@ -1568,20 +1661,73 @@ def build_shelf_and_books() -> list[bpy.types.Object]:
                 y += TITLED_WIDTH + 0.008
             continue
 
+        # No shelf on earth is a row of identical books at even spacing, and
+        # even spacing is the single strongest sign of a generated one. Four
+        # things break it up, all deterministic so the room rebuilds the same
+        # way every time:
+        #
+        #   · gaps vary rather than sitting at a constant 6 mm
+        #   · depth varies, so the fronts do not form a flat plane
+        #   · a book here and there leans, and the next one leans against it
+        #   · one is pulled half out, because somebody was reading it
         y = 0.18
+        slot = 0
         while y < 1.62:
-            h = 0.24 + (hash((level, round(y, 2))) % 5) * 0.012
-            w = 0.036 + (hash((level, round(y, 3))) % 4) * 0.008
-            colour = colours[(level + int(y * 10)) % 4]
-            books.append(
-                cube(
-                    f"book_{level}_{round(y, 3)}",
-                    (0.2, w, h),
-                    (-3.05, y, 0.32 + level * 0.5 + h / 2),
-                    material(f"book_{colour}", colour, roughness=0.8),
-                )
+            noise = hash((level, slot))
+            h = 0.24 + (noise % 5) * 0.012
+            w = 0.036 + ((noise >> 3) % 4) * 0.008
+            depth = 0.18 + ((noise >> 6) % 5) * 0.012
+            colour = colours[(level * 5 + slot * 3) % len(colours)]
+
+            # Books are pushed to the back of a shelf, so their spines line up
+            # at the front and the variation shows there.
+            back = -3.15
+            x = back + depth / 2
+            # One book on the room's eye-level shelf is half out. Exactly one:
+            # a tidy shelf reads as staged and a chaotic one reads as
+            # art-directed, but one thing out of place reads as real.
+            if level == 1 and slot == 4:
+                x += 0.055
+
+            lean = 0.0
+            if (noise >> 9) % 7 == 0 and y + w < 1.5:
+                # Degrees, alternating direction so a pair leans together the
+                # way books do when the row is not full.
+                lean = math.radians(5.5 if (noise >> 12) % 2 else -4.5)
+
+            book = cube(
+                f"book_{level}_{slot}",
+                (depth, w, h),
+                (x, y, 0.32 + level * 0.5 + h / 2),
+                material(f"book_{colour}", colour, roughness=0.8),
             )
-            y += w + 0.006
+            if lean:
+                # Pivot about the foot, not the middle. A box rotated about its
+                # own centre drives its bottom corner through the shelf, and at
+                # five degrees that is a couple of millimetres — small enough to
+                # look like a rendering error rather than a modelling one.
+                set_origin(book, (x, y, 0.32 + level * 0.5))
+                book.rotation_euler = (lean, 0, 0)
+            books.append(book)
+
+            y += w + 0.004 + ((noise >> 15) % 4) * 0.004
+            slot += 1
+
+        # A short stack lying flat on top of the upright row, which is where
+        # books go when the shelf is full and nobody wants to reshuffle it.
+        if level in (0, 2):
+            stack_y = 1.30 if level == 0 else 1.24
+            for tier in range(2 if level == 0 else 3):
+                thickness = 0.030 + (tier % 2) * 0.008
+                books.append(
+                    cube(
+                        f"book_flat_{level}_{tier}",
+                        (0.19, 0.26, thickness),
+                        (-3.055 + tier * 0.004, stack_y, 0.34 + level * 0.5 + 0.30 + tier * 0.036),
+                        material(f"book_{colours[(level + tier) % len(colours)]}", colours[(level + tier) % len(colours)], roughness=0.8),
+                        rotation_z=math.radians(2.4 - tier * 1.9),
+                    )
+                )
 
     return [shelf, join("ix_bookshelf", books)] + spines
 
@@ -1603,18 +1749,126 @@ def build_whiteboard() -> list[bpy.types.Object]:
     )
 
     # Sticky notes, likewise one quad rather than six coloured chips.
-    stickies = [
-        plane(
-            "ix_sticky_notes",
-            (0.86, 0.42),
-            (-3.086, -1.42, 1.12),
-            material("sticky_face", "sticky", roughness=0.85),
-            rotation=(math.radians(90), 0, math.radians(90)),
-        )
-    ]
+    return [join("ix_whiteboard", [board, frame]), face, build_sticky_notes()]
 
-    return [join("ix_whiteboard", [board, frame]), face, stickies[0]]
 
+def build_sticky_notes() -> bpy.types.Object:
+    """
+    Six notes around the whiteboard, scattered the way notes actually end up.
+
+    This was one flat 86 x 42 cm quad with all six painted onto it, tilt
+    included. Three things were wrong with that and only one of them was the
+    flatness.
+
+    **They were flat.** Only the top strip of a sticky note is adhesive, so the
+    bottom lifts away and catches light under its own edge. A note lying flat
+    against the wall is the clearest possible sign it was drawn rather than
+    stuck.
+
+    **They were a grid.** Three by two at even spacing, all in a block under the
+    board. Nobody has ever stuck notes up like that. Real ones go up one at a
+    time as the thought arrives, so they cluster in twos and threes, sit at
+    different heights, and leave gaps — and one always ends up off on its own.
+
+    **They were one colour.** Six different pads in the canvas, one shared
+    material in the model, so every render outside the browser showed a block of
+    identical yellow squares.
+
+    Placed by hand below. Six positions are few enough that authoring them is
+    honest and a generator would only be a way of pretending the arrangement was
+    not a decision.
+    """
+    # Proud of `ix_whiteboard_face`, which sits at x = -3.088.
+    board_x = -3.079
+    size = 0.116
+    lift = 0.014
+    span = 5
+
+    # (y, z, tilt in degrees, canvas cell, colour).
+    #
+    # On the board, not on the wall beside it. Sticky notes go on things — a
+    # board, a bezel, a monitor's edge — because that is what the adhesive strip
+    # is for and because a note on bare plaster has nothing to do with anything
+    # around it. They used to sit in a block below the board, which read as a
+    # decal applied to the wall rather than as paper someone put there.
+    #
+    # The board face runs y -2.10..-0.60 and z 1.195..2.245. These sit across
+    # its lower left, where the drawn diagram has its margin, so they overlap
+    # the bullets a little — which is exactly what happens to a whiteboard
+    # somebody actually uses.
+    #
+    # Two clusters and a stray: three crowded together, two paired further
+    # along, and one on its own out to the right, put up at a different time
+    # from the rest.
+    placements = (
+        (-1.97, 1.42, -5.5, 0, "note_yellow"),
+        (-1.83, 1.31, 3.8, 1, "note_mint"),
+        (-1.90, 1.58, 1.6, 2, "note_blue"),
+        (-1.52, 1.36, -2.4, 3, "note_pink"),
+        (-1.40, 1.26, 4.6, 4, "note_violet"),
+        (-0.92, 1.53, -3.2, 5, "note_peach"),
+    )
+
+    columns, rows = 3, 2
+    verts: list[tuple[float, float, float]] = []
+    faces: list[tuple[int, ...]] = []
+    for centre_y, centre_z, degrees, _cell, _colour in placements:
+        tilt = math.radians(degrees)
+        base = len(verts)
+        for r in range(span):
+            # v runs 0 at the top edge, which is the adhesive one, to 1 at the
+            # free bottom edge.
+            v = r / (span - 1)
+            for c in range(span):
+                u = c / (span - 1)
+                local_y = (u - 0.5) * size
+                local_z = (0.5 - v) * size
+                spun_y = local_y * math.cos(tilt) - local_z * math.sin(tilt)
+                spun_z = local_y * math.sin(tilt) + local_z * math.cos(tilt)
+                # Squared, so the top two thirds stay flat against the wall and
+                # the last third does the curling — which is what a strip of
+                # adhesive across the top actually produces. Corners lift a
+                # little further than the middle of the edge.
+                corner = 1.0 + 0.35 * abs(u - 0.5) * 2.0
+                verts.append(
+                    (
+                        board_x + lift * (v**2) * corner,
+                        centre_y + spun_y,
+                        centre_z + spun_z,
+                    )
+                )
+        for r in range(span - 1):
+            for c in range(span - 1):
+                a = base + r * span + c
+                faces.append((a, a + 1, a + span + 1, a + span))
+
+    notes = poly("ix_sticky_notes", verts, faces, (0, 0, 0),
+                 material("note_yellow", "note_yellow", roughness=0.85))
+
+    # One material slot per note, so each is its own colour. glTF splits the
+    # object into a primitive per material — all still named `ix_sticky_notes`,
+    # which is what the runtime looks up, and each keeps its own UVs, so the
+    # canvas still lands on the right cells.
+    for _, _, _, _, colour in placements[1:]:
+        notes.data.materials.append(material(colour, colour, roughness=0.85))
+
+    per_note = (span - 1) * (span - 1)
+    for polygon in notes.data.polygons:
+        polygon.material_index = polygon.index // per_note
+
+    # UVs by hand: each note addresses its own cell of the shared canvas.
+    # `PAINTED` keeps the unwrap from touching these, so they survive to the GLB.
+    layer = notes.data.uv_layers.new(name="UVMap")
+    for polygon in notes.data.polygons:
+        index = polygon.index // per_note
+        cell = placements[index][3]
+        column, row = cell % columns, cell // columns
+        for loop in polygon.loop_indices:
+            local = notes.data.loops[loop].vertex_index - index * span * span
+            u = (local % span) / (span - 1)
+            v = (local // span) / (span - 1)
+            layer.data[loop].uv = ((column + u) / columns, (row + v) / rows)
+    return notes
 
 def build_server_rack() -> list[bpy.types.Object]:
     """
@@ -2786,7 +3040,8 @@ def main() -> None:
     for check in (export_room.check_resting, export_room.check_clearance,
                   export_room.check_stops, export_room.check_lights,
                   export_room.check_buried, export_room.check_furniture,
-                  export_room.check_swallowed, export_room.check_paired):
+                  export_room.check_swallowed, export_room.check_paired,
+                  export_room.check_painted_uvs):
         for complaint in check():
             print(f"[build_room] {complaint}", file=sys.stderr)
 

@@ -24,6 +24,7 @@ import re
 import sys
 
 import bpy
+from mathutils import Vector
 
 ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 BLEND = os.path.join(ROOT, "assets", "room.blend")
@@ -431,6 +432,99 @@ def _world_box(obj) -> tuple[float, ...]:
         min(p.y for p in pts), max(p.y for p in pts),
         min(p.z for p in pts), max(p.z for p in pts),
     )
+
+
+# What orientation each painted quad's canvas needs, as `finish` in
+# src/room/systems/screenContent.ts names them. Kept here because it is a fact
+# about the *model* — which way a quad was stood up — and the runtime is only
+# compensating for it.
+PAINTED_ORIENTATION = {
+    "ix_monitor_health_display": "mirror-u",
+    "ix_monitor_code_display": "mirror-u",
+    "ix_laptop_display": "mirror-u",
+    "ix_cv_face": "mirror-u",
+    "ix_whiteboard_face": "flip-v",
+    "ix_sticky_notes": "flip-v",
+    "ix_book_spine_": "flip-v",
+}
+
+
+def check_painted_uvs() -> list[str]:
+    """
+    Which way each painted quad's UVs actually run, against what the runtime
+    assumes.
+
+    Every readable surface in the room is a quad the browser paints a canvas
+    onto, and which way that canvas lands is decided entirely by the rotation
+    that stood the quad up. There is no correction that is right for all of
+    them, so `finish` applies a different one per surface — and nothing
+    connected the two, so a quad could be rotated and the drawing on it would
+    silently turn over.
+
+    Both the whiteboard and the sticky notes shipped upside down that way, and
+    the book spines shipped upside down for longer, because spine text is far
+    too small to read from any camera the room has. Nobody was going to catch
+    that by looking.
+
+    The derivation, which is worth stating because two conventions collide in
+    it: a viewer reading a quad looks along its inward normal with world up, so
+    screen-right is `(-normal) x up` and U has to run that way. V is the
+    opposite of what it looks like — Blender writes v, glTF stores 1 - v, and
+    the CanvasTexture the runtime builds flips Y a third time, so a quad whose
+    V runs up in Blender is sampled bottom-to-top by the time it is drawn.
+    """
+    room_centre = Vector((0.0, 0.4, 1.2))
+    up = Vector((0.0, 0.0, 1.0))
+
+    complaints = []
+    for obj in bpy.context.scene.objects:
+        if obj.type != "MESH":
+            continue
+        expected = next(
+            (v for k, v in PAINTED_ORIENTATION.items() if obj.name.startswith(k)), None
+        )
+        if expected is None:
+            continue
+
+        mesh = obj.data
+        layer = mesh.uv_layers.active
+        if layer is None or not mesh.polygons:
+            continue
+
+        poly = mesh.polygons[0]
+        loops = list(poly.loop_indices)
+        world = [obj.matrix_world @ mesh.vertices[mesh.loops[i].vertex_index].co for i in loops]
+        uvs = [layer.data[i].uv for i in loops]
+
+        origin, uv0 = world[0], uvs[0]
+        du = dv = None
+        for point, uv in zip(world[1:], uvs[1:]):
+            delta = uv - uv0
+            if abs(delta.x) > 0.5 and abs(delta.y) < 0.5 and du is None:
+                du = (point - origin) / delta.x
+            if abs(delta.y) > 0.5 and abs(delta.x) < 0.5 and dv is None:
+                dv = (point - origin) / delta.y
+        if du is None or dv is None:
+            continue
+
+        normal = (obj.matrix_world.to_3x3() @ poly.normal).normalized()
+        if normal.dot(room_centre - origin) < 0:
+            normal = -normal
+
+        u_ok = du.normalized().dot((-normal).cross(up).normalized()) > 0
+        v_ok = dv.normalized().dot(up) < 0
+
+        actual = (
+            "as-drawn" if u_ok and v_ok
+            else "mirror-u" if v_ok
+            else "flip-v" if u_ok
+            else "rotate-180"
+        )
+        if actual != expected:
+            complaints.append(
+                f"{obj.name} needs '{actual}' in screenContent.ts, which says '{expected}'"
+            )
+    return complaints
 
 
 def check_furniture() -> list[str]:

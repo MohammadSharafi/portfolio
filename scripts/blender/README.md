@@ -12,7 +12,60 @@ blender --background --python scripts/blender/bake_room.py -- --size 4096 --samp
 
 # optional: write a .blend to open and look at, or model on top of
 blender --background --python scripts/blender/build_room.py -- --blend
+
+# look at the lighting in ~35s, without baking -> scripts/blender/preview.png
+blender --background --python scripts/blender/preview_room.py -- --samples 48
+
+# re-export from the last atlas, no re-bake, in under a minute
+blender --background --python scripts/blender/bake_room.py -- --reuse-atlas
 ```
+
+## Look at the light before you bake it
+
+`preview_room.py` renders one Cycles still from the camera stop the site opens
+on, through the same tone map the atlas ships with. Use it for anything to do
+with light.
+
+A 4096 bake is the better part of an hour, writes a multi-megabyte GLB and
+needs a dev-server restart to judge. That is far too slow a loop to balance a
+room by — the first version of this room's lighting was set by editing energies
+and re-baking blind, and it came out a flat grey diorama because nobody could
+see what any single change did. The first preview render caught four of six
+lights pointing the wrong way.
+
+`--view desk|shelf|wide` moves the camera; one three-quarter view hides half
+the room.
+
+The bake prints progress every eight objects with an estimate of what is left.
+Do not filter that out of the pipe: a silent forty-minute operator cannot be
+told apart from a hung one.
+
+## The view transform
+
+Cycles bakes unbounded scene-linear radiance; an image file holds 0..1.
+`tonemap.py` owns the mapping, and both the bake and the preview go through it
+so they cannot disagree about what "too bright" means.
+
+Baking straight into an 8-bit image — which is what this did first — hard-clips
+at 1.0, so the lamp, the screens, the LED strips and the sky all resolved to the
+same flat white with no shape and no colour. Worse, the clip is per-channel, so
+warm highlights _shifted hue_ on the way there. The bake now writes a float
+buffer and rolls the top end off with the same ACES curve three.js would have
+applied — which is the right one, because the baked room draws with
+`toneMapped: false`, so the atlas _is_ the final image.
+
+Filmic curves desaturate as they compress, so a saturation step follows the
+curve. Without it, coloured light converges on white exactly where it is
+strongest, which is precisely where the colour was meant to live.
+
+Two things about writing the atlas are worth knowing, because both are silent:
+
+- **A float-buffer image saves as 16-bit with no sRGB encode**, whatever
+  `colorspace_settings` says. So the PNG is written here by hand rather than
+  through `Image.save` — otherwise the atlas ships linear values that the
+  browser decodes as sRGB, about two stops too dark and at triple the size.
+- **The atlas ships inside the GLB as JPEG**, not PNG. It is the whole
+  download, and a lossless 4096 lightmap takes the GLB past 12 MB.
 
 The room is a script rather than a saved .blend because a binary file cannot be
 reviewed in a diff, cannot be regenerated, and rots the moment someone nudges a

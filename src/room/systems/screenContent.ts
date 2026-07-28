@@ -463,14 +463,21 @@ export function stickyTexture() {
     ['#fed7aa', 'Toronto — next'],
   ];
 
+  // Each note fills its whole cell, square to the canvas.
+  //
+  // The tilt used to be painted here with `ctx.rotate`. It is geometry now —
+  // `build_sticky_notes` gives each note its own angle and curls its bottom
+  // edge off the board — so drawing a tilt as well would double it, and the
+  // corners would be cut off by the cell the quad maps to.
+  const cell = W / 3;
+  const cellHeight = H / 2;
   notes.forEach(([colour, text], index) => {
-    const x = (index % 3) * 341;
-    const y = Math.floor(index / 3) * 256;
+    const x = (index % 3) * cell;
+    const y = Math.floor(index / 3) * cellHeight;
     ctx.save();
-    ctx.translate(x + 170, y + 128);
-    ctx.rotate((index % 2 === 0 ? 1 : -1) * 0.03);
+    ctx.translate(x + cell / 2, y + cellHeight / 2);
     ctx.fillStyle = colour;
-    ctx.fillRect(-150, -108, 300, 216);
+    ctx.fillRect(-cell / 2, -cellHeight / 2, cell, cellHeight);
     ctx.fillStyle = '#3f3f46';
     ctx.font = `500 30px ${FONT_UI}`;
     ctx.textAlign = 'center';
@@ -635,7 +642,7 @@ export function bookSpineTexture(index: number) {
   ctx.fillStyle = 'rgba(255,255,255,0.22)';
   ctx.fillRect(W - 10, 34, 3, H - 68);
 
-  if (!project) return finish(canvas);
+  if (!project) return finish(canvas, 'flip-v');
 
   ctx.save();
   ctx.translate(W / 2, H / 2);
@@ -659,5 +666,8 @@ export function bookSpineTexture(index: number) {
   if (stack) ctx.fillText(stack, 0, 34);
 
   ctx.restore();
-  return finish(canvas);
+  // Same quad rotation as the whiteboard: standing up to face +X sends V
+  // downward. Verified by `check_painted_uvs`, not by eye — spine text is far
+  // too small to read upside-down from any camera the room has.
+  return finish(canvas, 'flip-v');
 }
