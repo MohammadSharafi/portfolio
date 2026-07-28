@@ -359,6 +359,114 @@ SHELL = ("wall_back", "wall_left", "door")
 BURIED_TOLERANCE = 0.012
 
 
+# The room's fixed furniture, by the name each is joined under.
+#
+# Deliberately a short curated list rather than every mesh in the scene. Most of
+# the room legitimately interpenetrates — books sit inside a bookcase, a display
+# sits inside a monitor shell, an arm passes through the housing it bolts to —
+# and a check that reported all of it would produce sixty lines nobody reads.
+# These are the pieces that stand on the floor or hang on a wall and have no
+# business occupying the same space as each other.
+FURNITURE = (
+    "bookshelf", "desk_top", "drawers", "ix_server_rack", "radiator",
+    "window_frame", "ix_whiteboard", "wall_art", "guitar", "sofa_base",
+    "coffee_table", "side_table", "floor_lamp", "lamp", "door", "ix_chair",
+    "light_switch", "socket_0", "socket_1", "ix_certificates",
+)
+
+# How far two pieces of furniture may overlap before it is a mistake. Generous:
+# a chair tucked under a desk and a lamp overhanging a sill are both correct and
+# both overlap a little once reduced to boxes.
+FURNITURE_TOLERANCE = 0.02
+
+
+def _world_box(obj) -> tuple[float, ...]:
+    pts = [obj.matrix_world @ v.co for v in obj.data.vertices]
+    return (
+        min(p.x for p in pts), max(p.x for p in pts),
+        min(p.y for p in pts), max(p.y for p in pts),
+        min(p.z for p in pts), max(p.z for p in pts),
+    )
+
+
+def check_furniture() -> list[str]:
+    """
+    Fixed pieces standing inside one another.
+
+    This is the check that would have caught the server rack, which stood with
+    its top 15 cm inside the window frame and its whole body in front of the
+    radiator. Neither reads as broken from the establishing shot — one solid
+    ends where another begins and the eye takes it for contact — which is
+    exactly why it survived being looked at for so long.
+    """
+    boxes = {}
+    for name in FURNITURE:
+        obj = bpy.data.objects.get(name)
+        if obj is not None and obj.type == "MESH" and obj.data.vertices:
+            boxes[name] = _world_box(obj)
+
+    complaints = []
+    names = sorted(boxes)
+    for index, first in enumerate(names):
+        for second in names[index + 1:]:
+            a, b = boxes[first], boxes[second]
+            overlap = [
+                min(a[1], b[1]) - max(a[0], b[0]),
+                min(a[3], b[3]) - max(a[2], b[2]),
+                min(a[5], b[5]) - max(a[4], b[4]),
+            ]
+            if all(o > FURNITURE_TOLERANCE for o in overlap):
+                complaints.append(
+                    f"{first} and {second} occupy the same space — "
+                    f"{overlap[0] * 100:.0f} x {overlap[1] * 100:.0f} x {overlap[2] * 100:.0f} cm"
+                )
+    return complaints
+
+
+def check_swallowed() -> list[str]:
+    """
+    Small fittings hidden inside a piece of furniture.
+
+    `check_buried` catches a fitting sunk into a wall, but not one sealed inside
+    a bookcase — which is where the left-wall socket spent its whole life, at
+    y = 0.92 behind a case running y -0.10 to 2.00. It was modelled, textured
+    and baked, and had never been visible from any camera in the room.
+    """
+    boxes = {}
+    for name in FURNITURE:
+        obj = bpy.data.objects.get(name)
+        if obj is not None and obj.type == "MESH" and obj.data.vertices:
+            boxes[name] = _world_box(obj)
+
+    complaints = []
+    for obj in bpy.context.scene.objects:
+        if obj.type != "MESH" or obj.name in FURNITURE or obj.name in SHELL:
+            continue
+        if not obj.data.vertices:
+            continue
+        # Anything the runtime addresses is *meant* to be nested — a display
+        # sits inside its monitor, a spine inside its shelf, a bulb inside its
+        # lamp. So are parts that share a stem with what holds them, like a
+        # drawer face and its carcass. Reporting those buries the one line that
+        # matters under a dozen that do not.
+        if obj.name.startswith("ix_"):
+            continue
+        stem = obj.name.split("_")[0]
+        box = _world_box(obj)
+        for name, big in boxes.items():
+            if stem and (stem in name or name.split("_")[0] in obj.name):
+                continue
+            inside = all(
+                box[axis * 2] > big[axis * 2] - BURIED_TOLERANCE
+                and box[axis * 2 + 1] < big[axis * 2 + 1] + BURIED_TOLERANCE
+                for axis in range(3)
+            )
+            if inside:
+                complaints.append(f"{obj.name} is entirely inside {name} and can never be seen")
+                break
+    return complaints
+
+
 def check_buried() -> list[str]:
     """
     Fittings swallowed by the surface they are mounted on.

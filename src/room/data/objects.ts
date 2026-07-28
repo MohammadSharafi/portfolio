@@ -223,7 +223,9 @@ export const roomObjects: readonly RoomObject[] = [
     id: 'server-rack',
     label: 'Server rack',
     hint: 'Local-first',
-    stop: { position: [1.55, 0.95, 1.15], target: [2.55, 0.62, 2.05], duration: 1.5 },
+    // Moved with the rack, which shifted right and lost 22 cm to clear the
+    // window sill. glTF space: Blender (x, y, z) arrives here as (x, z, -y).
+    stop: { position: [1.88, 0.82, 1.24], target: [2.88, 0.49, 2.14], duration: 1.5 },
     panel: {
       kicker: 'Infrastructure',
       title: 'Local-first, by preference',
