@@ -1246,23 +1246,94 @@ def build_desk() -> list[bpy.types.Object]:
         cube("drawers", (0.42, 0.58, 0.63), (0.70, DESK_Y - 0.03, 0.315),
              material("drawer", "plastic", roughness=0.5)),
     ]
+    # The drawers.
+    #
+    # A drawer front reads as a drawer front because of the gap round it, and
+    # for nothing else. These were three flat plates set into the carcass with
+    # no reveal, which is why the unit read as a box with stripes painted on.
+    #
+    # 4 mm all round, and the faces stand proud rather than flush — an inset
+    # front is a piece of cabinetry, and this is an office pedestal.
+    # The faces open toward the room, not toward the wall.
+    #
+    # They were at DESK_Y - 0.325, which is the unit's *back* edge — the side
+    # against the wall — so the drawers opened into the plaster and the room
+    # only ever saw a blank box. It survived because a featureless dark box
+    # under a desk is exactly what a closed drawer unit looks like from across
+    # the room; you have to put the camera at desk height to see there was
+    # nothing there.
+    unit_front = DESK_Y - 0.03 + 0.29
+    reveal = 0.004
+    face_h = 0.165
+    box_mat = material("drawer_box", "desk_frame", roughness=0.7)
+    runner_mat = material("drawer_runner", "metal", roughness=0.3, metallic=0.8)
     for i in range(3):
+        z = 0.155 + i * 0.20
+        # One is left open a centimetre. Nobody closes all three, and a room
+        # where everything is shut is a room nobody has used today.
+        ajar = 0.012 if i == 1 else 0.0
+        front = unit_front + 0.014 + ajar
+
         parts.append(
             cube(
                 f"drawer_face_{i}",
-                (0.39, 0.024, 0.165),
-                (0.70, DESK_Y - 0.325, 0.155 + i * 0.20),
+                (0.39 - reveal * 2, 0.024, face_h - reveal * 2),
+                (0.70, front, z),
                 material("drawer_face", "dark_metal", roughness=0.45),
+                bevel=0.003,
             )
         )
         parts.append(
             cube(
                 f"drawer_pull_{i}",
                 (0.15, 0.018, 0.012),
-                (0.70, DESK_Y - 0.34, 0.155 + i * 0.20),
+                (0.70, front + 0.015, z),
                 material("pull", "metal", roughness=0.3, metallic=0.8),
             )
         )
+        # Handle fixings, which is where the pull bolts through the face.
+        for side in (-1, 1):
+            parts.append(
+                cube(
+                    f"drawer_bolt_{i}_{side}",
+                    (0.012, 0.006, 0.012),
+                    (0.70 + side * 0.062, front + 0.004, z),
+                    runner_mat,
+                    bevel=0.001,
+                )
+            )
+
+        if ajar:
+            # An open drawer has to show a box, and the box is a different
+            # material from the face — cheaper, unfinished, and lighter. An open
+            # drawer with nothing in it is worse than a closed one, so this one
+            # has the cables and oddments everybody's second drawer has.
+            parts.append(
+                cube(f"drawer_box_{i}", (0.36, 0.50, face_h - 0.03),
+                     (0.70, front - 0.28, z - 0.004), box_mat, bevel=0.002)
+            )
+            parts.append(
+                cube(f"drawer_inner_{i}", (0.33, 0.46, face_h - 0.055),
+                     (0.70, front - 0.28, z + 0.004),
+                     material("drawer_void", "void", roughness=1.0), bevel=0)
+            )
+            for j, (dx, dy, w, l) in enumerate((
+                (-0.09, 0.10, 0.055, 0.11),
+                (0.04, 0.06, 0.075, 0.05),
+                (0.10, 0.14, 0.035, 0.09),
+            )):
+                parts.append(
+                    cube(f"drawer_thing_{i}_{j}", (w, l, 0.016),
+                         (0.70 + dx, front - 0.14 - dy, z - 0.052),
+                         material(f"drawer_thing_{j}", ("plastic", "book_a", "metal")[j], roughness=0.6),
+                         bevel=0.002, rotation_z=math.radians(6 - j * 7))
+                )
+            # Ball-bearing runners, visible the moment one opens.
+            for side in (-1, 1):
+                parts.append(
+                    cube(f"drawer_runner_{i}_{side}", (0.010, 0.44, 0.026),
+                         (0.70 + side * 0.185, front - 0.30, z), runner_mat, bevel=0.001)
+                )
     return parts
 
 
@@ -2557,6 +2628,96 @@ def build_guitar(gx: float, gy: float, stand_mat: bpy.types.Material) -> list[bp
                          (base[0], gy + side * 0.052, base[2]), peg_mat, vertices=8,
                          rotation=(math.radians(90), 0, 0))
             )
+
+    # --- the parts that make it an instrument rather than a guitar-shaped box
+    #
+    # Everything below is small, and all of it is what the eye checks. A body
+    # with a neck reads as a prop; frets, a nut and six strings of visibly
+    # different gauge read as something somebody plays.
+
+    # Scale length: nut to saddle. Every fret position is derived from it rather
+    # than spaced evenly, because even spacing is wrong in a way most people can
+    # see without being able to say why — frets crowd together toward the body,
+    # and the rule is that each one sits at 2^(-n/12) of the remaining length.
+    saddle_at, nut_at = 0.165, 0.980
+    scale_length = nut_at - saddle_at
+
+    fret_mat = material("guitar_fret", "metal", roughness=0.25, metallic=0.9)
+    bone_mat = material("guitar_bone", "paper", roughness=0.4)
+
+    for n in range(1, 19):
+        at = nut_at - scale_length * (1.0 - 2.0 ** (-n / 12.0))
+        # Frets stop where the neck meets the body.
+        if at < 0.560:
+            break
+        fret = cube(f"guitar_fret_{n}", (0.004, 0.049, 0.0022), along(at, 0.037), fret_mat, bevel=0)
+        fret.rotation_euler = (0, -lean, 0)
+        parts.append(fret)
+
+        # Position markers, at the frets every guitarist looks for.
+        if n in (3, 5, 7, 9, 12, 15):
+            midpoint = nut_at - scale_length * (1.0 - 2.0 ** (-(n - 0.5) / 12.0))
+            # Twelve gets two, which is how you know it is the octave.
+            for dot_y in ((-0.012, 0.012) if n == 12 else (0.0,)):
+                parts.append(
+                    cylinder(
+                        f"guitar_dot_{n}_{dot_y}", 0.005, 0.002,
+                        (along(midpoint, 0.038)[0], gy + dot_y, along(midpoint, 0.038)[2]),
+                        bone_mat, vertices=10, rotation=(0, math.radians(90) - lean, 0),
+                    )
+                )
+
+    # Nut and saddle: the two pieces the strings actually bear on, and the
+    # reason they stand clear of the fretboard instead of lying on it.
+    nut = cube("guitar_nut", (0.008, 0.048, 0.006), along(nut_at, 0.038), bone_mat, bevel=0.001)
+    nut.rotation_euler = (0, -lean, 0)
+    parts.append(nut)
+
+    saddle = cube("guitar_saddle", (0.005, 0.076, 0.008), along(saddle_at, 0.073), bone_mat, bevel=0.001)
+    saddle.rotation_euler = (0, -lean, 0)
+    parts.append(saddle)
+
+    # Bridge pins, six of them, holding the ball ends.
+    pin_mat = material("guitar_pin", "plastic", roughness=0.4)
+    for index in range(6):
+        pin_y = gy - 0.030 + index * 0.012
+        seat = along(saddle_at - 0.018, 0.070)
+        parts.append(
+            cylinder(f"guitar_pin_{index}", 0.0032, 0.010, (seat[0], pin_y, seat[2]),
+                     pin_mat, vertices=8, rotation=(0, math.radians(90) - lean, 0))
+        )
+
+    # The rosette. A ring of inlay round the soundhole — the one piece of
+    # decoration an acoustic guitar always has, and the thing that stops the
+    # soundhole reading as a drilled hole.
+    for radius, thickness, mat_key in ((0.058, 0.0035, "guitar_bridge"), (0.053, 0.0018, "guitar_peg")):
+        ring = cylinder(f"guitar_rosette_{radius}", radius, 0.002, along(0.315, 0.055),
+                        _materials[mat_key], vertices=28,
+                        rotation=(0, math.radians(90) - lean, 0))
+        ring.modifiers.new("Ring", "WIREFRAME").thickness = thickness
+        parts.append(ring)
+
+    # Six strings, thick to thin. Uniform strings are wrong at a glance, and the
+    # gauge run is the whole reason a guitar's neck reads as strung rather than
+    # as striped. They rise from the saddle to the nut, standing clear of the
+    # fretboard the whole way — the gap under them is what says they are under
+    # tension.
+    string_mat = material("guitar_string", "metal", roughness=0.2, metallic=0.95)
+    for index in range(6):
+        gauge = 0.00105 - index * 0.00014
+        string_y = gy - 0.021 + index * 0.0084
+        low = along(saddle_at, 0.079)
+        high = along(nut_at, 0.045)
+        parts.append(
+            strut(
+                f"guitar_string_{index}",
+                (low[0], string_y, low[2]),
+                (high[0], string_y, high[2]),
+                gauge,
+                string_mat,
+                vertices=6,
+            )
+        )
 
     parts.append(cube("guitar_stand", (0.28, 0.32, 0.03), (gx + 0.06, gy, 0.055), stand_mat))
     return parts
