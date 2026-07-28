@@ -2121,6 +2121,97 @@ def build_door() -> list[bpy.types.Object]:
     return [join("door", parts)]
 
 
+def build_fittings() -> list[bpy.types.Object]:
+    """
+    The things a room is built with rather than furnished with.
+
+    A room with no light switch, no sockets and nothing to heat it is a stage
+    set: every one of these is invisible until it is missing, and then the space
+    reads as somewhere nobody could actually live. The cables already run to a
+    power strip on the floor — until now that strip was plugged into nothing.
+
+    Wall faces: the back wall's inner surface is at y = -2.54 and the left
+    wall's at x = -3.14, and the room lies on the *greater* side of both. So
+    standing proud of a wall means adding to the coordinate, not subtracting —
+    the first version of this subtracted, and every fin of the radiator ended up
+    inside the plaster with 7 mm of back panel showing. It read as a blank white
+    slab screwed to the wall, which is a thing that could plausibly exist, which
+    is exactly why nothing looked wrong.
+    """
+    BACK, LEFT = -2.53, -3.13
+    plate = material("fitting_plate", "paper", roughness=0.35)
+    dark = material("fitting_dark", "plastic", roughness=0.4)
+    metal = material("fitting_metal", "metal", roughness=0.3, metallic=0.8, grain="brushed")
+    out: list[bpy.types.Object] = []
+
+    # The light switch, beside the door at handle height rather than at the
+    # 1.4 m people imagine — switches sit level with the door handle.
+    switch = [
+        cube("switch_plate", (0.086, 0.012, 0.086), (-2.00, BACK, 1.08), plate, bevel=0.004),
+        cube("switch_rocker", (0.032, 0.010, 0.052), (-2.00, BACK + 0.010, 1.085), plate, bevel=0.003),
+    ]
+    out.append(join("light_switch", switch))
+
+    # Sockets. One behind the desk where the power strip's lead goes, one on the
+    # left wall for the floor lamp.
+    for index, (x, y, facing) in enumerate(((1.06, BACK, 0), (LEFT, 0.92, 1))):
+        sockets = []
+        size = (0.13, 0.012, 0.086) if facing == 0 else (0.012, 0.13, 0.086)
+        here = (x, y, 0.22) if facing == 0 else (x, y, 0.22)
+        sockets.append(cube(f"socket_plate_{index}", size, here, plate, bevel=0.004))
+        for slot in (-0.031, 0.031):
+            hole = (0.020, 0.008, 0.030) if facing == 0 else (0.008, 0.020, 0.030)
+            spot = (x + slot, y + 0.009, 0.22) if facing == 0 else (x + 0.009, y + slot, 0.22)
+            sockets.append(cube(f"socket_hole_{index}_{slot}", hole, spot, dark, bevel=0))
+        out.append(join(f"socket_{index}", sockets))
+
+    # A radiator under the window, in the one stretch of wall the desk and the
+    # server rack leave free.
+    rad = []
+    rx, span = 2.06, 0.52
+    rad.append(cube("rad_back", (span, 0.035, 0.54), (rx, BACK + 0.02, 0.44), plate, bevel=0.006))
+    fins = 13
+    for i in range(fins):
+        x = rx - span / 2 + 0.022 + i * (span - 0.044) / (fins - 1)
+        rad.append(cube(f"rad_fin_{i}", (0.016, 0.055, 0.50), (x, BACK + 0.048, 0.44), plate, bevel=0.003))
+    rad.append(cube("rad_top", (span, 0.075, 0.016), (rx, BACK + 0.038, 0.705), plate, bevel=0.004))
+    rad.append(cylinder("rad_valve", 0.020, 0.075, (rx - span / 2 - 0.01, BACK + 0.045, 0.20), metal,
+                        vertices=12, rotation=(0, math.radians(90), 0)))
+    rad.append(cylinder("rad_pipe", 0.012, 0.19, (rx - span / 2 + 0.01, BACK + 0.045, 0.10), metal, vertices=10))
+    out.append(join("radiator", rad))
+
+    # Door hinges, on the hanging stile, and a hook on the back of the door with
+    # a bag on it — the cheapest way to say somebody arrives here and leaves.
+    hinges = []
+    for i, z in enumerate((0.42, 1.72)):
+        hinges.append(cube(f"hinge_{i}", (0.016, 0.055, 0.088), (-3.02, -2.478, z), metal, bevel=0.003))
+        hinges.append(cylinder(f"hinge_pin_{i}", 0.010, 0.098, (-3.02, -2.452, z), metal, vertices=10))
+    out.append(join("door_hinges", hinges))
+
+    bag = [
+        cylinder("hook", 0.010, 0.055, (-2.34, -2.47, 1.58),
+                 metal, vertices=10, rotation=(math.radians(90), 0, 0)),
+        cube("hook_plate", (0.030, 0.010, 0.048), (-2.34, -2.482, 1.60), metal, bevel=0.003),
+    ]
+    tote = cube("tote", (0.26, 0.085, 0.32), (-2.34, -2.40, 1.28),
+                material("tote", "chair_dark", roughness=0.9, grain="fabric"), bevel=0)
+    smooth(tote, 2, crease=0.35)
+    bag.append(tote)
+    bag.append(cylinder("tote_strap", 0.010, 0.30, (-2.34, -2.43, 1.52),
+                        material("strap", "chair_dark", roughness=0.9), vertices=8,
+                        rotation=(0, math.radians(90), 0)))
+    out.append(join("coat_hook", bag))
+
+    # The window latch, on the frame where a hand would reach it.
+    latch = [
+        cube("latch_plate", (0.030, 0.014, 0.075), (2.05, -2.342, 1.34), metal, bevel=0.004),
+        cube("latch_arm", (0.024, 0.055, 0.022), (2.05, -2.305, 1.34), metal, bevel=0.004),
+    ]
+    out.append(join("window_latch", latch))
+
+    return out
+
+
 def build_details() -> list[bpy.types.Object]:
     """
     The layer of small stuff.
@@ -2513,6 +2604,7 @@ def build_all() -> None:
     build_chair_and_plant()
     build_lounge()
     build_door()
+    build_fittings()
     build_details()
     add_lighting()
 
@@ -2565,7 +2657,8 @@ def main() -> None:
     # sometimes deliberate, and refusing to export over it would be worse than
     # the bug. Saying so out loud is enough.
     for check in (export_room.check_resting, export_room.check_clearance,
-                  export_room.check_stops, export_room.check_lights):
+                  export_room.check_stops, export_room.check_lights,
+                  export_room.check_buried):
         for complaint in check():
             print(f"[build_room] {complaint}", file=sys.stderr)
 

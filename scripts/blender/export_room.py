@@ -348,6 +348,62 @@ def check_lights() -> list[str]:
     return complaints
 
 
+# The solids that make up the room's shell. Anything mounted on one has to be
+# in front of it, not inside it.
+# Not the floor: a rug lying on it is inside its bounding box and entirely
+# correct, and so is every floorboard.
+SHELL = ("wall_back", "wall_left", "door")
+
+# How much of an object may be inside the shell before it is a mistake. A few
+# millimetres is how a fitting is fixed to a wall.
+BURIED_TOLERANCE = 0.012
+
+
+def check_buried() -> list[str]:
+    """
+    Fittings swallowed by the surface they are mounted on.
+
+    The room lies on the greater side of both walls, so standing proud of one
+    means *adding* to the coordinate. Subtracting looks equally reasonable in
+    the source and puts the object inside the plaster — which is how a radiator
+    came to have all thirteen of its fins buried in the wall with 7 mm of back
+    panel showing. It read as a blank white panel screwed to the wall, a thing
+    that could plausibly exist, so nothing looked wrong.
+    """
+    shells = {}
+    for name in SHELL:
+        obj = bpy.data.objects.get(name)
+        if obj is None:
+            continue
+        pts = [obj.matrix_world @ v.co for v in obj.data.vertices]
+        shells[name] = (
+            min(p.x for p in pts), max(p.x for p in pts),
+            min(p.y for p in pts), max(p.y for p in pts),
+            min(p.z for p in pts), max(p.z for p in pts),
+        )
+
+    complaints = []
+    for obj in bpy.context.scene.objects:
+        if obj.type != "MESH" or obj.name in SHELL or not obj.data.vertices:
+            continue
+        pts = [obj.matrix_world @ v.co for v in obj.data.vertices]
+        box = (
+            min(p.x for p in pts), max(p.x for p in pts),
+            min(p.y for p in pts), max(p.y for p in pts),
+            min(p.z for p in pts), max(p.z for p in pts),
+        )
+        for shell_name, shell in shells.items():
+            inside = all(
+                box[axis * 2] > shell[axis * 2] - BURIED_TOLERANCE
+                and box[axis * 2 + 1] < shell[axis * 2 + 1] + BURIED_TOLERANCE
+                for axis in range(3)
+            )
+            if inside:
+                complaints.append(f"{obj.name} is entirely inside {shell_name}")
+                break
+    return complaints
+
+
 def ensure_uvs() -> int:
     """
     Give every mesh a UV layer if it has none.

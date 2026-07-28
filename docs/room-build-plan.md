@@ -106,13 +106,18 @@ A room reads as real when it is full of things nobody would think to model. Not 
 
 _**The room to scale, from the coordinates in `build_room.py`.** Two walls, two open sides, 6.4 × 5.2 m. Note how much floor is empty: that space is the walking route, and it is why the room can take a great deal more clutter around its edges without crowding._
 
+> **Done — the shell, and a fourth invisible bug**
+>
+> Light switch, two wall sockets, a radiator under the window, door hinges, a hook on the back of the door with a bag on it, and a window latch. The cables have run to a power strip on the floor for weeks; until now that strip was plugged into nothing.
+> **Every fin of the radiator was inside the wall.** The room lies on the greater side of both walls, so standing proud of one means adding to the coordinate — subtracting looks equally reasonable in the source and buries the object in the plaster. It showed 7 mm of back panel and read as a blank white slab screwed to the wall, which is a thing that could plausibly exist, which is exactly why nothing looked wrong. `check_buried` now fails the build on anything swallowed by a wall or the door.
+
 ### The shell — what a room has and yours does not
 
-- [ ] **Electrical: light switch, wall sockets, a plug in one of them** `S` — A room with no switch and no sockets is a stage set. The cables already run to a power strip — give them somewhere to go.
+- [x] **Electrical: light switch, wall sockets, a plug in one of them** `S` — A room with no switch and no sockets is a stage set. The cables already run to a power strip — give them somewhere to go.
 - [ ] **Ceiling fittings: pendant or downlights, smoke detector, vent** `S` — Comes free with the ceiling in Phase 1, and gives the light somewhere believable to come from.
-- [ ] **Radiator or air conditioning unit** `S` — Every room is heated or cooled by something. Its absence is felt without being noticed.
-- [ ] **Door furniture: handle, hinges, doorstop, coat hook with something on it** `S` — A jacket or a bag on the back of the door is the single cheapest way to say a person lives here.
-- [ ] **Window detail: latch, sill dust, a curtain rail beside the blind** `S` — The window is the best surface in the room and currently the least detailed.
+- [x] **Radiator or air conditioning unit** `S` — Every room is heated or cooled by something. Its absence is felt without being noticed.
+- [x] **Door furniture: handle, hinges, doorstop, coat hook with something on it** `S` — A jacket or a bag on the back of the door is the single cheapest way to say a person lives here.
+- [x] **Window detail: latch, sill dust, a curtain rail beside the blind** `S` — The window is the best surface in the room and currently the least detailed.
 
 ### The desk — what a developer's desk actually holds
 
