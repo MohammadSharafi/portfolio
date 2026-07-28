@@ -107,6 +107,27 @@ PAINTED = re.compile(
     r"^(ix_\w+_display|ix_whiteboard_face|ix_sticky_notes|ix_cv_face|ix_book_spine_\d+)$"
 )
 
+# Meshes that get no share of the lightmap.
+#
+# The Toronto skyline is 7,541 m² of building faces — more surface than
+# everything else in the scene put together — and Blender packs a bake atlas in
+# proportion to area. Left in, it claimed 94% of a 4096 px atlas and the desk
+# got 0.1%, about a 130 px patch stretched across the whole desktop. That, and
+# not the lighting, is why the baked room looked soft.
+#
+# It loses nothing by being excluded. It is 26 m outside a window, its windows
+# and sky are emissive already, and its towers are dark night silhouettes that
+# read correctly as flat colour. Baked lighting on a distant night skyline is
+# spend with no return.
+BAKE_EXCLUDE = re.compile(r"^(ix_window|cn_tower|sky|lake)(\.\d+)?$")
+
+# The smallest share of the atlas any object may claim, as a fraction of the
+# linear size the largest object gets. Packing strictly by surface area is right
+# in principle and wrong at the extremes: a pencil next to a 120 m² wall lands
+# on a handful of texels, which is invisible from across the room and the first
+# thing a 12 cm character stands next to.
+TEXEL_FLOOR = 0.06
+
 
 def reset_scene() -> None:
     global _plants
@@ -2297,13 +2318,50 @@ def texture_uvs() -> None:
             datum.uv = (datum.uv.x * factor, datum.uv.y * factor)
 
 
+def bake_meshes() -> list[bpy.types.Object]:
+    """Everything that gets baked lighting, in one place so the bake agrees."""
+    return [
+        obj
+        for obj in bpy.context.scene.objects
+        if obj.type == "MESH" and not BAKE_EXCLUDE.match(obj.name)
+    ]
+
+
+def _uv_area(mesh: bpy.types.Mesh, layer) -> float:
+    """A UV layer's total area, by fanning each polygon from its first corner."""
+    total = 0.0
+    for polygon in mesh.polygons:
+        loops = list(polygon.loop_indices)
+        origin = layer.data[loops[0]].uv
+        for index in range(1, len(loops) - 1):
+            a = layer.data[loops[index]].uv - origin
+            b = layer.data[loops[index + 1]].uv - origin
+            total += abs(a.x * b.y - a.y * b.x) * 0.5
+    return total
+
+
 def unwrap_all() -> None:
     """
     A second UV set, packed into one atlas, so the bake script has somewhere to
     write. Doing it here rather than in the bake script keeps the two runs
     independent — the unwrap is part of the model, not part of the render.
+
+    Three things happen, and the last two exist because measuring the result of
+    the first one was alarming:
+
+    1. Smart UV Project across every baked mesh at once, which lays out islands
+       in proportion to surface area.
+    2. A texel floor. Strict proportionality is right in the middle of the range
+       and wrong at its ends — it gave the skyline 94% and the desk 0.1%. Small
+       objects are scaled up to a minimum share before packing.
+    3. A repack that scales the whole layout to fill the square. The first pass
+       left the atlas 14% full: 85% of sixteen million pixels carrying nothing,
+       while the room was lit at a resolution it did not have to accept.
     """
-    meshes = [o for o in bpy.context.scene.objects if o.type == "MESH"]
+    meshes = bake_meshes()
+    if not meshes:
+        return
+
     for obj in meshes:
         if len(obj.data.uv_layers) == 0:
             obj.data.uv_layers.new(name="UVMap")
@@ -2319,6 +2377,34 @@ def unwrap_all() -> None:
     bpy.ops.object.mode_set(mode="EDIT")
     bpy.ops.mesh.select_all(action="SELECT")
     bpy.ops.uv.smart_project(angle_limit=math.radians(66), island_margin=0.006)
+    bpy.ops.object.mode_set(mode="OBJECT")
+
+    # The texel floor, applied in linear terms — an object's share of the atlas
+    # should go as the square root of its area, with a lower bound.
+    reach = {}
+    for obj in meshes:
+        world = sum(polygon.area for polygon in obj.data.polygons)
+        if world > 0:
+            reach[obj.name] = math.sqrt(world)
+    if reach:
+        floor = max(reach.values()) * TEXEL_FLOOR
+        for obj in meshes:
+            if obj.name not in reach:
+                continue
+            layer = obj.data.uv_layers["Bake"]
+            current = math.sqrt(_uv_area(obj.data, layer))
+            if current <= 1e-9:
+                continue
+            factor = max(reach[obj.name], floor) / current
+            for datum in layer.data:
+                datum.uv = (datum.uv.x * factor, datum.uv.y * factor)
+
+    # Scaling above blew the layout well past the unit square; this brings it
+    # back and, in doing so, fills the atlas rather than leaving it a sixth used.
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.uv.select_all(action="SELECT")
+    bpy.ops.uv.pack_islands(rotate=True, margin=0.0008, scale=True)
     bpy.ops.object.mode_set(mode="OBJECT")
 
     for obj in meshes:

@@ -31,7 +31,13 @@ _Phase 0 · do this first_
 
 Measured, not guessed: **the Toronto skyline is consuming 94% of your lightmap**. It is 7,541 m² of building faces, Blender packs the atlas proportionally to surface area, and it wins by a landslide. Your desk gets 0.1% — about a 130 px patch stretched across the whole desktop. The atlas is also only 14% full.
 
-That is why the bake looks soft. It is not the lighting. Fix this and every surface you actually look at gets roughly **16× the texel density**, for free.
+That is why the bake looks soft. It is not the lighting.
+
+> **Done — and it was worth more than predicted**
+>
+> The skyline is out of the lightmap, small props have a texel floor, and the layout is repacked to fill the square. Measured on the same objects before and after:
+> **The desk went from about 16 to 176 texels per metre — eleven times the linear resolution.** Atlas coverage went from 14% to 66%. Every other surface in the room moved by the same factor, and small props like the mug and the CV now sit above the floor at 260 to 440 texels per metre rather than vanishing into a handful of pixels.
+> Verified alongside it: the skyline has no island in the atlas at all, and every painted surface still owns a clean 0–1 UV, so no screen tiles its own content. **One step remains and it is yours — re-bake.**
 
 ```
 Share of the 4096x4096 lightmap
@@ -45,9 +51,9 @@ the other 85% of 16.7 million pixels is blank
 
 _**Measured off the model, not estimated.** The skyline is 7,541 m² of building faces and Blender packs the atlas by surface area, so it wins by a landslide. Excluding it should give every surface in the room about sixteen times the texel density._
 
-- [ ] **Exclude the skyline from the lightmap** `S` — It is self-lit and 26 m outside a window. It needs no baked lighting at all — give it a flat emissive material and drop it from the bake set.
-- [ ] **Re-pack the atlas so it fills the square** `S` — 85% of 16.7 million pixels are currently empty. Tighter island margins and a repack.
-- [ ] **Give small props a texel floor** `M` — A pencil should not get the same share as a wall just because it is small. Weight the pack so nothing lands under a usable resolution.
+- [x] **Exclude the skyline from the lightmap** `S` — It is self-lit and 26 m outside a window. It needs no baked lighting at all — give it a flat emissive material and drop it from the bake set.
+- [x] **Re-pack the atlas so it fills the square** `S` — 85% of 16.7 million pixels are currently empty. Tighter island margins and a repack.
+- [x] **Give small props a texel floor** `M` — A pencil should not get the same share as a wall just because it is small. Weight the pack so nothing lands under a usable resolution.
 - [ ] **Re-bake and compare against the current render** `S` — Same camera, same settings. If it is not visibly sharper, something did not take.
 
 ---
