@@ -134,6 +134,33 @@ BAKE_EXCLUDE = re.compile(r"^(ix_window|cn_tower|sky|lake)(\.\d+)?$")
 # thing a 12 cm character stands next to.
 TEXEL_FLOOR = 0.06
 
+# The desk, which every other desk dimension is derived from. Its back edge sits
+# against the wall and its front edge is where a person sits.
+DESK_W, DESK_D = 2.2, 0.75
+DESK_BACK = -2.50
+DESK_FRONT = DESK_BACK + DESK_D
+DESK_Y = (DESK_BACK + DESK_FRONT) / 2
+DESK_TOP = 0.79
+
+# The working position: where the keyboard sits, and therefore where a person
+# sits. The chair is placed from this rather than from a number of its own, so
+# the two cannot drift apart.
+KEY_X = -0.16
+
+# Where the chair stands: on the laptop's centreline, not the keyboard's.
+#
+# Measured rather than composed. The establishing camera looks in from high on
+# the right, so its sightlines to the three screens cross the chair's depth at
+# x = -0.25 (laptop), 0.40 (left monitor) and 0.98 (right monitor). The chair is
+# 77 cm wide and the gaps between those lines are 65 and 58 cm, so there is no
+# position between them it fits in — every "natural" spot blocks something. On
+# the keyboard centreline it hid 100% of the laptop screen; 34 cm to the right
+# of that, 47% of the left monitor.
+#
+# Left of all three lines it is clear, and it lands in front of the laptop —
+# which is a place a chair genuinely lives, not a compromise dressed up as one.
+CHAIR_X = KEY_X - 0.55
+
 # How high the walls run.
 #
 # Far higher than a room, and deliberately so: they are also what stops the
@@ -1003,32 +1030,49 @@ def build_shell() -> list[bpy.types.Object]:
 
 
 def build_desk() -> list[bpy.types.Object]:
+    """
+    A 2.2 x 0.75 m desk. Large, and a size you can buy.
+
+    It was 3.5 x 1.3 m — over twice the depth of any desk made, and it took
+    everything on it with it: the keyboard was 106 cm wide, the laptop 86 cm,
+    the monitors 109 cm. Meanwhile the chair, the mouse and the mug were all
+    correct, so a correctly sized person sat at a desk built for a giant. That
+    mismatch is exactly what makes a room feel wrong without anyone being able
+    to name why, and it would have become unmissable the moment a 12 cm
+    character could stand next to a keycap.
+
+    The top stays at 0.79 m. That is a couple of centimetres above the standard
+    0.75, well inside what an adjustable desk does, and holding it fixed means
+    nothing standing on the desk had to move vertically.
+    """
     top = material("desk", "desk", roughness=0.45, grain="wood")
     frame = material("desk_frame", "desk_frame", roughness=0.4, metallic=0.5, grain="brushed")
 
     parts = [
-        cube("desk_top", (3.5, 1.3, 0.07), (0, -1.85, 0.755), top),
-        cube("desk_lip", (3.5, 0.05, 0.09), (0, -1.22, 0.75), top),
-        cube("desk_leg_l", (0.08, 1.1, 0.72), (-1.66, -1.85, 0.36), frame),
-        cube("desk_leg_r", (0.08, 1.1, 0.72), (1.66, -1.85, 0.36), frame),
-        cube("desk_brace", (3.2, 0.06, 0.05), (0, -2.1, 0.18), frame),
-        # Drawer unit, which also hides the join between desk and floor.
-        cube("drawers", (0.62, 1.0, 0.66), (1.15, -1.9, 0.33), material("drawer", "plastic", roughness=0.5)),
+        cube("desk_top", (DESK_W, DESK_D, 0.045), (0, DESK_Y, 0.7675), top),
+        cube("desk_lip", (DESK_W, 0.05, 0.06), (0, DESK_FRONT, 0.755), top),
+        cube("desk_leg_l", (0.06, DESK_D - 0.14, 0.745), (-DESK_W / 2 + 0.06, DESK_Y, 0.3725), frame),
+        cube("desk_leg_r", (0.06, DESK_D - 0.14, 0.745), (DESK_W / 2 - 0.06, DESK_Y, 0.3725), frame),
+        cube("desk_brace", (DESK_W - 0.3, 0.05, 0.04), (0, DESK_Y - 0.24, 0.20), frame),
+        # Drawer unit under the right of the desk, which also hides the join
+        # between desk and floor.
+        cube("drawers", (0.42, 0.58, 0.63), (0.70, DESK_Y - 0.03, 0.315),
+             material("drawer", "plastic", roughness=0.5)),
     ]
     for i in range(3):
         parts.append(
             cube(
                 f"drawer_face_{i}",
-                (0.58, 0.03, 0.17),
-                (1.15, -1.41, 0.16 + i * 0.21),
+                (0.39, 0.024, 0.165),
+                (0.70, DESK_Y - 0.325, 0.155 + i * 0.20),
                 material("drawer_face", "dark_metal", roughness=0.45),
             )
         )
         parts.append(
             cube(
                 f"drawer_pull_{i}",
-                (0.2, 0.02, 0.014),
-                (1.15, -1.39, 0.16 + i * 0.21),
+                (0.15, 0.018, 0.012),
+                (0.70, DESK_Y - 0.34, 0.155 + i * 0.20),
                 material("pull", "metal", roughness=0.3, metallic=0.8),
             )
         )
@@ -1037,57 +1081,56 @@ def build_desk() -> list[bpy.types.Object]:
 
 def build_monitors() -> list[bpy.types.Object]:
     """
-    Two monitors on an arm. `ix_monitor_health` and `ix_monitor_code` are looked
-    up by name at runtime, so they stay separate objects.
+    Two 27-inch monitors on a dual arm. `ix_monitor_health` and
+    `ix_monitor_code` are looked up by name at runtime, so they stay separate.
+
+    A 27-inch panel is 61 x 37 cm. These were 109 cm wide — a size no monitor
+    has ever been — which is most of why the desk read as furniture for a
+    giant.
     """
     shell = material("monitor_shell", "plastic", roughness=0.4, metallic=0.25)
     screen_mat = material("screen", "screen", roughness=0.18)
     arm_mat = material("arm", "dark_metal", roughness=0.35, metallic=0.6)
 
     out: list[bpy.types.Object] = []
+    panel_w, panel_h = 0.615, 0.375
+    back = DESK_BACK + 0.20
+    centre_z = 1.09
 
-    for name, x, tilt in (("ix_monitor_health", -0.62, 0.16), ("ix_monitor_code", 0.66, -0.16)):
+    for name, x, tilt in (("ix_monitor_health", -0.325, 0.13), ("ix_monitor_code", 0.325, -0.13)):
         # A panel and a chin, not one slab. The bezel is 1 cm at the sides and
         # top and 3 cm along the bottom, which is how every monitor made in the
-        # last decade is proportioned — a uniform 3.5 cm border all the way
-        # round was the single thing dating these most.
-        panel = cube(f"{name}_body", (1.1, 0.032, 0.64), (x, -2.16, 1.2), shell, rotation_z=tilt)
+        # last decade is proportioned.
+        panel = cube(f"{name}_body", (panel_w, 0.019, panel_h), (x, back, centre_z), shell, rotation_z=tilt)
         parts = [panel]
-        # The housing behind it, thicker in the middle where the electronics go.
         parts.append(
-            cube(f"{name}_housing", (0.62, 0.05, 0.34), (x + math.sin(tilt) * 0.04, -2.19, 1.19), shell,
-                 rotation_z=tilt)
+            cube(f"{name}_housing", (0.34, 0.036, 0.20), (x + math.sin(tilt) * 0.03, back - 0.026, centre_z - 0.005),
+                 shell, rotation_z=tilt)
         )
-        # Power LED, tucked under the chin.
         parts.append(
-            cube(f"{name}_led", (0.018, 0.008, 0.008),
-                 (x + math.cos(tilt) * 0.42, -2.142, 0.906),
+            cube(f"{name}_led", (0.012, 0.006, 0.006),
+                 (x + math.cos(tilt) * 0.235, back + 0.012, centre_z - panel_h / 2 + 0.012),
                  material("monitor_led", "cyan", roughness=0.3, emission=1.0), bevel=0)
         )
-        # A single quad, not a thin box. A cube's UVs give every face its own
+        # A single quad, not a thin box: a cube's UVs give every face its own
         # patch of the image, so a canvas texture applied to one tiles across
-        # all six — which is exactly how the first attempt failed.
-        screen = plane(f"{name}_display", (1.08, 0.575), (x, -2.1425, 1.213), screen_mat,
-                       rotation=(math.radians(-90), 0, tilt))
+        # all six.
+        screen = plane(f"{name}_display", (panel_w - 0.02, panel_h - 0.04), (x, back + 0.0115, centre_z + 0.008),
+                       screen_mat, rotation=(math.radians(-90), 0, tilt))
         out.append(join(name, parts))
         out.append(screen)
 
-    # A dual arm: one weighted foot, one post, and a jointed reach out to each
-    # panel. The old version was a single bar running behind both screens with
-    # nothing attaching it to either.
+    hub = (0.0, DESK_BACK + 0.09, 1.10)
     out += [
-        cube("arm_base", (0.3, 0.2, 0.022), (0.02, -2.36, 0.801), arm_mat, bevel=0.006),
-        cylinder("arm_post", 0.024, 0.66, (0.02, -2.36, 1.13), arm_mat, vertices=16),
-        cylinder("arm_hub", 0.034, 0.05, (0.02, -2.36, 1.28), arm_mat, vertices=16),
+        cube("arm_base", (0.19, 0.13, 0.016), (0.0, DESK_BACK + 0.09, DESK_TOP + 0.008), arm_mat, bevel=0.004),
+        cylinder("arm_post", 0.016, 0.40, (0.0, DESK_BACK + 0.09, DESK_TOP + 0.20), arm_mat, vertices=16),
+        cylinder("arm_hub", 0.024, 0.036, hub, arm_mat, vertices=16),
     ]
-    for name, x, tilt in (("health", -0.62, 0.16), ("code", 0.66, -0.16)):
-        # Each reach spans from the hub to the back of its own panel, so both
-        # ends are attached to something.
+    for name, x, tilt in (("health", -0.325, 0.13), ("code", 0.325, -0.13)):
+        out.append(strut(f"arm_reach_{name}", hub, (x, back - 0.05, centre_z), 0.012, arm_mat))
         out.append(
-            strut(f"arm_reach_{name}", (0.02, -2.36, 1.28), (x, -2.21, 1.2), 0.017, arm_mat)
-        )
-        out.append(
-            cube(f"arm_plate_{name}", (0.1, 0.03, 0.1), (x, -2.205, 1.2), arm_mat, rotation_z=tilt, bevel=0.004)
+            cube(f"arm_plate_{name}", (0.07, 0.022, 0.07), (x, back - 0.036, centre_z), arm_mat,
+                 rotation_z=tilt, bevel=0.003)
         )
     return out
 
@@ -1106,10 +1149,10 @@ def build_laptop() -> list[bpy.types.Object]:
     # body was buried inside the desk, and the screen stood on the desktop with
     # nothing under it. Everything here is lifted to rest on the surface rather
     # than inside it.
-    lx, ly = -1.12, -1.55
-    deck_top = 0.812
+    lx, ly = -0.79, DESK_FRONT - 0.30
+    deck_top = DESK_TOP + 0.022
 
-    base = cube("laptop_base", (0.86, 0.6, 0.022), (lx, ly, 0.801), body)
+    base = cube("laptop_base", (0.35, 0.245, 0.012), (lx, ly, DESK_TOP + 0.006), body)
 
     # The deck is a recessed well with real keys in it, not a painted-on
     # rectangle. A laptop is seen from above more than from any other angle, so
@@ -1117,7 +1160,7 @@ def build_laptop() -> list[bpy.types.Object]:
     # single biggest thing between this and a real machine.
     parts_base = [base]
     parts_base.append(
-        cube("laptop_well", (0.66, 0.25, 0.004), (lx, ly - 0.13, deck_top - 0.002),
+        cube("laptop_well", (0.28, 0.105, 0.003), (lx, ly - 0.052, deck_top - 0.0015),
              material("deck", "keycap"), bevel=0)
     )
 
@@ -1126,44 +1169,44 @@ def build_laptop() -> list[bpy.types.Object]:
         # The bottom row is the space bar and its neighbours, so it is drawn as
         # three wide keys rather than fourteen narrow ones.
         if row == 4:
-            for name, width, offset in (("lkey_ctl", 0.13, -0.22), ("lkey_space", 0.26, 0.0), ("lkey_alt", 0.13, 0.22)):
+            for name, width, offset in (("lkey_ctl", 0.055, -0.093), ("lkey_space", 0.11, 0.0), ("lkey_alt", 0.055, 0.093)):
                 parts_base.append(
-                    cube(f"{name}", (width, 0.032, 0.006), (lx + offset, ly - 0.055, deck_top + 0.003), key_mat, bevel=0.001)
+                    cube(f"{name}", (width, 0.0135, 0.0025), (lx + offset, ly - 0.024, deck_top + 0.0015), key_mat, bevel=0.0004)
                 )
             continue
         for col in range(14):
             parts_base.append(
                 cube(
                     f"lkey_{row}_{col}",
-                    (0.036, 0.032, 0.006),
-                    (lx - 0.286 + col * 0.044, ly - 0.235 + row * 0.042, deck_top + 0.003),
+                    (0.0152, 0.0135, 0.0025),
+                    (lx - 0.1215 + col * 0.0187, ly - 0.0985 + row * 0.0178, deck_top + 0.0015),
                     key_mat,
-                    bevel=0.001,
+                    bevel=0.0004,
                 )
             )
 
     # Trackpad, palm rest side.
     parts_base.append(
-        cube("laptop_trackpad", (0.19, 0.115, 0.003), (lx, ly + 0.155, deck_top + 0.001),
-             material("trackpad", "chair_light", roughness=0.35), bevel=0.002)
+        cube("laptop_trackpad", (0.10, 0.062, 0.0015), (lx, ly + 0.064, deck_top + 0.0005),
+             material("trackpad", "chair_light", roughness=0.35), bevel=0.001)
     )
     # Hinge barrel and four rubber feet.
     parts_base.append(
-        cylinder("laptop_hinge", 0.011, 0.5, (lx, ly - 0.295, 0.806), material("hinge", "dark_metal", roughness=0.45),
+        cylinder("laptop_hinge", 0.005, 0.20, (lx, ly - 0.121, DESK_TOP + 0.008), material("hinge", "dark_metal", roughness=0.45),
                  vertices=12, rotation=(0, math.radians(90), 0))
     )
-    for fx in (-0.36, 0.36):
-        for fy in (-0.24, 0.24):
+    for fx in (-0.145, 0.145):
+        for fy in (-0.098, 0.098):
             parts_base.append(
-                cylinder(f"laptop_foot_{fx}_{fy}", 0.012, 0.006, (lx + fx, ly + fy, 0.7925),
+                cylinder(f"laptop_foot_{fx}_{fy}", 0.006, 0.003, (lx + fx, ly + fy, DESK_TOP + 0.0015),
                          material("foot", "plastic", roughness=0.9), vertices=8)
             )
 
-    lid = cube("ix_laptop_lid_body", (0.86, 0.018, 0.56), (lx, -1.85, 1.078), body)
+    lid = cube("ix_laptop_lid_body", (0.35, 0.008, 0.235), (lx, DESK_FRONT - 0.42, DESK_TOP + 0.13), body)
     # A 1.5 cm bezel rather than 3 cm. Screens have got to the edge of their
     # lids since about 2018 and a fat border is the first thing that dates one.
     lid_screen = plane(
-        "ix_laptop_display", (0.83, 0.53), (lx, -1.838, 1.078), screen_mat,
+        "ix_laptop_display", (0.335, 0.215), (lx, DESK_FRONT - 0.415, DESK_TOP + 0.13), screen_mat,
         rotation=(math.radians(-90), 0, 0)
     )
     # Bake the screen's facing rotation into its vertices before re-origining.
@@ -1176,7 +1219,7 @@ def build_laptop() -> list[bpy.types.Object]:
     lid_screen.select_set(True)
     bpy.ops.object.transform_apply(location=False, rotation=True, scale=False)
 
-    hinge = Vector((-1.12, -1.85, 0.811))
+    hinge = Vector((lx, DESK_FRONT - 0.42, DESK_TOP + 0.012))
     for obj in (lid, lid_screen):
         # Re-origin onto the hinge line so the lid rotates about it rather than
         # about its own centre, which would swing it through the desk.
@@ -1195,81 +1238,100 @@ def build_laptop() -> list[bpy.types.Object]:
 
 
 def build_keyboard_and_props() -> list[bpy.types.Object]:
+    """
+    A tenkeyless keyboard at real size, and the loose things around it.
+
+    The keyboard was 106 cm wide with 75 identical 4.2 cm keycaps on a uniform
+    grid. It is now 32 cm across a 19.5 mm key pitch, and the rows carry the
+    widths a keyboard actually has — a 2u backspace, a 1.5u tab, a 6.25u space
+    bar. A grid of identical squares is the single most recognisable sign of a
+    modelled keyboard, and it is visible from across the room.
+    """
     key_mat = material("keycap", "keycap", roughness=0.7)
     body_mat = material("kb_body", "plastic", roughness=0.5)
 
-    # The desk's front edge is at y = -1.20. The keyboard used to sit at -1.23
-    # with 0.19 of depth either side of it, so a third of it hung over the edge
-    # in mid-air — and the mouse balanced on the lip. Both are pulled back to
-    # leave a hand's width of desk in front of them.
-    keys = []
-    for row in range(5):
-        for col in range(15):
-            keys.append(
-                cube(
-                    f"key_{row}_{col}",
-                    (0.042, 0.042, 0.012),
-                    (-0.46 + col * 0.066, -1.57 + row * 0.066, 0.812),
-                    key_mat,
-                    bevel=0.003,
-                )
-            )
-    keyboard = join(
-        "ix_keyboard",
-        [cube("kb_body", (1.06, 0.38, 0.022), (0.04, -1.44, 0.801), body_mat)] + keys,
+    # One key unit. Every width below is a multiple of it, as on a real board.
+    U = 0.0195
+    KX, KY = KEY_X, DESK_FRONT - 0.13
+    deck = DESK_TOP + 0.014
+
+    # Widths per row, in units. They sum to 15u on every row, which is what
+    # makes the block rectangular despite none of the rows matching.
+    rows = (
+        (1,) * 14 + (1,),
+        (1,) * 13 + (2,),
+        (1.5,) + (1,) * 12 + (1.5,),
+        (1.75,) + (1,) * 11 + (2.25,),
+        (2.25,) + (1,) * 10 + (2.75,),
+        (1.25, 1.25, 1.25, 6.25, 1.25, 1.25, 1.25, 1.25),
     )
 
+    keys = []
+    for row_index, widths in enumerate(rows):
+        # Rows are sculpted: the far row sits higher and the near row lower, so
+        # the block dishes toward the fingers instead of being a flat plane.
+        lift = (0.0032, 0.0016, 0.0, 0.0, 0.0008, 0.0022)[row_index]
+        y = KY + (len(rows) - 1 - row_index) * U
+        x = KX - 15 * U / 2
+        for col, width in enumerate(widths):
+            span = width * U
+            keys.append(
+                cube(
+                    f"key_{row_index}_{col}",
+                    (span - 0.0025, U - 0.0025, 0.0075),
+                    (x + span / 2, y, deck + lift),
+                    key_mat,
+                    bevel=0.0008,
+                )
+            )
+            x += span
+
+    body = cube("kb_body", (15 * U + 0.016, len(rows) * U + 0.014, 0.016),
+                (KX, KY + (len(rows) - 1) * U / 2, DESK_TOP + 0.008), body_mat, bevel=0.003)
+    keyboard = join("ix_keyboard", [body] + keys)
+
     # A mouse is a dome, not a disc. Subdividing a short box rounds the top and
-    # keeps the base flat on the desk, which a scaled cylinder cannot do — it
-    # was reading as a pebble someone had left there.
-    mouse = cube("ix_mouse", (0.062, 0.105, 0.032), (0.78, -1.46, 0.803), body_mat, bevel=0)
+    # keeps the base flat on the desk, which a scaled cylinder cannot do.
+    mouse = cube("ix_mouse", (0.062, 0.105, 0.032), (0.15, DESK_FRONT - 0.13, DESK_TOP + 0.013),
+                 body_mat, bevel=0)
     smooth(mouse, 2, crease=0.12)
 
     mug_mat = material("mug", "mug", roughness=0.35)
-    mug_body = cylinder("mug_body", 0.055, 0.11, (0.90, -1.30, 0.845), mug_mat)
+    mug_x, mug_y = 0.40, DESK_FRONT - 0.14
+    mug_body = cylinder("mug_body", 0.043, 0.095, (mug_x, mug_y, DESK_TOP + 0.055), mug_mat)
     bpy.ops.mesh.primitive_torus_add(
-        major_radius=0.038, minor_radius=0.009, location=(0.975, -1.30, 0.85)
+        major_radius=0.030, minor_radius=0.007, location=(mug_x + 0.062, mug_y, DESK_TOP + 0.058)
     )
     handle = bpy.context.object
     handle.name = "mug_handle"
     handle.data.name = "mug_handle"
     # Spun about X, not Y. A torus is born in the XY plane with its axis on Z;
     # turning it about Y leaves the ring facing the way it sticks out, so the
-    # handle stood edge-on to the mug like a wheel rather than a loop you could
-    # get a finger through.
+    # handle stood edge-on to the mug like a wheel rather than a loop.
     handle.rotation_euler = (math.radians(90), 0, 0)
     shade(handle, mug_mat)
     mug = join("ix_mug", [mug_body, handle])
 
-    # Lying on the notebook rather than beside it. It used to sit where the CV
-    # holder now stands, and a pencil left on the open book it belongs to is
-    # both truer to a desk in use and one less loose object competing for the
-    # right-hand end of the desk.
-    pencil = cylinder(
-        "ix_pencil",
-        0.007,
-        0.19,
-        (1.24, -1.50, 0.830),
-        material("pencil", "sticky", roughness=0.6),
-        vertices=6,
-        rotation=(0, math.radians(90), math.radians(18)),
-    )
-
-    # Moved back and left: it has to clear the CV holder at the end of the
-    # desk on one side and the mug on the other, and the first attempt at this
-    # swapped an overlap with the headphones for one with the mug.
+    # A5 rather than the 34 x 46 cm slab it was — no notebook is that size.
     notebook = cube(
         "ix_notebook",
-        (0.34, 0.46, 0.03),
-        (1.24, -1.62, 0.805),
+        (0.155, 0.215, 0.016),
+        (-0.44, DESK_FRONT - 0.17, DESK_TOP + 0.008),
         material("notebook", "book_a", roughness=0.6),
         rotation_z=math.radians(-9),
     )
+    pencil = cylinder(
+        "ix_pencil",
+        0.0045,
+        0.16,
+        (-0.44, DESK_FRONT - 0.14, DESK_TOP + 0.020),
+        material("pencil", "sticky", roughness=0.6),
+        vertices=6,
+        rotation=(0, math.radians(90), math.radians(14)),
+    )
 
-    # The headphones used to sit at (1.05, -1.78), which put them 9 cm inside
-    # the notebook — they passed through the cover rather than resting on
-    # anything. Moved to the clear stretch between the laptop and the keyboard.
-    return [keyboard, mouse, mug, pencil, notebook, build_headphones(0.62, -1.85, 0.79)]
+    return [keyboard, mouse, mug, pencil, notebook,
+            build_headphones(-0.95, DESK_FRONT - 0.09, DESK_TOP)]
 
 
 def build_headphones(hx: float, hy: float, deck: float) -> bpy.types.Object:
@@ -1368,7 +1430,7 @@ def build_cv() -> list[bpy.types.Object]:
     # said so, because nothing was checking. `check_clearance` in the export now
     # does. Everything below is expressed relative to this point so the whole
     # holder moves together.
-    cx, cy, cz = 1.60, -1.45, 0.9455
+    cx, cy, cz = 0.92, DESK_FRONT - 0.15, DESK_TOP + 0.156
 
     holder = material("cv_holder", "dark_metal", roughness=0.35, metallic=0.6, grain="brushed")
     board = material("cv_board", "chair_dark", roughness=0.5)
@@ -1419,12 +1481,12 @@ def build_lamp() -> list[bpy.types.Object]:
     # establishing camera looks along +X, so the open lid stood squarely
     # between the viewer and the lamp. Nothing was wrong with the lamp; it was
     # simply never visible.
-    # Forward of the wall by 6 cm more than it was. The shade reaches z = 1.34
-    # and the window frame starts at 1.05, so at y = -2.28 the back of the lamp
-    # was inside the frame.
-    foot = (1.72, -2.20, 0.79)
-    elbow = (1.72, -2.20, 1.32)
-    head = (1.54, -1.95, 1.18)
+    # Anchored to the desk rather than to absolute coordinates, so it follows
+    # when the desk is resized. `check_furniture` is what confirms the shade
+    # still clears the window frame after a move like that.
+    foot = (1.00, DESK_BACK + 0.08, DESK_TOP)
+    elbow = (1.00, DESK_BACK + 0.08, 1.30)
+    head = (0.80, DESK_BACK + 0.28, 1.16)
 
     parts = [
         cylinder("lamp_base", 0.095, 0.02, (foot[0], foot[1], foot[2] + 0.01), metal),
@@ -1645,11 +1707,16 @@ def build_chair_and_plant() -> list[bpy.types.Object]:
     trim = material("chair_trim", "chair_light", roughness=0.85, grain="fabric")
     metal = material("chair_metal", "metal", roughness=0.35, metallic=0.75, grain="brushed")
 
-    # On the keyboard's centreline, pushed back 25 cm from the desk edge and
-    # turned a little — a chair someone has just got up from. It used to sit
-    # 29 cm to the left of the working position for no reason anyone recorded,
-    # which put it squarely between the establishing camera and the laptop.
-    cx, cy = 0.18, -0.80
+    # On the keyboard's centreline, pushed back from the desk edge and turned a
+    # little — a chair someone has just got up from. It used to sit 29 cm to the
+    # left of the working position for no reason anyone recorded, which put it
+    # squarely between the establishing camera and the laptop.
+    #
+    # Derived from DESK_FRONT rather than written down, because the desk rescale
+    # moved that edge back 55 cm and left the chair marooned in open floor — a
+    # chair nobody could sit in without standing up first. Anything positioned
+    # against the desk has to be expressed in terms of the desk.
+    cx, cy = CHAIR_X, DESK_FRONT + 0.50
     parts = []
 
     # Seat: a control cage dished in the middle and turned up at the sides, then
@@ -2286,26 +2353,26 @@ def build_details() -> list[bpy.types.Object]:
 
     # Cables. Down the back of each monitor, along the floor to a power strip
     # under the desk, and the kettle lead from the strip to the wall.
-    strip = (0.55, -2.34, 0.04)
+    strip = (0.30, DESK_BACK - 0.03, 0.04)
     cables = [
-        cable("cable_monitor_l", [(-0.62, -2.2, 1.0), (-0.6, -2.36, 0.72), (-0.2, -2.42, 0.1), strip], 0.009, rubber),
-        cable("cable_monitor_r", [(0.66, -2.2, 1.0), (0.7, -2.38, 0.74), (0.68, -2.44, 0.12), strip], 0.009, rubber),
+        cable("cable_monitor_l", [(-0.33, DESK_BACK + 0.16, 0.95), (-0.30, DESK_BACK + 0.02, 0.70), (-0.10, DESK_BACK - 0.02, 0.10), strip], 0.006, rubber),
+        cable("cable_monitor_r", [(0.33, DESK_BACK + 0.16, 0.95), (0.36, DESK_BACK + 0.01, 0.72), (0.34, DESK_BACK - 0.04, 0.12), strip], 0.006, rubber),
         # From the lamp's foot at (1.58, -2.28), not from (-1.02, -2.02) where
         # the lamp used to stand. The lamp was moved to the back-right corner
         # and its cable was not, so the room had a flex running out of the
         # desktop on the left with nothing on the end of it, and a lamp on the
         # right plugged into nothing.
-        cable("cable_lamp", [(1.58, -2.28, 0.80), (1.5, -2.42, 0.45), (1.0, -2.44, 0.1), strip], 0.007, rubber),
-        cable("cable_wall", [strip, (1.1, -2.42, 0.1), (1.5, -2.48, 0.3)], 0.009, rubber),
+        cable("cable_lamp", [(0.98, DESK_BACK + 0.10, 0.79), (0.95, DESK_BACK - 0.03, 0.45), (0.60, DESK_BACK - 0.05, 0.10), strip], 0.005, rubber),
+        cable("cable_wall", [strip, (0.75, DESK_BACK - 0.05, 0.10), (1.06, DESK_BACK - 0.03, 0.20)], 0.006, rubber),
     ]
-    cables.append(cube("power_strip", (0.34, 0.09, 0.045), strip, dark, bevel=0.008))
+    cables.append(cube("power_strip", (0.26, 0.07, 0.035), strip, dark, bevel=0.006))
     for i in range(4):
         cables.append(
-            cube(f"strip_socket_{i}", (0.06, 0.05, 0.008), (0.44 + i * 0.075, -2.34, 0.063),
+            cube(f"strip_socket_{i}", (0.045, 0.038, 0.006), (0.21 + i * 0.058, DESK_BACK - 0.03, 0.056),
                  material("socket", "dark_metal", roughness=0.6), bevel=0.002)
         )
     cables.append(
-        cube("strip_led", (0.016, 0.012, 0.008), (0.7, -2.3, 0.05),
+        cube("strip_led", (0.012, 0.009, 0.006), (0.45, DESK_BACK - 0.01, 0.048),
              material("led_red", "red", roughness=0.3, emission=6.0), bevel=0)
     )
     out.append(join("cables", cables))
@@ -2320,30 +2387,30 @@ def build_details() -> list[bpy.types.Object]:
     # it throws on the wall behind them is, and a visible bright line across the
     # plaster reads as a fluorescent tube instead.
     out.append(
-        cube("led_strip", (2.15, 0.02, 0.016), (0.02, -2.51, 1.14),
+        cube("led_strip", (1.5, 0.016, 0.012), (0.0, DESK_BACK - 0.035, 1.26),
              material("led_strip", "violet", roughness=0.4, emission=1.0), bevel=0)
     )
 
     # Desk clutter.
     desk_bits = []
-    cup = (1.12, -2.20)
-    desk_bits.append(cylinder("pen_cup", 0.05, 0.11, (cup[0], cup[1], 0.845), dark, vertices=16))
+    cup = (0.66, DESK_BACK + 0.14)
+    desk_bits.append(cylinder("pen_cup", 0.037, 0.095, (cup[0], cup[1], DESK_TOP + 0.048), dark, vertices=16))
     for i, (lean, key) in enumerate(((0.1, "cyan"), (-0.14, "sticky"), (0.06, "paper"))):
-        pen = cylinder(f"pen_{i}", 0.006, 0.17, (cup[0] + i * 0.012 - 0.012, cup[1], 0.93),
+        pen = cylinder(f"pen_{i}", 0.005, 0.15, (cup[0] + i * 0.010 - 0.010, cup[1], DESK_TOP + 0.125),
                        material(f"pen_{key}", key, roughness=0.5), vertices=6)
         pen.rotation_euler = (lean, lean * 0.7, 0)
         desk_bits.append(pen)
 
-    phone = cube("phone", (0.072, 0.148, 0.009), (1.02, -1.62, 0.795), dark, bevel=0.004)
+    phone = cube("phone", (0.072, 0.148, 0.009), (0.60, DESK_FRONT - 0.20, DESK_TOP + 0.005), dark, bevel=0.004)
     phone.rotation_euler = (0, 0, math.radians(-14))
     desk_bits.append(phone)
 
     for i in range(3):
-        sheet = cube(f"paper_{i}", (0.21, 0.29, 0.004), (-1.52, -1.42, 0.793 + i * 0.005), paper_mat, bevel=0)
+        sheet = cube(f"paper_{i}", (0.21, 0.29, 0.003), (-0.95, DESK_BACK + 0.22, DESK_TOP + 0.003 + i * 0.004), paper_mat, bevel=0)
         sheet.rotation_euler = (0, 0, math.radians(4 - i * 5))
         desk_bits.append(sheet)
 
-    desk_bits.append(cylinder("coaster", 0.07, 0.008, (0.90, -1.30, 0.794), material("cork", "pot", roughness=0.95)))
+    desk_bits.append(cylinder("coaster", 0.055, 0.006, (0.40, DESK_FRONT - 0.14, DESK_TOP + 0.003), material("cork", "pot", roughness=0.95)))
     out.append(join("desk_clutter", desk_bits))
 
     # On the capping board of the bookshelf: a photo, a horizontal book stack,
@@ -2467,7 +2534,7 @@ def add_lighting() -> None:
     # back-right corner, so the room's warmest light came from a bare patch of
     # desk two and a half metres away from the lamp casting it. The third bug of
     # exactly this kind, after the lamp's power cable and six camera stops.
-    bpy.ops.object.light_add(type="POINT", location=(1.54, -1.95, 1.12))
+    bpy.ops.object.light_add(type="POINT", location=(0.80, DESK_BACK + 0.28, 1.10))
     warm = bpy.context.object
     warm.name = "lamp_light"
     warm.data.energy = 70
@@ -2475,7 +2542,7 @@ def add_lighting() -> None:
     warm.data.shadow_soft_size = 0.06
 
     # The monitors, throwing cold light forward onto the desk and the chair.
-    area("screen_bounce", 70, 1.9, (0.02, -2.05, 1.21), (0.42, 0.66, 1.0),
+    area("screen_bounce", 70, 1.2, (0.0, DESK_BACK + 0.26, 1.10), (0.42, 0.66, 1.0),
          rotation=(math.radians(90), 0, 0))
 
     # City glow through the window. Weak, cold, and coming from the one place in
@@ -2719,7 +2786,7 @@ def main() -> None:
     for check in (export_room.check_resting, export_room.check_clearance,
                   export_room.check_stops, export_room.check_lights,
                   export_room.check_buried, export_room.check_furniture,
-                  export_room.check_swallowed):
+                  export_room.check_swallowed, export_room.check_paired):
         for complaint in check():
             print(f"[build_room] {complaint}", file=sys.stderr)
 

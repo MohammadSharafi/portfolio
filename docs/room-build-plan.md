@@ -92,16 +92,17 @@ A room reads as real when it is full of things nobody would think to model. Not 
 **One thing to understand before you commit.** A room you look at from outside only needs detail where the camera goes. A room you _walk around in_ needs detail everywhere, because the player can put their nose against anything. Your keyboard currently has 75 blank keycaps with no legends on them — invisible from the establishing shot, and the first thing a walking character would stand on. Deciding to make this playable raises the detail bar across the entire room, and that is a cost worth accepting deliberately rather than discovering later.
 
 ```
-  back wall -----------------------------------------------
-  |[whiteboard]  |monitors| |laptop| |kbd| |CV|   [window]  |
-  |              ============ desk ============    [rack]   |
-  |[bookshelf]              (chair)                         |
-  |         .....  walking route  .....                     |
-  |       +------------ Persian rug ------------+           |
-  |       |           [coffee table]            |   [plant] |
-  |       |              [sofa]                 |           |
-  |       +-------------------------------------+           |
-  (open) ------------------------------- (open)   camera ^
+  back wall ------------------------------------------------
+  |                       |mon||mon|         [window]      |
+  |                 |laptop||kbd|    |CV|          [rack]  |
+  |                  ======= desk =======                  |
+  |[bookshelf]        (chair)                              |
+  |     .....  walking route  .....                        |
+  |             +---------- Persian rug ---------+         |
+  |             +         [coffee table]         +  [plant]|
+  |             +             [sofa]             +         |
+  |             +--------------------------------+         |
+  (open) ----------------------------------------- (open)   camera ^
 ```
 
 _**The room to scale, from the coordinates in `build_room.py`.** Two walls, two open sides, 6.4 × 5.2 m. Note how much floor is empty: that space is the walking route, and it is why the room can take a great deal more clutter around its edges without crowding._
@@ -119,8 +120,18 @@ _**The room to scale, from the coordinates in `build_room.py`.** Two walls, two 
 - [x] **Door furniture: handle, hinges, doorstop, coat hook with something on it** `S` — A jacket or a bag on the back of the door is the single cheapest way to say a person lives here.
 - [x] **Window detail: latch, sill dust, a curtain rail beside the blind** `S` — The window is the best surface in the room and currently the least detailed.
 
+> **Done — the desk was built for a giant**
+>
+> The desk measured **3.5 × 1.3 m**. No desk is 1.3 m deep; 75 cm is the standard and 80 is generous. Everything standing on it had been sized to match, so the whole surface was internally consistent and wrong: a **106 cm keyboard**, an **86 cm laptop**, and monitor panels **109 cm** wide, which is a size no monitor has ever been made in.
+> What made it invisible is that the chair, the mug and the mouse were all correct. A room where everything is 60% too big just reads as a room; a room where _half_ of it is reads as wrong without anyone being able to say why. It would have stopped being subtle the moment a 12 cm character could stand on a keycap — which is the whole of Phase 3.
+> **Holding the top height fixed is the trick that made this affordable.** Every prop on the desk is positioned relative to `DESK_TOP`, so nothing had to move vertically — only in plan. The desk's dimensions are now five constants at the top of the builder (`DESK_W`, `DESK_D`, `DESK_BACK`, `DESK_FRONT`, `DESK_TOP`) and every other desk dimension is derived from them, so this class of drift cannot recur silently.
+> **The checks caught what the eye did not.** Shrinking the desk by 60% left three props inside one another (`ix_cv` in the lamp, `ix_headphones` and `ix_notebook` in the laptop base) and left **eight of the nine desk camera stops aiming at empty air** — each one a click that would have flown the camera to nothing. Both are failures written after earlier bugs of exactly that kind shipped. All nine stops were recomputed from the new geometry.
+> **And one they did not catch: the chair.** Everything standing _on_ the desk was rebuilt with it. The chair is not on the desk, so it stayed exactly where it was — and the desk's front edge had moved back 55 cm, leaving a chair marooned half a metre out in open floor, too far to reach the keyboard from. In a render that reads as a chair someone pushed back, because that is a thing chairs do. `check_paired` now measures it: a chair belongs to its desk, front edge to front edge, somewhere between 10 cm tucked under and 35 cm pushed back.
+> **Where it could actually go was a measured answer, not a chosen one.** The establishing camera looks in high from the right, and its sightlines to the three screens cross the chair's depth at **x = −0.25** (laptop), **0.40** (left monitor) and **0.98** (right monitor). The chair is 77 cm wide and the gaps between those lines are 65 and 58 cm — so there is no position _between_ them it fits in. On the keyboard's centreline it hid **100%** of the laptop screen; 34 cm right of that, **47%** of the left monitor. Left of all three lines it is clear, and that is in front of the laptop — a place a chair genuinely lives. Ray-cast from the home camera against each panel's own triangles, the three screens now read **0%**, **0%** and **1%** occluded, and the 1% is a corner of the CV holder, not the chair.
+
 ### The desk — what a developer's desk actually holds
 
+- [x] **Real-world dimensions on the desk and everything standing on it** `M` — A 27-inch monitor is 61 cm wide and a desk is 75 cm deep. Derive every measurement from a real product or a standard, and put the ones everything else depends on in named constants.
 - [ ] **Desk mat under the keyboard and mouse** `S` — Almost universal, changes the whole read of the surface, and gives the props something to sit on other than bare wood.
 - [ ] **Keycap legends** `M` — 75 blank keys. Painted with the same canvas-texture system already driving the screens and book spines, so the machinery exists.
 - [ ] **Webcam, microphone on a boom arm, desk speakers** `M` — You work remote across time zones. The kit that implies should be on the desk.
@@ -843,7 +854,7 @@ Mapped onto the repository as it stands, so none of this has to be worked out tw
 | Facts about you             | `src/data/*.ts` — one source, read by the room, the panels, the CV page and the written site alike.                                 |
 
 - [ ] **Keep the game switchable off** `S` — If the character system can be disabled with one flag and the room still works completely, you can ship the realism work without waiting for the game to be finished.
-- [ ] **Add a check for every silent failure** `S` — Three have bitten already: dead camera stops, props inside one another, and a stale bake. Each is now a check that runs on every build. Whenever something breaks without saying so, that is the signal to write the fourth.
+- [ ] **Add a check for every silent failure** `S` — Six now run on every build, and every one of them was written _after_ the bug it catches had already shipped: props sunk into surfaces (`check_resting`), props inside one another (`check_clearance`), camera stops aimed at nothing (`check_stops`), a light left behind by the lamp casting it (`check_lights`), a fitting swallowed by a wall (`check_buried`), and a chair that lost its desk (`check_paired`). The room's failure mode is never “broken” — it is invisible-but-wrong. Whenever something breaks without saying so, that is the signal to write the seventh.
 - [ ] **Never let a fact live in two places** `S` — Every number in the room traces back to `src/data`. The moment a figure is typed into a texture or a panel by hand, the room can start contradicting your CV.
 
 ---

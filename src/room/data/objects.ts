@@ -96,7 +96,7 @@ export const roomObjects: readonly RoomObject[] = [
     id: 'monitor-health',
     label: 'Clinical monitor',
     hint: 'The healthcare work',
-    stop: { position: [0.35, 1.34, 0.55], target: [-0.62, 1.2, 2.0], duration: 1.4 },
+    stop: { position: [-0.17, 1.25, 1.42], target: [-0.33, 1.09, 2.28], duration: 1.4 },
     panel: {
       kicker: 'Healthcare technology',
       title: 'The EHR AI Clinical Assistant',
@@ -109,7 +109,7 @@ export const roomObjects: readonly RoomObject[] = [
     id: 'monitor-code',
     label: 'Dev monitor',
     hint: 'How I build',
-    stop: { position: [1.72, 1.34, 0.65], target: [0.66, 1.2, 2.0], duration: 1.4 },
+    stop: { position: [0.17, 1.25, 1.42], target: [0.33, 1.09, 2.28], duration: 1.4 },
     panel: {
       kicker: 'Engineering',
       title: 'Architecture chosen for the constraint',
@@ -126,7 +126,7 @@ export const roomObjects: readonly RoomObject[] = [
     // this is the tightest stop in the room. Composed along the page's own
     // normal — it leans 20° back, and a stop squared up to the desk instead
     // would frame it foreshortened with the text running away up the sheet.
-    stop: { position: [1.6, 1.19, 0.84], target: [1.6, 0.95, 1.46], duration: 1.3 },
+    stop: { position: [0.94, 1.12, 1.51], target: [0.92, 0.95, 1.95], duration: 1.2 },
     panel: {
       kicker: 'Curriculum vitae',
       title: 'The whole thing, on one page',
@@ -147,7 +147,7 @@ export const roomObjects: readonly RoomObject[] = [
     id: 'laptop',
     label: 'Laptop',
     hint: 'Open it',
-    stop: { position: [-0.7, 1.35, 0.95], target: [-1.12, 1.07, 1.79], duration: 1.2 },
+    stop: { position: [-0.57, 1.08, 1.62], target: [-0.79, 0.92, 2.14], duration: 1.1 },
     panel: {
       kicker: 'Terminal',
       title: 'Numbers that hold up',
@@ -161,7 +161,7 @@ export const roomObjects: readonly RoomObject[] = [
     id: 'notebook',
     label: 'Notebook',
     hint: 'Selected work',
-    stop: { position: [1.5, 1.32, 1.0], target: [1.24, 0.82, 1.62], duration: 1.1 },
+    stop: { position: [-0.3, 1.09, 1.56], target: [-0.44, 0.81, 1.92], duration: 1.0 },
     panel: {
       kicker: 'Projects',
       title: 'Selected work',
@@ -258,7 +258,7 @@ export const roomObjects: readonly RoomObject[] = [
     id: 'lamp',
     label: 'Desk lamp',
     hint: 'Click to switch',
-    stop: { position: [1.86, 1.46, 1.34], target: [1.42, 1.16, 2.1], duration: 0.9 },
+    stop: { position: [1.12, 1.33, 1.68], target: [0.82, 1.13, 2.24], duration: 0.9 },
     panel: {
       kicker: 'Lighting',
       title: 'The lamp works',
@@ -290,7 +290,7 @@ export const roomObjects: readonly RoomObject[] = [
     id: 'mug',
     label: 'Coffee mug',
     hint: 'Push it',
-    stop: { position: [1.21, 1.07, 0.76], target: [0.93, 0.85, 1.3], duration: 0.9 },
+    stop: { position: [0.61, 1.0, 1.55], target: [0.43, 0.85, 1.89], duration: 0.9 },
     panel: {
       kicker: 'Physics',
       title: 'Yes, it falls',
@@ -302,7 +302,7 @@ export const roomObjects: readonly RoomObject[] = [
     id: 'headphones',
     label: 'Headphones',
     hint: 'Sound on',
-    stop: { position: [1.0, 1.15, 1.23], target: [0.62, 0.85, 1.85], duration: 0.9 },
+    stop: { position: [-0.71, 1.03, 1.46], target: [-0.95, 0.85, 1.84], duration: 0.9 },
     panel: {
       kicker: 'Audio',
       title: 'Room tone',
@@ -314,7 +314,7 @@ export const roomObjects: readonly RoomObject[] = [
     id: 'keyboard',
     label: 'Keyboard',
     hint: 'Type on it',
-    stop: { position: [0.05, 1.05, 0.42], target: [0.04, 0.8, 1.2], duration: 0.9 },
+    stop: { position: [-0.06, 1.04, 1.43], target: [-0.16, 0.8, 1.83], duration: 0.9 },
     panel: {
       kicker: 'Contact',
       title: 'Get in touch',
