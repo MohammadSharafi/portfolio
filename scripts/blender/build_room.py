@@ -3395,6 +3395,43 @@ def build_details() -> list[bpy.types.Object]:
     # that it is the cheapest realism per hour in the whole document: a room
     # reads as occupied because of the things nobody would think to model.
 
+    # --- surface history -------------------------------------------------
+    #
+    # Clean surfaces are the strongest single signal that something was
+    # generated rather than lived with. The grain maps cannot carry any of this:
+    # they tile every half metre and are shared by every material of a kind, so
+    # a coffee ring painted into the wood map would appear sixty times across
+    # the floor. Marks that belong in one place have to be geometry.
+    #
+    # They are also nearly free. Each is a quad a fraction of a millimetre proud
+    # of what it marks, and the bake resolves it into the lightmap along with
+    # everything else.
+
+    # A coffee ring on the desk, from the times the mug missed the coaster.
+    ring = cylinder("desk_coffee_ring", 0.043, 0.0006, (0.40, DESK_BACK + 0.27, DESK_TOP + 0.0004),
+                    material("coffee_ring", "earth", roughness=0.55), vertices=26)
+    ring.modifiers.new("Ring", "WIREFRAME").thickness = 0.0035
+    out.append(ring)
+
+    # Scuffed floorboards where feet land: in front of the door, and the arc the
+    # chair's castors have worn. Wear goes where hands and feet go, and nowhere
+    # else — an even wear layer over everything is just a darker floor.
+    scuff_mat = material("floor_scuff", "earth", roughness=0.85)
+    out.append(
+        cylinder("floor_scuff_door", 0.34, 0.0008, (-2.62, -2.06, RUG_THICKNESS * 0 + 0.0075),
+                 scuff_mat, vertices=24)
+    )
+    # The arc is wider than where the chair stands now. Wear is a record of
+    # where it has been, not of where it is — and a scuff directly under the
+    # chair is one nobody will ever see.
+    for i in range(7):
+        angle = -1.0 + i * 0.34
+        out.append(
+            cylinder(f"floor_scuff_castor_{i}", 0.075, 0.0008,
+                     (CHAIR_X + math.cos(angle) * 0.66, DESK_FRONT + 0.50 + math.sin(angle) * 0.66, 0.0075),
+                     scuff_mat, vertices=14)
+        )
+
     # A bin, with paper in it, and one piece that missed. Nothing says occupied
     # like a near miss on the floor.
     bin_mat = material("bin", "dark_metal", roughness=0.55, metallic=0.3)
