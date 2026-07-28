@@ -109,6 +109,14 @@ PALETTE = {
     "book_f": (0.416, 0.137, 0.137, 1),
     "book_g": (0.125, 0.129, 0.149, 1),
     "book_h": (0.196, 0.353, 0.376, 1),
+    # The night outside. `night_sky` is the deep blue overhead, `sky_glow` the
+    # warm bloom a city throws onto the air just above its rooftops — which is
+    # what a skyline's silhouette is actually read against — and `sky_haze` the
+    # washed-out body of the far towers, because aerial perspective takes the
+    # contrast out of a night skyline long before it takes the lights.
+    "night_sky": (0.055, 0.085, 0.190, 1),
+    "sky_glow": (0.300, 0.210, 0.185, 1),
+    "sky_haze": (0.115, 0.120, 0.165, 1),
     "warm": (1.0, 0.702, 0.353, 1),
     "cyan": (0.416, 0.749, 1.0, 1),
     "violet": (0.659, 0.482, 1.0, 1),
@@ -909,12 +917,24 @@ def _wall_with_opening(wall_mat: bpy.types.Material) -> bpy.types.Object:
 
 def build_toronto() -> list[bpy.types.Object]:
     """
-    The view through the window: Toronto at night, seen from high up.
+    The view through the window: Toronto at night, from high up.
 
-    Built at real distance rather than as a backdrop card so it parallaxes
-    correctly. The whole thing sits inside the window's view cone, which is the
-    only reason a few dozen boxes can stand in for a skyline — everything
-    outside that cone is never on screen and is not modelled.
+    Built at real distance rather than as a backdrop card, so it parallaxes as
+    the camera moves. The whole thing sits inside the window's view cone, which
+    is the only reason a few dozen boxes can stand in for a skyline.
+
+    **The geometry has to be laid out against that cone**, and getting it wrong
+    is what made the first version read as an upside-down skyline. The window
+    aperture spans z 1.08 to 2.32, so a viewer inside the room sees, at depth
+    `d` behind it, a vertical band roughly `1.7 ± 0.62 · (d + 0.5) / 2.1` —
+    about 17 m tall at 30 m out. The towers used to stand on bases at z = -1.2
+    with tops as high as 14.8, which put their *bases* inside that band and
+    their tops far above it. You saw the bottom of the city, the tops were cut
+    off by the frame, and the stepped edge along the bottom was bases at
+    different distances. Every cue was inverted.
+
+    So the bases go well below the band and the tops land inside it. You see
+    what a skyline is actually recognised by: a varied silhouette against sky.
     """
     random_state = [20240726]
 
@@ -922,80 +942,124 @@ def build_toronto() -> list[bpy.types.Object]:
         random_state[0] = (random_state[0] * 1103515245 + 12345) & 0x7FFFFFFF
         return random_state[0] / 0x7FFFFFFF
 
+    # Everything stands on this, far below the window's view cone, so no ground
+    # line ever crosses the frame.
+    GROUND = -16.0
+
     tower_mat = material("sky_tower", "plastic", roughness=0.8, metallic=0.1)
-    lit_mat = material("sky_lit", "warm", roughness=0.4, emission=2.2)
-    cool_lit = material("sky_lit_cool", "cyan", roughness=0.4, emission=1.8)
+    # A second, paler body for the far layer. Distance washes contrast out of a
+    # night skyline long before it washes out the lights, and that difference is
+    # most of what makes a city read as deep rather than as one flat cut-out.
+    far_mat = material("sky_tower_far", "sky_haze", roughness=0.85, metallic=0.0)
+    lit_mat = material("sky_lit", "warm", roughness=0.4, emission=2.4)
+    cool_lit = material("sky_lit_cool", "cyan", roughness=0.4, emission=2.0)
 
     parts: list[bpy.types.Object] = []
 
-    # The sky. A single emissive plane far enough back to sit behind everything.
-    parts_sky = cube(
-        "sky", (60, 0.2, 34), (2.05, -34, 8), material("sky", "screen", roughness=1.0, emission=0.35), bevel=0
-    )
+    # The sky, as a stack of bands rather than one flat plane.
+    #
+    # It was a single emissive slab at 0.35 on a near-black colour, which is
+    # indistinguishable from no sky at all — and with nothing behind the towers,
+    # a skyline has no silhouette to be read against. A night sky over a city is
+    # not uniform: it is bright and warm just above the rooftops, where the
+    # city's own light bounces off the air, and falls to deep blue overhead.
+    # Seven bands is enough to read as a gradient at this distance.
+    sky_bands = []
+    for i in range(7):
+        t = i / 6.0
+        z0 = GROUND + t * 46.0
+        glow = (1.0 - t) ** 2.2
+        sky_bands.append(
+            cube(
+                f"sky_band_{i}",
+                (110, 0.2, 46.0 / 6.0 + 0.4),
+                (2.05, -70, z0),
+                material(
+                    f"sky_{i}",
+                    "sky_glow" if glow > 0.5 else "night_sky",
+                    roughness=1.0,
+                    emission=0.22 + glow * 1.5,
+                ),
+                bevel=0,
+            )
+        )
 
-    # Lake Ontario. Flat and almost black, with a trace of its own glow so it
-    # reads as water carrying the city's light rather than as a pale slab —
-    # an upward-facing plane this size picks up more from the environment than
-    # its albedo suggests, and at 0.65 roughness it was the brightest thing in
-    # the view.
+    # Lake Ontario, well below the skyline and almost black — it carries the
+    # city's light rather than making its own.
     lake = cube(
         "lake",
-        (34, 22, 0.2),
-        (2.05, -26, -1.6),
-        material("lake", "screen", roughness=0.95, metallic=0.0, emission=0.5),
+        (90, 60, 0.3),
+        (2.05, -46, GROUND - 0.4),
+        material("lake", "night_sky", roughness=0.9, metallic=0.0, emission=0.30),
         bevel=0,
     )
 
     # The CN Tower. Unmistakable, and the one object that fixes the city.
+    # Scaled and placed so the pod lands inside the visible band rather than
+    # above it — a landmark whose recognisable part is cropped out is not a
+    # landmark.
+    tx, ty = 3.4, -30.0
     cn: list[bpy.types.Object] = [
-        cylinder("cn_shaft", 0.5, 15, (2.6, -14, 4.5), tower_mat, vertices=12),
-        cylinder("cn_pod", 1.5, 1.5, (2.6, -14, 10.4), tower_mat, vertices=16),
-        cylinder("cn_pod_lit", 1.55, 0.42, (2.6, -14, 10.6), lit_mat, vertices=16),
-        cylinder("cn_upper", 0.85, 1.6, (2.6, -14, 12.6), tower_mat, vertices=14),
-        cylinder("cn_mast", 0.16, 7.0, (2.6, -14, 16.6), tower_mat, vertices=8),
+        cylinder("cn_shaft", 0.62, 22.0, (tx, ty, GROUND + 11.0), tower_mat, vertices=12),
+        cylinder("cn_pod", 1.9, 1.7, (tx, ty, GROUND + 21.4), tower_mat, vertices=16),
+        cylinder("cn_pod_lit", 1.96, 0.5, (tx, ty, GROUND + 21.7), lit_mat, vertices=16),
+        cylinder("cn_upper", 1.05, 1.9, (tx, ty, GROUND + 23.6), tower_mat, vertices=14),
+        cylinder("cn_mast", 0.2, 9.0, (tx, ty, GROUND + 29.0), tower_mat, vertices=8),
     ]
-    beacon = cylinder("cn_beacon", 0.2, 0.2, (2.6, -14, 20.2), material("beacon", "red", roughness=0.3, emission=8.0), vertices=8)
+    beacon = cylinder(
+        "cn_beacon", 0.24, 0.24, (tx, ty, GROUND + 33.7),
+        material("beacon", "red", roughness=0.3, emission=8.0), vertices=8,
+    )
     parts.append(join("cn_tower", cn + [beacon]))
 
-    # The bank towers behind and beside it, each with a grid of lit windows on
-    # the face turned toward the room.
-    #
-    # These were continuous horizontal bands, which is not what a city at night
-    # looks like from across a lake — it looks like thousands of small separate
-    # points, most of them dark. A band reads as a lit strip on a dark box; a
-    # sparse grid reads as a building with people in some of the offices.
+    # The towers, in three depth layers. Layering is what the plan asks for and
+    # what stops a backdrop giving itself away the moment the camera moves.
     blocks: list[bpy.types.Object] = []
     lights: list[bpy.types.Object] = []
-    for i in range(26):
-        x = -3 + rand() * 12
-        y = -16 - rand() * 12
-        w = 1.1 + rand() * 2.2
-        d = 1.1 + rand() * 2.2
-        h = 3 + rand() * rand() * 13
-        blocks.append(cube(f"sky_block_{i}", (w, d, h), (x, y, h / 2 - 1.2), tower_mat, bevel=0))
+    layers = (
+        # (count, near y, far y, min height, max height, material, window odds)
+        (16, -25.0, -33.0, 15.0, 25.0, tower_mat, 0.30),
+        (18, -34.0, -44.0, 13.0, 22.0, tower_mat, 0.24),
+        (16, -45.0, -58.0, 11.0, 18.0, far_mat, 0.16),
+    )
+    index = 0
+    for count, near, far, low, high, body, odds in layers:
+        for _ in range(count):
+            x = -14 + rand() * 34
+            y = near + rand() * (far - near)
+            w = 2.0 + rand() * 4.5
+            d = 2.0 + rand() * 4.5
+            # Squared, so most towers are middling and a few are tall — which is
+            # the shape of a real skyline's height distribution.
+            h = low + (high - low) * (rand() * rand())
+            blocks.append(
+                cube(f"sky_block_{index}", (w, d, h), (x, y, GROUND + h / 2), body, bevel=0)
+            )
 
-        columns = max(2, int(w / 0.34))
-        rows = max(2, int(h / 0.55))
-        for col in range(columns):
-            for row in range(rows):
-                # Most windows are dark. Lighting them all turns the tower back
-                # into a glowing slab, which is the same failure as the bands.
-                if rand() > 0.34:
-                    continue
-                lights.append(
-                    cube(
-                        f"sky_window_{i}_{col}_{row}",
-                        (w / columns * 0.52, 0.05, h / rows * 0.42),
-                        (
-                            x - w / 2 + (col + 0.5) * (w / columns),
-                            y + d / 2 + 0.02,
-                            -1.2 + (row + 0.5) * (h / rows),
-                        ),
-                        lit_mat if rand() > 0.42 else cool_lit,
-                        bevel=0,
+            columns = max(2, int(w / 0.62))
+            rows = max(3, int(h / 1.05))
+            for col in range(columns):
+                for row in range(rows):
+                    # Most windows are dark. Lighting them all turns a tower
+                    # back into a glowing slab.
+                    if rand() > odds:
+                        continue
+                    lights.append(
+                        cube(
+                            f"sky_window_{index}_{col}_{row}",
+                            (w / columns * 0.46, 0.06, h / rows * 0.34),
+                            (
+                                x - w / 2 + (col + 0.5) * (w / columns),
+                                y + d / 2 + 0.03,
+                                GROUND + (row + 0.5) * (h / rows),
+                            ),
+                            lit_mat if rand() > 0.38 else cool_lit,
+                            bevel=0,
+                        )
                     )
-                )
-    parts.append(join("ix_window", [parts_sky, lake] + blocks + lights))
+            index += 1
+
+    parts.append(join("ix_window", sky_bands + [lake] + blocks + lights))
     return parts
 
 
