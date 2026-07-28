@@ -4,10 +4,13 @@
 from code and exports the model the site loads.
 
 ```bash
-# build the room and export it     -> public/models/room.glb
-blender --background --python scripts/blender/build_room.py
+# look at the lighting, in ~35s     -> scripts/blender/preview.png
+blender --background --python scripts/blender/preview_room.py -- --samples 48
 
-# bake the lighting into an atlas  -> public/models/room-baked.glb + room-bake.png
+# build the room and export it      -> public/models/room.glb
+blender --background --python scripts/blender/build_room.py --
+
+# bake the lighting into an atlas   -> public/models/room-baked.glb + room-bake.png
 blender --background --python scripts/blender/bake_room.py -- --size 4096 --samples 256
 
 # optional: write a .blend to open and look at, or model on top of
@@ -22,6 +25,93 @@ which is more than boxes.
 
 The runtime prefers the baked room and falls back to the plain one, so you can
 export while modelling and bake only when you are happy with the shape.
+
+**The bake is slow — budget for it.** On an M-series laptop GPU, 4096 px at 128
+samples runs to the better part of an hour; 1024 at 32 takes about three
+minutes. Most of that is the bounce depth in `configure_cycles`: this room is
+lit almost entirely at second hand, since both LED washes face their walls, so
+`diffuse_bounces` is 12 where Blender defaults to 4. Cutting it back is the
+first knob to reach for if you need a faster high-resolution bake, and the cost
+is muddier corners.
+
+It prints progress every eight objects with an estimate of what is left. That
+is not cosmetic: a silent forty-minute operator cannot be told apart from a
+hung one, so don't filter it out of the pipe when you run this — grepping the
+output down to `[bake_room]` milestones is how the first high-resolution bake
+became forty minutes of no information at all.
+
+Use `--size 1024 --samples 32` to check the pipeline end to end before
+committing to a long run. It is genuinely usable in the browser — softer, with
+more light bleeding across island edges, because the 12 px bleed margin is a
+much larger fraction of a small atlas.
+
+**Re-export means restart the dev server.** `__ROOM_HASH__` is read once, when
+Vite loads its config, and the runtime ignores a bake whose recorded source
+hash does not match it. Writing a new `room.glb` under a running dev server
+therefore does not show you the new room — it shows you the _unbaked_ one,
+silently, because the bake now looks stale.
+
+## Look at it before you bake it
+
+`preview_room.py` renders one Cycles still from the camera stop the site opens
+on, through the same tone map the atlas ships with. Use it for anything to do
+with light.
+
+The bake takes minutes, writes a 9 MB GLB and needs a dev-server restart to
+judge. That is far too slow a loop to balance a room by, and the first version
+of this lighting was set by editing energies and re-baking blind — which is
+exactly how it ended up a flat lavender-grey diorama with a 520 W key light, a
+world ambient at strength 1.6 and no contact shadow anywhere. Nobody could see
+what any single change did.
+
+The first preview render caught four of the six lights in the current rig
+pointing the wrong way.
+
+`--view desk|shelf|wide` moves the camera; a single three-quarter view hides
+half the room.
+
+## Light comes from things
+
+Every light in `add_lighting` is a _practical_ — a source you can point at in
+the room and name. The monitors emit (in `build_monitors`, not as a stand-in
+area light), an LED strip washes the back wall violet, a second washes the
+shelf wall cyan, the desk lamp throws a warm pool, the window leaks city light.
+The world background is 0.06, which keeps the deepest corners off pure black
+and nothing else.
+
+Two things about this are load-bearing and neither is obvious:
+
+- **Albedo is not brightness.** The walls were painted near-black (0.086) and
+  then a strong grey ambient was turned up until they were visible again. A
+  near-black wall has nothing to reflect coloured light _with_, so the violet
+  strip and the warm lamp both landed as the same pale grey. Walls and floor
+  are now painted like real architecture — bright enough to carry light and
+  bounce it — and the furniture is left dark. That value gap is the room's
+  depth, and it is the whole reason the washes can be violet and cyan instead
+  of two shades of grey.
+- **Area lights emit along local -Z.** `_area` takes the direction to throw
+  light rather than an Euler triple, because the sign is easy to reverse and
+  nothing catches it: the light still renders, still lights something, and the
+  room just comes out subtly wrong.
+
+## The view transform
+
+Cycles bakes unbounded scene-linear radiance; a PNG holds 0..1. `tonemap.py`
+owns the mapping, and both the bake and the preview go through it so they
+cannot disagree about what "too bright" means.
+
+It matters more than it sounds. Baking straight into an 8-bit image — which is
+what this did first — hard-clips at 1.0, so the lamp, the screens, both LED
+strips and the sky all resolved to the same flat white with no shape and no
+colour, and the clip being per-channel meant warm highlights _shifted hue_ on
+the way there. The bake now writes a float buffer and `tonemap.apply` rolls the
+top end off with the same ACES curve three.js would have applied, which is the
+right one because the baked room draws with `toneMapped: false` — the atlas
+_is_ the final image.
+
+Filmic curves desaturate as they compress, so there is a saturation step after
+the curve. Without it the two washes converge on white exactly where they are
+strongest, which is precisely where the colour was meant to live.
 
 ## The naming contract
 

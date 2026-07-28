@@ -35,17 +35,28 @@ function Scene({ url, baked }: { url: string; baked: boolean }) {
         both wrong and wasted. The lit path gets a full rig instead. */}
       {baked ? null : (
         <>
-          <SceneEnvironment intensity={0.62} />
-          {/* Ambient is deliberately low. A high uniform term lights the inside
-            of every corner as brightly as the middle of every wall, which is
-            the single thing that makes a real-time room read as flat — the
-            environment and the ambient-occlusion pass below carry the fill
-            instead, and they both know where the corners are. */}
-          <ambientLight color="#46536f" intensity={0.22} />
+          {/* The real-time rig mirrors the practicals in `add_lighting`, in
+            glTF coordinates: Blender's (x, y, z) arrives here as (x, z, -y).
+
+            It is worth keeping these two in agreement. This path is not a
+            debug mode — it is what every visitor sees whenever the baked atlas
+            is missing or its source hash does not match the shipped room, and
+            a fallback lit by a completely different scheme means a stale bake
+            changes what the room *is* rather than just how well it is lit. */}
+          <SceneEnvironment intensity={0.16} />
+          {/* Ambient is deliberately tiny. A high uniform term lights the
+            inside of every corner as brightly as the middle of every wall,
+            which is the single thing that makes a real-time room read as flat
+            — the ambient-occlusion pass below carries the fill instead, and it
+            knows where the corners are. */}
+          <ambientLight color="#2a3454" intensity={0.11} />
+          {/* Standing in for the wide, weak overhead source: the room has no
+            ceiling, and without this the tops of the sofa and the shelf fall
+            into the same darkness as the corners. */}
           <directionalLight
-            color="#a8c2f0"
-            intensity={2.6}
-            position={[5, 7, -5]}
+            color="#ffd9b8"
+            intensity={1.15}
+            position={[0.3, 6, -0.4]}
             castShadow
             shadow-mapSize={[2048, 2048]}
             shadow-bias={-0.0006}
@@ -53,24 +64,56 @@ function Scene({ url, baked }: { url: string; baked: boolean }) {
           >
             <orthographicCamera attach="shadow-camera" args={[-6, 6, 6, -6, 0.1, 30]} />
           </directionalLight>
-          {/* A dim warm bounce off the floor, opposite the key. Nothing in a
-            room is lit from one side only. */}
-          <directionalLight color="#ffb98a" intensity={0.5} position={[-4, 1.5, 4]} />
+          {/* The LED strip behind the monitors, washing the back wall violet. */}
+          <pointLight
+            color="#9e4dff"
+            intensity={13}
+            distance={5.5}
+            decay={2}
+            position={[0.02, 1.34, 2.4]}
+          />
+          {/* Its cyan counterpart on the shelf wall. Two opposed colours across
+            a room is what describes every surface's form by hue as well as by
+            value. */}
+          <pointLight
+            color="#3daeff"
+            intensity={16}
+            distance={6.5}
+            decay={2}
+            position={[-2.7, 1.8, -0.3]}
+          />
+          {/* The monitors. Brightest thing in a room like this at night. */}
+          <pointLight
+            color="#99bdff"
+            intensity={9}
+            distance={4.5}
+            decay={2}
+            position={[0.05, 1.27, 2.0]}
+          />
           {/* The desk lamp is a real light: switching it changes what the room
             is lit by, not just what one bulb looks like. */}
           <pointLight
-            color="#ffb367"
-            intensity={lampOn ? 9 : 0}
-            distance={5}
+            color="#ff9942"
+            intensity={lampOn ? 7 : 0}
+            distance={4}
             decay={2}
-            position={[-1.02, 1.15, 2]}
+            position={[-1.02, 1.12, 2]}
           />
+          {/* The floor lamp behind the sofa's far arm. */}
           <pointLight
-            color="#6aa6ff"
+            color="#ffb86e"
             intensity={6}
-            distance={5}
+            distance={4.5}
             decay={2}
-            position={[0, 1.25, 1.9]}
+            position={[-1.22, 1.5, -1.85]}
+          />
+          {/* City light through the window. */}
+          <pointLight
+            color="#85aeff"
+            intensity={4}
+            distance={4}
+            decay={2}
+            position={[2.05, 1.7, 2.45]}
           />
         </>
       )}
@@ -101,10 +144,21 @@ function Scene({ url, baked }: { url: string; baked: boolean }) {
         ) : (
           <N8AO aoRadius={0.55} intensity={2.4} distanceFalloff={0.8} quality="medium" halfRes />
         )}
-        {/* High threshold on purpose: the room has a lot of small bright
-          sources, and a lower one turns their combined bloom into fog. */}
-        <Bloom intensity={0.5} luminanceThreshold={0.88} luminanceSmoothing={0.3} mipmapBlur />
-        <Vignette eskil={false} offset={0.28} darkness={0.72} />
+        {/* Threshold above 1.0 on purpose.
+
+          The baked atlas is tone-mapped into 0..1, so nothing drawn straight
+          from it can ever reach this — which means bloom applies to the light
+          sources and to nothing else. Those are the meshes `RoomModel` draws at
+          `GLOW_GAIN` and the screens `Screens` lifts to 1.3.
+
+          The previous 0.88 predates the atlas carrying any range at all: it had
+          to reach down into ordinary lit surfaces to find anything to bloom, so
+          the whiteboard, the paper and the pale walls all hazed. */}
+        <Bloom intensity={0.9} luminanceThreshold={1.02} luminanceSmoothing={0.22} mipmapBlur />
+        {/* Lighter than it was. The room now falls off into real darkness at
+          the edges on its own, and a heavy vignette on top of that closed the
+          corners up entirely. */}
+        <Vignette eskil={false} offset={0.36} darkness={0.5} />
       </EffectComposer>
 
       <AdaptiveDpr pixelated />

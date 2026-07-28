@@ -57,12 +57,25 @@ def argv_after_dashes() -> list[str]:
 # Palette. Kept in one place so the room reads as one lit space; these are the
 # same values the runtime falls back to if the model ever fails to load.
 # --------------------------------------------------------------------------
+# Albedo is what a surface reflects, not how bright it looks. That distinction
+# is the whole reason the first version of this room read as a grey plastic
+# diorama: the walls were painted near-black (0.086) and then a strong grey
+# world ambient was turned up until they were visible again. A near-black wall
+# cannot show coloured light — it has nothing to reflect it with — so the violet
+# strip and the warm lamp both landed as the same pale grey, and the only way to
+# see the room at all was a uniform ambient that lit the inside of every corner
+# as brightly as the middle of every wall.
+#
+# So the architecture is painted like real architecture: walls and floor bright
+# enough to carry light and bounce it around, furniture left dark. The value gap
+# between them is what gives the room depth, and it is what lets the LED washes
+# actually be violet and cyan instead of two shades of grey.
 PALETTE = {
-    "wall": (0.086, 0.098, 0.129, 1),
-    "wall_accent": (0.129, 0.106, 0.153, 1),
-    "floor": (0.192, 0.137, 0.094, 1),
-    "rug": (0.114, 0.125, 0.176, 1),
-    "desk": (0.361, 0.243, 0.157, 1),
+    "wall": (0.520, 0.495, 0.520, 1),
+    "wall_accent": (0.545, 0.470, 0.480, 1),
+    "floor": (0.560, 0.345, 0.190, 1),
+    "rug": (0.215, 0.228, 0.365, 1),
+    "desk": (0.430, 0.278, 0.170, 1),
     "desk_frame": (0.086, 0.094, 0.118, 1),
     "metal": (0.451, 0.478, 0.541, 1),
     "dark_metal": (0.129, 0.145, 0.184, 1),
@@ -76,16 +89,37 @@ PALETTE = {
     "leaf_dark": (0.129, 0.290, 0.180, 1),
     "chair_dark": (0.106, 0.114, 0.145, 1),
     "chair_light": (0.180, 0.192, 0.235, 1),
-    "sofa": (0.243, 0.255, 0.318, 1),
+    "sofa": (0.262, 0.243, 0.372, 1),
     "pot": (0.443, 0.286, 0.208, 1),
     "earth": (0.129, 0.094, 0.063, 1),
     "mug": (0.847, 0.353, 0.290, 1),
     "sticky": (0.988, 0.804, 0.294, 1),
     "sticky_alt": (0.541, 0.831, 0.925, 1),
-    "book_a": (0.192, 0.376, 0.769, 1),
-    "book_b": (0.541, 0.259, 0.788, 1),
-    "book_c": (0.153, 0.475, 0.373, 1),
-    "book_d": (0.867, 0.478, 0.243, 1),
+    # Books. Eight, mostly muted, and spanning a real range of *value* — a
+    # cream spine next to a charcoal one is what makes a shelf read as a shelf.
+    #
+    # The previous four were all mid-value and highly saturated, cycled in a
+    # fixed order. Two things went wrong with that. The regular repeat reads as
+    # a pattern rather than as a collection, and under the cyan wash on this
+    # wall four saturated mid-tones all resolve to the same bright pastel, so
+    # the shelf became one glowing band. Nothing on a real shelf agrees that
+    # closely about how bright it is.
+    "book_a": (0.152, 0.208, 0.392, 1),
+    "book_b": (0.298, 0.157, 0.278, 1),
+    "book_c": (0.125, 0.271, 0.204, 1),
+    "book_d": (0.545, 0.298, 0.137, 1),
+    "book_e": (0.776, 0.714, 0.596, 1),
+    "book_f": (0.416, 0.137, 0.137, 1),
+    "book_g": (0.125, 0.129, 0.149, 1),
+    "book_h": (0.196, 0.353, 0.376, 1),
+    # What a switched-on panel throws, as opposed to `screen`, which is what an
+    # unlit one reflects. Slightly blue and not quite white: a display running a
+    # dark IDE and a dashboard averages cool, and pure white bakes a colourless
+    # hole into the wall behind the desk.
+    "screen_glow": (0.780, 0.855, 1.0, 1),
+    # The sky behind the window. Emitted rather than reflected, because nothing
+    # in the scene lights it.
+    "night_sky": (0.098, 0.152, 0.325, 1),
     "warm": (1.0, 0.702, 0.353, 1),
     "cyan": (0.416, 0.749, 1.0, 1),
     "violet": (0.659, 0.482, 1.0, 1),
@@ -107,6 +141,37 @@ PAINTED = re.compile(
     r"^(ix_\w+_display|ix_whiteboard_face|ix_sticky_notes|ix_cv_face|ix_book_spine_\d+)$"
 )
 
+# Meshes that get no lightmap, and so no island in the bake atlas.
+#
+# Two kinds qualify. The painted surfaces above are replaced by canvas textures
+# the moment the page loads, so anything baked into them is thrown away. And the
+# skyline is 30 m outside the window, made of nothing but emission — there is no
+# incident light on it to resolve, and a COMBINED bake of a pure emitter just
+# returns the emission it was already carrying.
+#
+# Excluding them is not a micro-optimisation. The atlas is packed by real-world
+# area so that a square metre of wall gets a square metre's worth of texels, and
+# the skyline is a 60 x 34 m backdrop plus a city: left in, it claimed most of a
+# 4096 atlas and the walls and floor — the surfaces whose soft gradients are the
+# entire point of baking — were left with scattered islands a few hundred texels
+# across.
+# The skyline is two objects, not one: `build_toronto` joins the sky, the lake
+# and the blocks into `ix_window` but leaves the CN tower separate, and the two
+# share materials. `check_unlit_materials` in the bake script is what caught
+# that, and it is worth keeping — excluding half a backdrop is not an error
+# anything else would report.
+UNLIT = re.compile(
+    r"^("
+    r"ix_window|cn_tower"  # the skyline, 30 m beyond the glass
+    r"|ix_\w+_display|ix_whiteboard_face|ix_sticky_notes|ix_cv_face|ix_book_spine_\d+"
+    r")$"
+)
+
+
+def lightmapped(obj: bpy.types.Object) -> bool:
+    """Whether an object takes part in the bake at all."""
+    return obj.type == "MESH" and not UNLIT.match(obj.name)
+
 
 def reset_scene() -> None:
     global _plants
@@ -125,6 +190,7 @@ def material(
     roughness: float = 0.75,
     metallic: float = 0.0,
     emission: float = 0.0,
+    emits: str | None = None,
     grain: str | None = None,
 ) -> bpy.types.Material:
     """
@@ -133,6 +199,15 @@ def material(
     `grain` names a procedural surface break-up. It is recorded as a custom
     property on the material rather than wired in here — see `apply_grain`,
     which the bake calls and the plain export does not.
+
+    `emits` names a second palette entry to emit, when what a surface glows is
+    not what it reflects. A monitor is the case that forces this: switched off
+    it is near-black plastic, and its base colour has to stay near-black or the
+    bezel stops matching the panel — but switched on it is the brightest thing
+    in the room. Tying emission to base colour, which is all this could express
+    before, made every screen glow the same near-black it reflects, so the
+    monitors baked as holes and the desk in front of them was lit by an area
+    light standing in for panels that were emitting nothing.
     """
     if name in _materials:
         return _materials[name]
@@ -145,7 +220,7 @@ def material(
     bsdf.inputs["Roughness"].default_value = roughness
     bsdf.inputs["Metallic"].default_value = metallic
     if emission > 0:
-        bsdf.inputs["Emission Color"].default_value = colour
+        bsdf.inputs["Emission Color"].default_value = PALETTE[emits] if emits else colour
         bsdf.inputs["Emission Strength"].default_value = emission
     if grain:
         # Recorded either way, so the bake still knows what a surface is even
@@ -788,7 +863,7 @@ def build_toronto() -> list[bpy.types.Object]:
 
     # The sky. A single emissive plane far enough back to sit behind everything.
     parts_sky = cube(
-        "sky", (60, 0.2, 34), (2.05, -34, 8), material("sky", "screen", roughness=1.0, emission=0.35), bevel=0
+        "sky", (60, 0.2, 34), (2.05, -34, 8), material("sky", "screen", roughness=1.0, emission=2.4, emits="night_sky"), bevel=0
     )
 
     # Lake Ontario. Flat and almost black, with a trace of its own glow so it
@@ -800,7 +875,7 @@ def build_toronto() -> list[bpy.types.Object]:
         "lake",
         (34, 22, 0.2),
         (2.05, -26, -1.6),
-        material("lake", "screen", roughness=0.95, metallic=0.0, emission=0.5),
+        material("lake", "screen", roughness=0.95, metallic=0.0, emission=1.3, emits="night_sky"),
         bevel=0,
     )
 
@@ -890,7 +965,15 @@ def build_shell() -> list[bpy.types.Object]:
         for j in range(3):
             # Staggered plank ends. Clamped inside the floor: an end-cut that
             # runs past the edge is a floating white dash in the void.
-            cut = -2.9 + (j * 2.1 + (i % 4) * 0.55) % 5.8
+            #
+            # Offsets are pseudo-random per board rather than `(i % 4) * 0.55`,
+            # which repeated every four rows and lined the cuts up into a visible
+            # grid — the floor read as square ceramic tile instead of as boards,
+            # and it was the loudest remaining thing making the room look built
+            # rather than lived in. Real boards land wherever the previous one
+            # ran out.
+            jitter = ((i * 37 + j * 101) % 29) / 29.0
+            cut = -2.9 + (j * 1.9 + jitter * 5.8) % 5.8
             boards.append(cube(f"board_end_{i}_{j}", (0.01, 0.17, 0.004), (cut, y + 0.085, 0.004), line, bevel=0))
     parts.append(join("floorboards", boards))
     return parts
@@ -935,7 +1018,13 @@ def build_monitors() -> list[bpy.types.Object]:
     up by name at runtime, so they stay separate objects.
     """
     shell = material("monitor_shell", "plastic", roughness=0.4, metallic=0.25)
-    screen_mat = material("screen", "screen", roughness=0.18)
+    # The panels light the room. Two 27" displays at 30 cm from a desk really
+    # are the brightest thing in a room like this at night, and making them emit
+    # rather than standing an area light in front of them is the difference
+    # between a desk that is lit and a desk with a glow painted on it: the
+    # emission falls off from where each panel actually is, wraps around the
+    # keyboard and the mug, and puts a rim on the near edge of the chair.
+    screen_mat = material("screen", "screen", roughness=0.18, emission=7.5, emits="screen_glow")
     arm_mat = material("arm", "dark_metal", roughness=0.35, metallic=0.6)
 
     out: list[bpy.types.Object] = []
@@ -993,7 +1082,9 @@ def build_laptop() -> list[bpy.types.Object]:
     centre, or it swings through the desk.
     """
     body = material("laptop_body", "metal", roughness=0.3, metallic=0.75)
-    screen_mat = material("laptop_screen", "screen", roughness=0.15)
+    # Dimmer than the monitors: a 14" laptop panel is a fraction of the area and
+    # is angled up at its user rather than out at the room.
+    screen_mat = material("laptop_screen", "screen", roughness=0.15, emission=4.5, emits="screen_glow")
 
     # The desk's surface is at z = 0.79. The base used to sit at 0.774 with a
     # half-thickness of 0.009, which put its *top* at 0.783 — the whole laptop
@@ -1358,7 +1449,14 @@ def build_shelf_and_books() -> list[bpy.types.Object]:
 
     books = []
     spines = []
-    colours = ["book_a", "book_b", "book_c", "book_d"]
+    # Eight colours, and the filler shelves step through them by a stride that is
+    # coprime with the count, so no two adjacent books repeat and the sequence
+    # takes all eight before coming round. Cycling `index % 4` put the same four
+    # in the same order on every shelf, which the eye reads immediately.
+    colours = ["book_a", "book_b", "book_c", "book_d", "book_e", "book_f", "book_g", "book_h"]
+    # The project books keep the saturated end of the palette: they are the ones
+    # a visitor is meant to notice and click.
+    accents = ["book_a", "book_d", "book_c", "book_f"]
 
     # Level 2 sits at eye height, so that shelf carries the project books: one
     # per project, each with its own spine quad the runtime paints the title
@@ -1375,7 +1473,7 @@ def build_shelf_and_books() -> list[bpy.types.Object]:
             for index in range(TITLED_COUNT):
                 h = 0.27 + (index % 3) * 0.014
                 z = 0.32 + level * 0.5 + h / 2
-                colour = colours[index % 4]
+                colour = accents[index % len(accents)]
                 books.append(
                     cube(
                         f"book_titled_{index}",
@@ -1401,7 +1499,9 @@ def build_shelf_and_books() -> list[bpy.types.Object]:
         while y < 1.62:
             h = 0.24 + (hash((level, round(y, 2))) % 5) * 0.012
             w = 0.036 + (hash((level, round(y, 3))) % 4) * 0.008
-            colour = colours[(level + int(y * 10)) % 4]
+            # Stride 3 through 8 colours: coprime, so the run visits all eight
+            # before repeating and neighbours are never the same.
+            colour = colours[(level * 5 + int(y * 100) * 3) % len(colours)]
             books.append(
                 cube(
                     f"book_{level}_{round(y, 3)}",
@@ -2185,56 +2285,157 @@ def build_details() -> list[bpy.types.Object]:
     return out
 
 
+def _area(
+    name: str,
+    location: tuple[float, float, float],
+    size: tuple[float, float],
+    faces: tuple[float, float, float],
+    energy: float,
+    colour: tuple[float, float, float],
+) -> bpy.types.Object:
+    """
+    One rectangular area light, aimed by the direction it should throw light.
+
+    `faces` rather than an Euler triple on purpose. An area light emits along
+    its local -Z, so aiming one by hand means naming the rotation that takes -Z
+    somewhere — and the sign is easy to get backwards in a way nothing catches:
+    the light still renders, still lights *something*, and the room just comes
+    out subtly wrong. The first version of this rig had four of six lights
+    reversed, which put the monitors' key light on the wall behind the monitors
+    and fired both LED strips into the room instead of onto the walls they were
+    meant to wash.
+
+    A vector cannot be misread. `(0, -1, 0)` throws light toward -Y.
+    """
+    bpy.ops.object.light_add(type="AREA", location=location)
+    light = bpy.context.object
+    light.name = name
+    light.data.shape = "RECTANGLE"
+    light.data.size, light.data.size_y = size
+    light.data.energy = energy
+    light.data.color = colour
+    light.rotation_euler = Vector(faces).to_track_quat("-Z", "Y").to_euler()
+    return light
+
+
 def add_lighting() -> None:
     """
     Lights exist so the exported scene can be baked. The runtime does not import
     them — it rigs its own — but a bake needs them, and keeping them here means
     the bake and the real-time render start from the same intent.
+
+    Everything in here is a *practical*: a source you can point at in the room
+    and name. The monitors light the desk, the strip behind them washes the back
+    wall violet, a second strip washes the shelf wall cyan, the desk lamp throws
+    a warm pool, and the window leaks city light onto the drawers. Nothing is a
+    studio key.
+
+    That is a deliberate replacement of what was here before, which was a 520 W
+    cool key, a 180 W warm fill and a world ambient at strength 1.6. Three
+    broad, colourless sources plus a strong uniform ambient is a lighting setup
+    that cannot produce shadow: the ambient alone lit the inside of every corner
+    as brightly as the middle of every wall, so nothing had a contact shadow,
+    every object floated a few millimetres off the floor, and the whole room
+    resolved to one lavender-grey value. Baking it only froze that in.
+
+    The rule this rig follows instead is that light comes from things, falls off
+    with distance, and is coloured. Corners the practicals do not reach are
+    allowed to go dark — that darkness is what the lit parts are read against.
     """
     # A world, first. `read_factory_settings(use_empty=True)` leaves the scene
     # without one, and Cycles gathers ambient light from the world — with none,
     # every surface the lamps do not reach directly bakes to black. That is why
     # the first baked room came out a dark cave with three bright screens
     # floating in it.
+    #
+    # But it is a floor, not a light. At 1.6 it *was* the lighting; at 0.06 it
+    # only keeps the deepest corners off pure black, which is what a real room
+    # with a door open down the hall looks like.
     world = bpy.data.worlds.get("room_world") or bpy.data.worlds.new("room_world")
     bpy.context.scene.world = world
     world.use_nodes = True
     background = world.node_tree.nodes["Background"]
-    background.inputs["Color"].default_value = (0.075, 0.095, 0.155, 1.0)
-    background.inputs["Strength"].default_value = 1.6
+    background.inputs["Color"].default_value = (0.055, 0.075, 0.145, 1.0)
+    background.inputs["Strength"].default_value = 0.06
 
-    # Energies are for a room 6.4 x 5.2 m with 2.7 m of usable height. The first
-    # pass used 90 W for the key, which is a desk lamp's worth of light for a
-    # space the size of a bedroom.
-    bpy.ops.object.light_add(type="AREA", location=(1.2, 0.6, 2.6))
-    key = bpy.context.object
-    key.name = "key"
-    key.data.energy = 520
-    key.data.size = 3.2
-    key.data.color = (0.68, 0.77, 1.0)
+    # --- The desk wall -----------------------------------------------------
+    #
+    # The LED strip behind the monitors, as light rather than as geometry. It
+    # faces the wall it is 12 cm from, so the room never sees the source, only
+    # the violet wash it throws — which is the entire point of a strip mounted
+    # behind a monitor, and the effect the emissive strip mesh alone could never
+    # produce because a glTF emission factor saturates at 1.0.
+    #
+    # Set back 30 cm from the wall and made wider than the strip it stands for.
+    # A small source close to a wall throws a bright oval with a hard edge,
+    # which reads as a spotlight aimed at the plaster; the wash wants to be a
+    # gradient with no locatable centre, and distance plus width is the only way
+    # to get one.
+    _area("led_wash_back", (0.02, -2.28, 1.34), (3.10, 1.45), (0, -1, 0), 150, (0.62, 0.30, 1.0))
 
-    # A second, softer source from the other side, so the room is not lit from
-    # one corner only.
-    bpy.ops.object.light_add(type="AREA", location=(-2.2, 1.4, 2.5))
-    fill = bpy.context.object
-    fill.name = "fill"
-    fill.data.energy = 180
-    fill.data.size = 2.6
-    fill.data.color = (1.0, 0.88, 0.76)
+    # No area light stands in for the monitors any more — the panels emit, in
+    # `build_monitors`, which is both more honest and better looking. A flat
+    # rectangle of light hung in front of two screens lights the desk evenly and
+    # from slightly the wrong place; emitting panels put a highlight on the near
+    # edge of the keyboard, a rim down the chair back and a soft double shadow
+    # from the two of them that no single source can produce.
 
-    bpy.ops.object.light_add(type="POINT", location=(-1.02, -2.0, 1.15))
-    warm = bpy.context.object
-    warm.name = "lamp_light"
-    warm.data.energy = 55
-    warm.data.color = (1.0, 0.66, 0.34)
+    # The desk lamp: a warm pool on the desktop, tight enough that the far end
+    # of the desk falls away. Small radius on purpose — a large soft source here
+    # washes the whole desk evenly and the lamp stops reading as switched on.
+    bpy.ops.object.light_add(type="POINT", location=(-1.02, -2.0, 1.12))
+    lamp = bpy.context.object
+    lamp.name = "lamp_light"
+    lamp.data.energy = 58
+    lamp.data.shadow_soft_size = 0.05
+    lamp.data.color = (1.0, 0.60, 0.26)
 
-    bpy.ops.object.light_add(type="AREA", location=(0, -2.0, 1.25))
-    screens = bpy.context.object
-    screens.name = "screen_bounce"
-    screens.data.energy = 45
-    screens.data.size = 1.6
-    screens.data.color = (0.42, 0.66, 1.0)
-    screens.rotation_euler = (math.radians(90), 0, 0)
+    # City light through the window, sitting just inside the aperture cut in
+    # build_shell so the frame shapes it. Cool, and weak — it is a skyline seen
+    # from high up at night, not a sun.
+    _area("window_light", (2.05, -2.48, 1.70), (1.30, 1.12), (0, 1, 0), 34, (0.52, 0.68, 1.0))
+
+    # --- The shelf wall ----------------------------------------------------
+    #
+    # The cyan counterpart, washing the left wall behind the bookshelf. Two
+    # opposed colours across a room is the oldest trick there is and the reason
+    # the reference reads as a photograph of a lit space rather than as a model:
+    # every surface picks up violet on one side and cyan on the other, so its
+    # form is described by hue as well as by value.
+    #
+    # Weaker than the violet one it answers. The whiteboard and the certificates
+    # live on this wall and both are near-white paper: at the violet's energy the
+    # wash drove them to clipping, which cost the diagram its contrast and left
+    # the wall around it a flat pale sheet with no gradient left to read.
+    # Cool, not cyan. A heavily saturated light destroys the albedo of whatever it
+    # falls on: at (0.24, 0.68, 1.0) every book on the shelf resolved to the same
+    # teal regardless of its own colour, so a shelf of eight deliberately varied
+    # spines read as one glowing band and the new palette was invisible. Pulling
+    # the red channel up keeps the wall unmistakably cool while leaving the things
+    # standing against it their own colour — which is how a real room with one
+    # cold source and one warm one behaves.
+    _area("led_wash_left", (-2.66, 0.30, 1.80), (4.20, 2.40), (-1, 0, 0), 92, (0.46, 0.74, 1.0))
+
+    # --- The lounge --------------------------------------------------------
+    #
+    # The floor lamp behind the sofa's far arm, at the shade.
+    bpy.ops.object.light_add(type="POINT", location=(-1.22, 1.85, 1.50))
+    floor_lamp = bpy.context.object
+    floor_lamp.name = "floor_lamp_light"
+    # Carries the warm half of the lounge, and reaches the near end of the
+    # bookshelf — which is what stops that whole wall being a single colour.
+    floor_lamp.data.energy = 72
+    floor_lamp.data.shadow_soft_size = 0.09
+    floor_lamp.data.color = (1.0, 0.72, 0.42)
+
+    # A wide, weak source overhead standing in for the ceiling the room does not
+    # have. Without it the tops of the sofa, the shelf and the rug fall into the
+    # same darkness as the corners and the far half of the room stops existing.
+    # It shapes rather than fills — the test is that the floor under the coffee
+    # table stays visibly darker than the floor beside it. Warm, because it
+    # stands in for light bounced off a warm wood floor and a warm ceiling; the
+    # cool version of this read as moonlight and turned the boards teal.
+    _area("ceiling_soft", (0.30, 0.40, 3.30), (5.20, 4.60), (0, 0, -1), 230, (1.0, 0.88, 0.76))
 
 
 def texture_uvs() -> None:
@@ -2303,7 +2504,10 @@ def unwrap_all() -> None:
     write. Doing it here rather than in the bake script keeps the two runs
     independent — the unwrap is part of the model, not part of the render.
     """
-    meshes = [o for o in bpy.context.scene.objects if o.type == "MESH"]
+    # Only the lightmapped meshes get a Bake layer, and its presence is what the
+    # bake script selects on — so this list is the single place the atlas's
+    # contents are decided.
+    meshes = [o for o in bpy.context.scene.objects if lightmapped(o)]
     for obj in meshes:
         if len(obj.data.uv_layers) == 0:
             obj.data.uv_layers.new(name="UVMap")
@@ -2318,7 +2522,23 @@ def unwrap_all() -> None:
 
     bpy.ops.object.mode_set(mode="EDIT")
     bpy.ops.mesh.select_all(action="SELECT")
-    bpy.ops.uv.smart_project(angle_limit=math.radians(66), island_margin=0.006)
+    bpy.ops.uv.smart_project(angle_limit=math.radians(66), island_margin=0.0)
+
+    # Normalise, then pack. Smart UV Project alone gives every island whatever
+    # scale its own projection happened to produce, so the atlas ends up
+    # spending as many texels on a 6 cm LED as on a square metre of wall — and
+    # the wall is where a lightmap's quality is actually judged, because it is
+    # the surface carrying the big soft gradients. Averaging the island scales
+    # first puts every object on one texel density; packing afterwards fills the
+    # space that frees up.
+    #
+    # The margin moves here from `smart_project` for the same reason: applied
+    # during projection it is a fraction of each island, so small islands got
+    # generous gutters and large ones got almost none, which is backwards. Applied
+    # during the pack it is uniform across the atlas.
+    bpy.ops.uv.select_all(action="SELECT")
+    bpy.ops.uv.average_islands_scale()
+    bpy.ops.uv.pack_islands(rotate=True, margin=0.004)
     bpy.ops.object.mode_set(mode="OBJECT")
 
     for obj in meshes:

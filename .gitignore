@@ -48,3 +48,9 @@ __pycache__/
 
 # Optional Blender artifact, regenerate with build_room.py -- --blend
 assets/room.blend
+
+# Blender preview renders
+scripts/blender/preview*.png
+scripts/blender/_preview_raw.exr
+.claude/settings.local.json
+.claude/worktrees/

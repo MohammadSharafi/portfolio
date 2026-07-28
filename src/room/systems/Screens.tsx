@@ -9,7 +9,7 @@ import {
   stickyTexture,
   terminalScreen,
   whiteboardTexture,
-} from './screens';
+} from './screenContent';
 import { LIVE_REGIONS, type LiveRegion } from './liveScreens';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
 
@@ -124,11 +124,19 @@ export function Screens({ root }: { root: Object3D }) {
       if (!texture) return;
 
       const previous = node.material;
-      node.material = new MeshBasicMaterial({
+      const emissive = EMISSIVE.has(key);
+      const material = new MeshBasicMaterial({
         map: texture,
-        toneMapped: !EMISSIVE.has(key),
+        toneMapped: !emissive,
         transparent: false,
       });
+      // A lit panel sits above white so bloom catches its brightest pixels and
+      // the monitors haze slightly into the wall behind them, the way a real
+      // screen does in a dark room. Kept low: at the gain the LED strips use,
+      // a full-screen dashboard turns into a lamp and the text stops being
+      // readable, which is the one thing these surfaces exist to be.
+      if (emissive) material.color.setScalar(1.3);
+      node.material = material;
       if (!Array.isArray(previous)) previous.dispose();
       replaced.push(node);
     });
