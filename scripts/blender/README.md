@@ -10,12 +10,20 @@ blender --background --python scripts/blender/preview_room.py -- --samples 48
 # build the room and export it      -> public/models/room.glb
 blender --background --python scripts/blender/build_room.py --
 
-# bake the lighting into an atlas   -> public/models/room-baked.glb + room-bake.png
+# bake the lighting into an atlas   -> public/models/room-baked.glb
 blender --background --python scripts/blender/bake_room.py -- --size 4096 --samples 256
+
+# re-export from the last atlas, no re-bake, in seconds
+blender --background --python scripts/blender/bake_room.py -- --reuse-atlas
 
 # optional: write a .blend to open and look at, or model on top of
 blender --background --python scripts/blender/build_room.py -- --blend
 ```
+
+The bake also drops the atlas at `scripts/blender/room-bake.png`, which is
+gitignored and never deployed. The atlas the browser draws is the JPEG packed
+inside `room-baked.glb`; the PNG is there to open when a UV island looks wrong
+or a surface bakes too dark, and to feed `--reuse-atlas`.
 
 The room is a script rather than a saved .blend because a binary file cannot be
 reviewed in a diff, cannot be regenerated, and rots the moment someone nudges a

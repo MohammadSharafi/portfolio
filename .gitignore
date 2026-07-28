@@ -52,5 +52,12 @@ assets/room.blend
 # Blender preview renders
 scripts/blender/preview*.png
 scripts/blender/_preview_raw.exr
+
+# The bake atlas as a standalone file, for inspecting UV packing and lighting.
+# The atlas the site draws is the JPEG inside public/models/room-baked.glb —
+# this one is never fetched, so it stays out of the repo and out of the deploy.
+# Regenerate with bake_room.py; keep a copy to use bake_room.py --reuse-atlas.
+scripts/blender/room-bake.png
+
 .claude/settings.local.json
 .claude/worktrees/

@@ -17,10 +17,18 @@ all — which is both better looking and dramatically cheaper than anything the
 GPU could compute in a frame budget. It is the whole reason a room like this can
 hold 120fps on a laptop.
 
-Output:
-    public/models/room-baked.glb   the model, materials pointing at the atlas
-    public/models/room-bake.png    the atlas itself
+Output, deployed:
+    public/models/room-baked.glb   the model, atlas packed inside it as JPEG
     public/models/room-baked.json  which room.glb this was baked from
+
+Output, local only:
+    scripts/blender/room-bake.png  the atlas as a standalone file
+
+The runtime never fetches the PNG — the atlas the browser draws is the JPEG
+embedded in the GLB. It is written so a human can open the atlas to inspect UV
+packing or lighting, and so `--reuse-atlas` can re-export without re-baking, so
+it lives outside `public/` and is gitignored rather than shipping 8.7 MB to
+every visitor.
 
 The runtime prefers room-baked.glb when it is present and falls back to the
 real-time lit room.glb when it is not, so running this is an upgrade rather than
@@ -43,8 +51,13 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.normpath(os.path.join(HERE, "..", ".."))
 OUT_DIR = os.path.join(ROOT, "public", "models")
 OUT_GLB = os.path.join(OUT_DIR, "room-baked.glb")
-OUT_PNG = os.path.join(OUT_DIR, "room-bake.png")
 OUT_STAMP = os.path.join(OUT_DIR, "room-baked.json")
+
+# Deliberately not under public/. This is a debugging artifact — the atlas the
+# browser actually draws is the JPEG the glTF exporter packs into OUT_GLB, and
+# nothing on the site ever fetches this file. Left in public/ it was 8.7 MB of
+# dead weight in every deploy.
+OUT_PNG = os.path.join(HERE, "room-bake.png")
 
 sys.path.insert(0, HERE)
 
@@ -71,7 +84,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--reuse-atlas",
         action="store_true",
-        help="re-export from the existing room-bake.png instead of baking again",
+        help="re-export from the existing scripts/blender/room-bake.png instead of baking again",
     )
     return parser.parse_args(argv)
 
