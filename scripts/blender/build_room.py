@@ -24,6 +24,7 @@ import math
 import os
 import re
 import sys
+import tempfile
 
 import bpy
 from mathutils import Matrix, Vector
@@ -106,6 +107,11 @@ TEXTURED = True
 PAINTED = re.compile(
     r"^(ix_\w+_display|ix_whiteboard_face|ix_sticky_notes|ix_cv_face|ix_book_spine_\d+)$"
 )
+
+# Objects whose texture is one design covering the whole surface exactly once,
+# rather than a treatment that tiles. A carpet tiled eight times across itself
+# is a carpet nobody would recognise.
+WHOLE_SURFACE = re.compile(r"^rug(\.\d+)?$")
 
 # Meshes that get no share of the lightmap.
 #
@@ -202,7 +208,7 @@ def material(
 _grain_images: dict[str, bpy.types.Image] = {}
 
 
-def _image(name: str, pixels, *, data: bool) -> bpy.types.Image:
+def _image(name: str, pixels, *, data: bool, lossy: bool = False) -> bpy.types.Image:
     """
     A packed image datablock from a numpy array, greyscale or RGB.
 
@@ -239,8 +245,26 @@ def _image(name: str, pixels, *, data: bool) -> bpy.types.Image:
     # pipeline that works, right up to the point where you look at the room.
     image.update()
 
-    image.file_format = "PNG"
-    image.pack()
+    # PNG for anything a shader reads as data — a lossy normal map is visible
+    # banding on every curved surface. JPEG for large pictorial maps, where the
+    # difference is invisible and the difference in bytes is not: the carpet
+    # weighed 5.8 MB as a PNG and doubled the size of the entire model.
+    #
+    # It has to go through a real file to come out the other side as a JPEG.
+    # Setting `file_format` on a generated image and packing it is not enough —
+    # the glTF exporter re-encodes anything without a recognisable filepath, and
+    # silently hands back a PNG of exactly the same pixels.
+    if lossy:
+        scratch = os.path.join(tempfile.gettempdir(), f"{name}.jpg")
+        bpy.context.scene.render.image_settings.file_format = "JPEG"
+        bpy.context.scene.render.image_settings.quality = 88
+        image.file_format = "JPEG"
+        image.filepath_raw = scratch
+        image.save()
+        image.pack()
+    else:
+        image.file_format = "PNG"
+        image.pack()
     _grain_images[name] = image
     return image
 
@@ -268,6 +292,20 @@ def _add_maps(mat: bpy.types.Material, kind: str, colour, base_rough: float) -> 
 
     tree = mat.node_tree
     bsdf = tree.nodes["Principled BSDF"]
+
+    # The carpet is a design, not a surface treatment: one full-colour image
+    # spanning the object exactly once, wired straight to Base Colour with no
+    # tint multiplied over it. Everything else here is a greyscale multiplier
+    # that repeats every half metre, which is the opposite arrangement.
+    if kind == "persian":
+        weave = _texture_node(
+            tree,
+            _image("rug_persian", grain_maps.persian_rug(), data=False, lossy=True),
+            (-520, 300),
+        )
+        tree.links.new(weave.outputs["Color"], bsdf.inputs["Base Color"])
+        bsdf.inputs["Roughness"].default_value = 0.96
+        return
 
     albedo = _texture_node(tree, _image(f"grain_{kind}_albedo", grain_maps.albedo(kind), data=False), (-820, 300))
     tint = tree.nodes.new("ShaderNodeMix")
@@ -916,7 +954,8 @@ def build_shell() -> list[bpy.types.Object]:
         cube("wall_left", (0.12, 5.2, WALL_TOP), (-3.2, 0, WALL_TOP / 2), accent, bevel=0),
         cube("skirting_back", (6.4, 0.05, 0.11), (0, -2.52, 0.055), material("skirt", "dark_metal")),
         cube("skirting_left", (0.05, 5.2, 0.11), (-3.12, 0, 0.055), material("skirt", "dark_metal")),
-        plane("rug", (3.9, 3.5), (0.2, 0.8, 0.004), material("rug", "rug", roughness=1.0, grain="pile")),
+        plane("rug", (3.9, 3.5), (0.2, 0.8, 0.004),
+              material("rug", "paper", roughness=0.96, grain="persian")),
     ]
 
     # Floorboards. At 0.34 m apart these read as decking, not as a floor — real
@@ -2312,7 +2351,7 @@ def texture_uvs() -> None:
     # four times over, and the whiteboard would repeat its diagram across itself.
     meshes = [
         o for o in bpy.context.scene.objects
-        if o.type == "MESH" and not PAINTED.match(o.name)
+        if o.type == "MESH" and not PAINTED.match(o.name) and not WHOLE_SURFACE.match(o.name)
     ]
 
     bpy.ops.object.select_all(action="DESELECT")
