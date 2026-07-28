@@ -22,7 +22,16 @@ import { useEngine } from './engine/store';
  * engine store, so this file stays a list of what exists rather than becoming
  * the place all the wiring accumulates.
  */
-function Scene({ url, baked }: { url: string; baked: boolean }) {
+function Scene({
+  url,
+  lightmap,
+  intensity,
+}: {
+  url: string;
+  lightmap: string | null;
+  intensity: number;
+}) {
+  const baked = lightmap !== null;
   const reducedMotion = useReducedMotion();
   const [root, setRoot] = useState<Object3D | null>(null);
   const lampOn = useEngine((state) => state.lampOn);
@@ -31,11 +40,27 @@ function Scene({ url, baked }: { url: string; baked: boolean }) {
     <>
       <CameraRig reducedMotion={reducedMotion} />
 
-      {/* A baked room carries its own lighting, so lighting it again would be
-        both wrong and wasted. The lit path gets a full rig instead. */}
+      {/* The environment is the one thing a lightmap cannot replace.
+        A lightmap is *diffuse* irradiance, and three.js spends it on
+        `indirectDiffuse` alone. Metal has no diffuse term at all — its colour
+        is entirely what it reflects — so a metal lit only by a lightmap
+        renders black, and the room had seventeen such materials: the monitor
+        arm, the chair post, the castors, the guitar frets, every drawer pull.
+        They were not dark. They were unlit, and no amount of exposure was
+        going to bring them back.
+        So the probe stays mounted when baked, dimmed to roughly a quarter. It
+        is there for the specular half of the lighting; the bake still owns the
+        diffuse half. The overlap — the environment's own small diffuse
+        contribution, on top of the bake's — is the price, and at this
+        intensity it reads as the faint sky fill a room by a window actually
+        has. */}
+      <SceneEnvironment intensity={baked ? 0.1 : 0.62} />
+
+      {/* The rest of the rig is the lit room's business. A baked room carries
+        its own direct and bounced light, so re-lighting it would double every
+        shadow it already has. */}
       {baked ? null : (
         <>
-          <SceneEnvironment intensity={0.62} />
           {/* Ambient is deliberately low. A high uniform term lights the inside
             of every corner as brightly as the middle of every wall, which is
             the single thing that makes a real-time room read as flat — the
@@ -75,7 +100,7 @@ function Scene({ url, baked }: { url: string; baked: boolean }) {
         </>
       )}
 
-      <RoomModel url={url} baked={baked} onReady={setRoot} />
+      <RoomModel url={url} lightmap={lightmap} intensity={intensity} onReady={setRoot} />
 
       {root ? <Screens root={root} /> : null}
       {root ? <Animations root={root} /> : null}
@@ -121,7 +146,7 @@ export function RoomExperience() {
       <Canvas
         // Decorative: everything it renders is also a button in the overlay.
         aria-hidden="true"
-        shadows={!asset.baked}
+        shadows={asset.lightmap === null}
         dpr={[1, 2]}
         gl={{ antialias: true, powerPreference: 'high-performance' }}
         camera={{
@@ -138,7 +163,9 @@ export function RoomExperience() {
         }}
       >
         <Suspense fallback={null}>
-          {asset.resolved ? <Scene url={asset.url} baked={asset.baked} /> : null}
+          {asset.resolved ? (
+            <Scene url={asset.url} lightmap={asset.lightmap} intensity={asset.intensity} />
+          ) : null}
         </Suspense>
       </Canvas>
 

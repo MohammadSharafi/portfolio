@@ -1,16 +1,26 @@
 import { useEffect, useState } from 'react';
 
-const BAKED = '/models/room-baked.glb';
-const STAMP = '/models/room-baked.json';
-const LIT = '/models/room.glb';
+const ROOM = '/models/room.glb';
+const LIGHTMAP = '/models/room-lightmap.jpg';
+const STAMP = '/models/room-lightmap.json';
 
 /** SHA-256 of the `room.glb` this bundle was built against, inlined by Vite. */
 declare const __ROOM_HASH__: string;
 
 export interface RoomAsset {
   url: string;
-  /** True once we know the baked atlas exists and the room can render unlit. */
-  baked: boolean;
+  /** The lightmap to hang on the room's materials, once one is known to match. */
+  lightmap: string | null;
+  /**
+   * What `lightMapIntensity` has to be for this particular bake.
+   *
+   * It travels with the image rather than living in the runtime because it is
+   * a property *of the bake*: it encodes the divisor that squeezed that bake's
+   * irradiance into a JPEG, which depends on how bright that bake came out.
+   * Hardcoding it here would mean every re-bake silently changed the room's
+   * exposure until someone noticed and re-tuned a constant by eye.
+   */
+  intensity: number;
   resolved: boolean;
 }
 
@@ -35,14 +45,21 @@ export interface RoomAsset {
  * heals itself the moment someone re-bakes.
  */
 export function useRoomAsset(): RoomAsset {
-  const [asset, setAsset] = useState<RoomAsset>({ url: LIT, baked: false, resolved: false });
+  const [asset, setAsset] = useState<RoomAsset>({
+    url: ROOM,
+    lightmap: null,
+    intensity: 1,
+    resolved: false,
+  });
 
   useEffect(() => {
     let cancelled = false;
 
-    const settle = (found: boolean) => {
+    const settle = (found: boolean, intensity = 1) => {
       if (cancelled) return;
-      setAsset({ url: found ? BAKED : LIT, baked: found, resolved: true });
+      // One model either way. The bake adds lighting to it rather than
+      // replacing it — there is no second copy of the room any more.
+      setAsset({ url: ROOM, lightmap: found ? LIGHTMAP : null, intensity, resolved: true });
     };
 
     // A dev server that rewrites unknown paths to index.html answers 200 with
@@ -52,16 +69,23 @@ export function useRoomAsset(): RoomAsset {
 
     void (async () => {
       try {
-        const model = await fetch(BAKED, { method: 'HEAD' });
-        if (!isRealFile(model)) return settle(false);
+        const image = await fetch(LIGHTMAP, { method: 'HEAD' });
+        if (!isRealFile(image)) return settle(false);
 
         const stamp = await fetch(STAMP);
         // Baked before the stamp existed, so its provenance is unknowable. An
         // unlit room is a smaller loss than confidently showing the wrong one.
         if (!isRealFile(stamp)) return settle(false);
 
-        const { source } = (await stamp.json()) as { source?: string };
-        settle(Boolean(source) && source === __ROOM_HASH__);
+        const { source, intensity } = (await stamp.json()) as {
+          source?: string;
+          intensity?: number;
+        };
+        // A bake from before the stamp carried an intensity would be scaled by
+        // its own unknown divisor, so 1 is the only safe reading of a missing
+        // field — and it is wrong, which is the point: it looks wrong rather
+        // than looking plausible and being wrong.
+        settle(Boolean(source) && source === __ROOM_HASH__, intensity ?? 1);
       } catch {
         settle(false);
       }

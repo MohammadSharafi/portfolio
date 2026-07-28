@@ -158,7 +158,7 @@ WHOLE_SURFACE = re.compile(r"^rug(\.\d+)?$")
 # and sky are emissive already, and its towers are dark night silhouettes that
 # read correctly as flat colour. Baked lighting on a distant night skyline is
 # spend with no return.
-BAKE_EXCLUDE = re.compile(r"^(ix_window|cn_tower|sky|lake|sky_occluder)(\.\d+)?$")
+BAKE_EXCLUDE = re.compile(r"^(ix_window|cn_tower|sky|lake|sky_occluder\w*)(\.\d+)?$")
 
 # The smallest share of the atlas any object may claim, as a fraction of the
 # linear size the largest object gets. Packing strictly by surface area is right
@@ -192,7 +192,15 @@ KEY_X = -0.16
 #
 # Left of all three lines it is clear, and it lands in front of the laptop —
 # which is a place a chair genuinely lives, not a compromise dressed up as one.
-CHAIR_X = KEY_X - 0.55
+# Ten centimetres off the working position, not fifty-five.
+#
+# The comment on the chair said "on the keyboard's centreline" while this put it
+# more than half a metre to the left of it — far enough that nobody sitting in
+# it could reach the keys, and far enough that the chair read as abandoned in
+# open floor rather than pushed back from the desk. The plan asks for a chair
+# that is never square to the desk and never centred; it does not ask for one in
+# a different postcode.
+CHAIR_X = KEY_X - 0.10
 
 # How high the walls run.
 #
@@ -1079,37 +1087,47 @@ def build_toronto() -> list[bpy.types.Object]:
     return parts
 
 
-def _sky_occluder() -> bpy.types.Object:
+def _sky_occluder() -> list[bpy.types.Object]:
     """
-    The black card that keeps the night sky inside the window.
+    The black card that keeps the night sky inside the window — with a hole for
+    the window.
 
     The skyline has to be wide enough to fill the window from the window's own
-    camera stop — about 24 m across at 34 m out — but the establishing camera
-    sits high on the +X side and sees straight past the back wall's edge, so a
-    city that wide appears floating in the void beside the room. It also stands
-    on ground at z = -16, well below the floor, so its tower bases and their lit
-    windows show under the wall's bottom edge as a scatter of little squares.
+    camera stop, but the establishing camera sits high on the +X side and sees
+    straight past the back wall's edge, so a city that wide appears floating in
+    the void beside the room. It also stands on ground at z = -16, so its tower
+    bases show under the wall's bottom edge.
 
-    This went unnoticed for as long as the sky was near-black: an unlit slab
-    against an unlit background is not visible. The moment the sky had a
-    gradient worth looking at, it was.
+    The first version was a single slab at y = -2.75. That is behind the wall
+    and *in front of the city*, so it did stop the leak and it also blocked the
+    view — the window went black, which is precisely the thing the occluder
+    exists to protect. Solving an occlusion problem with an occluder that
+    occludes the subject is the kind of mistake that looks obviously right in
+    the source and obviously wrong on screen.
 
-    A separate object rather than a bigger `wall_back`, for a specific reason:
-    resizing the wall changes its UV island, which changes the atlas layout,
-    which invalidates every other object's baked lighting and costs an hour to
-    put right. This is excluded from the bake, so it claims no island and the
-    existing atlas stays valid.
-
-    Near-black, and it wants no baked lighting — it is a hole in the picture,
-    not a surface.
+    Four panels instead, leaving the window's cone open. The gap is generous:
+    the card sits 15 cm behind the wall, so the cone has barely widened, and a
+    few centimetres of slack costs nothing while a few too few would clip the
+    view.
     """
-    return cube(
-        "sky_occluder",
-        (52.0, 0.1, 52.0),
-        (0, -2.75, 6.0),
-        material("occluder", "void", roughness=1.0),
-        bevel=0,
-    )
+    mat = material("occluder", "void", roughness=1.0)
+    y = -2.75
+    # The aperture, with slack.
+    left, right = 1.10, 3.00
+    low, high = 0.80, 2.60
+    far = 30.0
+
+    panels = [
+        # (name, x centre, z centre, width, height)
+        ("sky_occluder", (left - far) / 2, 0.0, far + left, far * 2),
+        ("sky_occluder_r", (right + far) / 2, 0.0, far - right, far * 2),
+        ("sky_occluder_b", (left + right) / 2, (low - far) / 2, right - left, far + low),
+        ("sky_occluder_t", (left + right) / 2, (high + far) / 2, right - left, far - high),
+    ]
+    return [
+        cube(name, (w, 0.1, h), (cx, y, cz), mat, bevel=0)
+        for name, cx, cz, w, h in panels
+    ]
 
 
 def _ceiling() -> bpy.types.Object:
@@ -1161,7 +1179,7 @@ def build_shell() -> list[bpy.types.Object]:
         cube("wall_left", (0.12, 5.2, WALL_TOP), (-3.2, 0, WALL_TOP / 2), accent, bevel=0),
         cube("skirting_back", (6.4, 0.05, 0.11), (0, -2.52, 0.055), material("skirt", "dark_metal")),
         cube("skirting_left", (0.05, 5.2, 0.11), (-3.12, 0, 0.055), material("skirt", "dark_metal")),
-        _sky_occluder(),
+        *_sky_occluder(),
         # The ceiling. Bake-only — `EXPORT_EXCLUDE` drops it before the GLB is
         # written, so the browser still gets an open box it can look down into.
         #
@@ -1369,15 +1387,23 @@ def build_monitors() -> list[bpy.types.Object]:
         # has a sheet of glass in front, the panel recessed behind it, and a
         # black mask between the two — and at night, when most of the screen is
         # dark, that glass is mostly reflecting the room.
+        # Behind the display plane, not in front of it.
+        #
+        # "Glass over the panel" is right about a real monitor and wrong about
+        # this one: the display is an opaque quad the runtime paints a canvas
+        # onto, so anything in front of it hides the content — and the content
+        # is the entire reason the monitors exist. Both screens shipped black.
+        # The glass reads as glass from its edge and from the reflection baked
+        # into the surround; it does not have to be the frontmost surface.
         glass = cube(f"{name}_glass", (panel_w - 0.008, 0.003, panel_h - 0.008),
-                     (x + math.sin(tilt) * 0.011, back + 0.011, centre_z), 
+                     (x + math.sin(tilt) * 0.009, back + 0.0090, centre_z), 
                      material("screen_glass", "screen", roughness=0.06, metallic=0.4),
                      rotation_z=tilt, bevel=0.001)
         parts.append(glass)
         # The mask around the panel, which is what the bezel lips over.
         parts.append(
             cube(f"{name}_mask", (panel_w - 0.004, 0.004, panel_h - 0.004),
-                 (x + math.sin(tilt) * 0.008, back + 0.008, centre_z),
+                 (x + math.sin(tilt) * 0.006, back + 0.0060, centre_z),
                  material("screen_mask", "void", roughness=0.9), rotation_z=tilt, bevel=0)
         )
         # The OSD joystick nub under the right of the chin, and a brand mark on
@@ -1622,7 +1648,12 @@ def build_keyboard_and_props() -> list[bpy.types.Object]:
 
     # One key unit. Every width below is a multiple of it, as on a real board.
     U = 0.0195
-    KX, KY = KEY_X, DESK_FRONT - 0.13
+    # Far enough back to leave room for wrists.
+    #
+    # At DESK_FRONT - 0.13 the block's near edge was 2.5 cm from the desk edge,
+    # which is not a place anybody puts a keyboard and left the wrist rest
+    # hanging off the desk and inside the chair. `check_swallowed` caught that.
+    KX, KY = KEY_X, DESK_FRONT - 0.235
     deck = DESK_TOP + 0.014
 
     # Widths per row, in units. They sum to 15u on every row, which is what
@@ -1651,8 +1682,15 @@ def build_keyboard_and_props() -> list[bpy.types.Object]:
         # Each row is also angled, not just raised. A keycap's top is tilted
         # toward the typist, and the run of those angles down the block is what
         # makes the profile recognisable from the side.
-        tilt = (-0.13, -0.07, -0.02, 0.02, 0.07, 0.10)[row_index]
-        y = KY + (len(rows) - 1 - row_index) * U + (cluster_gap if row_index == 0 else 0.0)
+        tilt = (0.10, 0.07, 0.02, -0.02, -0.07, -0.13)[row_index]
+        # Row 0 is the function row and belongs *furthest* from the typist.
+        #
+        # It was laid out at the largest y — the room side, which is where a
+        # person sits — so the whole block ran backwards: function keys under
+        # your palms and the space bar against the monitors. The cluster gap
+        # went with it, so the one gap that tells a keyboard from a calculator
+        # was at the near edge too.
+        y = KY + row_index * U + (0.0 if row_index == 0 else cluster_gap)
         x = KX - 15 * U / 2
         for col, width in enumerate(widths):
             span = width * U
@@ -1686,8 +1724,7 @@ def build_keyboard_and_props() -> list[bpy.types.Object]:
 
     # A caps-lock indicator, above the left of the block.
     caps_led = cube("kb_caps_led", (0.0032, 0.0032, 0.001),
-                    (KX - 15 * U / 2 + 0.012, KY + (len(rows) - 1) * U + cluster_gap + U * 0.62,
-                     deck + 0.0012),
+                    (KX - 15 * U / 2 + 0.012, KY - U * 0.62, deck + 0.0012),
                     material("kb_led", "green", roughness=0.3, emission=3.0), bevel=0)
 
     # Flip-out feet at the back, which is what produces the slope. Modelled
@@ -1696,14 +1733,14 @@ def build_keyboard_and_props() -> list[bpy.types.Object]:
     # are down.
     feet = [
         cube(f"kb_foot_{side}", (0.016, 0.010, 0.010),
-             (KX + side * (15 * U / 2 - 0.03), KY + (len(rows) - 1) * U + cluster_gap, DESK_TOP + 0.005),
+             (KX + side * (15 * U / 2 - 0.03), KY - U * 0.35, DESK_TOP + 0.005),
              body_mat, bevel=0.002)
         for side in (-1, 1)
     ]
 
     # A wrist rest, compressed where forearms sit.
     wrist = cube("kb_wrist_rest", (15 * U + 0.016, 0.062, 0.011),
-                 (KX, KY - U * 0.5 - 0.040, DESK_TOP + 0.0075),
+                 (KX, KY + (len(rows) - 1) * U + cluster_gap + 0.048, DESK_TOP + 0.0075),
                  material("wrist_rest", "chair_dark", roughness=0.9, grain="fabric"), bevel=0)
     smooth(wrist, 2, crease=0.55)
 
@@ -1711,9 +1748,9 @@ def build_keyboard_and_props() -> list[bpy.types.Object]:
     kb_cable = cable(
         "kb_cable",
         [
-            (KX, KY + (len(rows) - 1) * U + cluster_gap + 0.012, DESK_TOP + 0.010),
-            (KX + 0.10, KY + 0.16, DESK_TOP + 0.006),
-            (KX + 0.28, KY + 0.24, DESK_TOP + 0.004),
+            (KX, KY - U * 0.6, DESK_TOP + 0.010),
+            (KX + 0.10, KY - 0.16, DESK_TOP + 0.006),
+            (KX + 0.28, KY - 0.24, DESK_TOP + 0.004),
         ],
         0.0026,
         material("kb_cable", "bezel", roughness=0.6),
@@ -1739,12 +1776,13 @@ def build_keyboard_and_props() -> list[bpy.types.Object]:
     keyboard = join("ix_keyboard", [body] + keys + stems + feet + [caps_led])
     # Six degrees of slope, pivoted about the front edge so the near edge stays
     # on the desk and the back lifts onto the feet.
-    # Positive, not negative. Rx(-6) sends a point behind the pivot *downward*,
-    # which drove the back of the case 1.4 cm into the desktop — caught by
-    # `check_resting` rather than by eye, because a keyboard sunk into a desk
-    # from above looks exactly like a keyboard lying on one.
-    set_origin(keyboard, (KX, KY - U * 0.5, DESK_TOP))
-    keyboard.rotation_euler = (math.radians(6), 0, 0)
+    # Six degrees, pivoting at the edge nearest the typist so the far edge is
+    # the one that lifts onto the feet. A keyboard slopes up and away; sloping
+    # up toward the person is the one orientation that makes it unusable, and it
+    # is invisible from above — which is the only angle the room is normally
+    # seen from.
+    set_origin(keyboard, (KX, KY + (len(rows) - 1) * U + cluster_gap + U * 0.5, DESK_TOP))
+    keyboard.rotation_euler = (math.radians(-6), 0, 0)
 
     # A mouse is a dome, not a disc. Subdividing a short box rounds the top and
     # keeps the base flat on the desk, which a scaled cylinder cannot do.
@@ -2335,7 +2373,11 @@ def build_chair_and_plant() -> list[bpy.types.Object]:
     # moved that edge back 55 cm and left the chair marooned in open floor — a
     # chair nobody could sit in without standing up first. Anything positioned
     # against the desk has to be expressed in terms of the desk.
-    cx, cy = CHAIR_X, DESK_FRONT + 0.50
+    # Tucked in, not adrift. At +0.50 the chair's front edge stood 7 cm clear of
+    # the desk with a 20 degree turn on it, which reads as a chair abandoned in
+    # the middle of the floor rather than one somebody pushed back and stood up
+    # from.
+    cx, cy = CHAIR_X, DESK_FRONT + 0.46
     parts = []
 
     # Seat: a control cage dished in the middle and turned up at the sides, then
@@ -2621,58 +2663,6 @@ def build_chair_and_plant() -> list[bpy.types.Object]:
                      metal, bevel=0.002)
             )
 
-    # A hoodie over the back of the chair.
-    #
-    # Soft geometry against hard is worth more than three more rigid props: the
-    # backrest is the one big smooth silhouette in the room, and something
-    # slumped over it is what stops the chair reading as furniture from a
-    # catalogue.
-    #
-    # It hangs over the *top* edge. Draping it across the shoulder rows instead
-    # — which is what indexing back_rows[4] and [5] does — puts it on the front
-    # face of the backrest, where a person's back goes, and it renders as a
-    # patch stuck to the upholstery rather than as a garment over it.
-    hood_mat = material("hoodie", "book_c", roughness=0.95, grain="fabric")
-    neck_z, neck_dy, neck_half, _ = back_rows[6]
-    top_z, top_dy, top_half, _ = back_rows[7]
-
-    # (z, how far back, half width) — down the front, over the top, down the back.
-    drape = (
-        (neck_z - 0.20, neck_dy + 0.090, neck_half * 1.16),
-        (top_z - 0.035, top_dy + 0.058, top_half * 1.30),
-        (top_z + 0.040, top_dy - 0.004, top_half * 1.22),
-        (top_z - 0.045, top_dy - 0.062, top_half * 1.34),
-        (neck_z - 0.24, neck_dy - 0.100, neck_half * 1.22),
-    )
-    hood_verts: list[tuple[float, float, float]] = []
-    for z, dy, half in drape:
-        for u in columns:
-            # Slumped to one side, because nobody hangs a hoodie square.
-            hood_verts.append((u * half + 0.030, dy - 0.014 * u * u, z + 0.022 * u))
-    hood_faces = []
-    for row in range(len(drape) - 1):
-        for col in range(stride - 1):
-            a = row * stride + col
-            hood_faces.append((a, a + 1, a + stride + 1, a + stride))
-    hoodie = poly("chair_hoodie", hood_verts, hood_faces, (cx, cy, 0), hood_mat)
-    hoodie.modifiers.new("Thickness", "SOLIDIFY").thickness = 0.014
-    parts.append(smooth(hoodie, 2, crease=0.12))
-
-    # A sleeve hanging off one side, which is what makes it read as a garment
-    # rather than a towel.
-    parts.append(
-        cable(
-            "hoodie_sleeve",
-            [
-                (cx + neck_half * 1.20 + 0.03, cy + neck_dy + 0.03, neck_z - 0.14),
-                (cx + neck_half * 1.34 + 0.03, cy + neck_dy + 0.06, neck_z - 0.30),
-                (cx + neck_half * 1.18 + 0.03, cy + neck_dy + 0.02, neck_z - 0.44),
-            ],
-            0.032,
-            hood_mat,
-        )
-    )
-
     # A certification tag sewn into the seam. Every chair has one, and it is the
     # kind of thing nobody notices until it is missing.
     tag = cube("chair_tag", (0.05, 0.002, 0.032), (cx + 0.19, cy + 0.20, 0.455),
@@ -2696,7 +2686,7 @@ def build_chair_and_plant() -> list[bpy.types.Object]:
 
     chair = join("ix_chair", parts)
     set_origin(chair, (cx, cy, 0.0))
-    chair.rotation_euler = (0, 0, math.radians(-20))
+    chair.rotation_euler = (0, 0, math.radians(-11))
 
     return [chair, build_plant(2.78, 0.35)]
 
@@ -3413,24 +3403,18 @@ def build_details() -> list[bpy.types.Object]:
     ring.modifiers.new("Ring", "WIREFRAME").thickness = 0.0035
     out.append(ring)
 
-    # Scuffed floorboards where feet land: in front of the door, and the arc the
-    # chair's castors have worn. Wear goes where hands and feet go, and nowhere
-    # else — an even wear layer over everything is just a darker floor.
-    scuff_mat = material("floor_scuff", "earth", roughness=0.85)
-    out.append(
-        cylinder("floor_scuff_door", 0.34, 0.0008, (-2.62, -2.06, RUG_THICKNESS * 0 + 0.0075),
-                 scuff_mat, vertices=24)
-    )
-    # The arc is wider than where the chair stands now. Wear is a record of
-    # where it has been, not of where it is — and a scuff directly under the
-    # chair is one nobody will ever see.
-    for i in range(7):
-        angle = -1.0 + i * 0.34
-        out.append(
-            cylinder(f"floor_scuff_castor_{i}", 0.075, 0.0008,
-                     (CHAIR_X + math.cos(angle) * 0.66, DESK_FRONT + 0.50 + math.sin(angle) * 0.66, 0.0075),
-                     scuff_mat, vertices=14)
-        )
+    # No floor scuffs.
+    #
+    # A first pass put flat tan discs on the boards — a wide one by the door and
+    # an arc where the castors run. They read as unexplained stains rather than
+    # as wear, and that is not a tuning problem: real wear on a floor is a
+    # change in *sheen*, not in colour. A worn board is the same brown and
+    # catches light differently, which needs a roughness mask in the object's
+    # own UV space. This pipeline gives every material of a kind one shared
+    # tiling texture, so there is nowhere to put that mask.
+    #
+    # Left out until the wear-mask pipeline exists. A missing detail costs less
+    # than a detail that reads as a mistake.
 
     # A bin, with paper in it, and one piece that missed. Nothing says occupied
     # like a near miss on the floor.
@@ -3558,7 +3542,13 @@ def add_lighting() -> None:
 
     # The practical overhead, just under the ceiling. Small and close rather
     # than huge and far, so it falls off across the room instead of flooding it.
-    area("key", 260, 1.5, (0.35, 0.15, 2.58), (1.0, 0.94, 0.86))
+    # 150 W, not 260. This is the one source in the room with nothing to come
+    # from — the ceiling is bake-only, so no fixture hanging off it survives to
+    # the browser, and a strong overhead with no visible lamp is exactly the
+    # "where is that light coming from" the room kept provoking. It is now a
+    # soft fill that lets the desk lamp, the monitors, the floor lamp and the
+    # window read as the sources instead.
+    area("key", 150, 1.5, (0.35, 0.15, 2.58), (1.0, 0.94, 0.86))
 
     # A weak bounce off the left wall, enough that the shelf side of the room is
     # not a silhouette. Deliberately far below the key.
@@ -3569,6 +3559,21 @@ def add_lighting() -> None:
     # back-right corner, so the room's warmest light came from a bare patch of
     # desk two and a half metres away from the lamp casting it. The third bug of
     # exactly this kind, after the lamp's power cable and six camera stops.
+    # The floor lamp, which until now was a lamp-shaped object that did nothing.
+    #
+    # It stands 2 m from the nearest light and casts none of its own, so the
+    # lounge half of the room was lit by an overhead source with no fixture
+    # while the one visible fixture down there sat dark. `check_lights` could
+    # not see it: that walks a curated list of light-and-fixture pairs, so it
+    # catches a light that has drifted from its lamp and is blind to a lamp
+    # that never had a light. `check_dark_fixtures` covers the other direction.
+    bpy.ops.object.light_add(type="POINT", location=(-1.22, 1.85, 1.44))
+    floor_lamp = bpy.context.object
+    floor_lamp.name = "floor_lamp_light"
+    floor_lamp.data.energy = 52
+    floor_lamp.data.color = (1.0, 0.72, 0.42)
+    floor_lamp.data.shadow_soft_size = 0.09
+
     bpy.ops.object.light_add(type="POINT", location=(0.80, DESK_BACK + 0.28, 1.10))
     warm = bpy.context.object
     warm.name = "lamp_light"
@@ -3822,7 +3827,8 @@ def main() -> None:
                   export_room.check_stops, export_room.check_lights,
                   export_room.check_buried, export_room.check_furniture,
                   export_room.check_swallowed, export_room.check_paired,
-                  export_room.check_painted_uvs):
+                  export_room.check_painted_uvs,
+                  export_room.check_dark_fixtures):
         for complaint in check():
             print(f"[build_room] {complaint}", file=sys.stderr)
 

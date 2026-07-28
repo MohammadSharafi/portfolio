@@ -320,6 +320,56 @@ def check_stops() -> list[str]:
 LIGHT_FIXTURES = (("lamp_light", "ix_lamp", 0.20),)
 
 
+def check_dark_fixtures() -> list[str]:
+    """
+    Lamps that cast no light.
+
+    `check_lights` walks a curated list of light-and-fixture pairs, so it
+    catches a light that has drifted away from its lamp and is completely blind
+    to the opposite: a lamp nobody ever gave a light to. The floor lamp stood in
+    the lounge for its whole existence as a lamp-shaped object with a bright
+    shade and no source, 2 m from the nearest light in the room — which reads,
+    at a glance, exactly like a lamp that is switched off, so nothing about it
+    looked wrong.
+    """
+    lights = [o for o in bpy.context.scene.objects if o.type == "LIGHT"]
+    complaints = []
+    for obj in bpy.context.scene.objects:
+        if obj.type != "MESH" or not obj.data.vertices:
+            continue
+        if not any(word in obj.name for word in ("lamp", "bulb")):
+            continue
+        if obj.name.endswith("_light"):
+            continue
+        # Measured to the fixture's *bounds*, not its centroid.
+        #
+        # A floor lamp is a 1.6 m pole with a shade on top, so its centroid sits
+        # halfway up the stem — 74 cm below the shade the bulb actually lives
+        # in. Judging by centroid reports a correctly lit lamp as dark, which is
+        # a check that trains you to ignore it.
+        box = _world_box(obj)
+        def _outside(light) -> float:
+            at = light.matrix_world.translation
+            return math.sqrt(
+                sum(
+                    max(box[axis * 2] - at[axis], 0.0, at[axis] - box[axis * 2 + 1]) ** 2
+                    for axis in range(3)
+                )
+            )
+
+        nearest = min(
+            ((light, _outside(light)) for light in lights),
+            key=lambda pair: pair[1],
+            default=(None, 1e9),
+        )
+        if nearest[1] > 0.25:
+            complaints.append(
+                f"{obj.name} looks like a lamp but the nearest light is "
+                f"{nearest[1] * 100:.0f} cm away — it casts nothing"
+            )
+    return complaints
+
+
 def check_lights() -> list[str]:
     """
     Lights that have drifted away from the object they are supposed to be coming

@@ -55,3 +55,6 @@ assets/room.blend
 scripts/blender/preview*.png
 scripts/blender/_preview_raw.exr
 scripts/blender/room-bake.png
+
+scripts/blender/renders/
+scripts/blender/room-bake.exr
