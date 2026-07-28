@@ -302,6 +302,12 @@ def main() -> None:
 
     rewire_to_baked(atlas, meshes)
 
+    # The ceiling has done its job — every bounce off it is already in the
+    # atlas. Exporting it would hand the browser a closed box.
+    hidden = build_room.drop_export_only()
+    if hidden:
+        print(f"[bake_room] {hidden} bake-only object(s) kept out of the GLB")
+
     bpy.ops.export_scene.gltf(
         filepath=OUT_GLB,
         export_format="GLB",

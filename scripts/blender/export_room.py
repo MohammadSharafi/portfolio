@@ -314,6 +314,40 @@ def check_stops() -> list[str]:
     return complaints
 
 
+# Lights that stand for a visible fixture, and how far from it they may sit.
+# A light representing a lamp has to be inside the lamp.
+LIGHT_FIXTURES = (("lamp_light", "ix_lamp", 0.20),)
+
+
+def check_lights() -> list[str]:
+    """
+    Lights that have drifted away from the object they are supposed to be coming
+    from.
+
+    This is the third instance of one bug. The desk lamp was moved to the
+    back-right corner of the desk and three things were left behind at its old
+    position: its power cable, its camera stop, and its light — so the room's
+    warmest pool fell on a bare patch of desk two and a half metres from the
+    lamp casting it. None of them looked broken. A lit room with the light in
+    the wrong place just looks like a slightly odd lighting choice.
+    """
+    complaints = []
+    for light_name, fixture_name, tolerance in LIGHT_FIXTURES:
+        light = bpy.data.objects.get(light_name)
+        fixture = bpy.data.objects.get(fixture_name)
+        if light is None or fixture is None:
+            continue
+        points = [fixture.matrix_world @ v.co for v in fixture.data.vertices]
+        centre = [sum(p[axis] for p in points) / len(points) for axis in range(3)]
+        away = math.sqrt(sum((light.location[axis] - centre[axis]) ** 2 for axis in range(3)))
+        if away > tolerance:
+            complaints.append(
+                f"{light_name} is {away * 100:.0f} cm from {fixture_name} — "
+                f"the light is not coming from the thing that appears to cast it"
+            )
+    return complaints
+
+
 def ensure_uvs() -> int:
     """
     Give every mesh a UV layer if it has none.

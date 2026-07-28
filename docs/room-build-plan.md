@@ -64,8 +64,18 @@ _Phase 1_
 
 With the resolution problem gone, the lighting becomes the thing you can actually see. Right now the room is evenly blue-grey in every corner, which is the single clearest sign of a rendered space rather than a photographed one.
 
+> **Done — the rig, and a third stale coordinate**
+>
+> The rig was two soft area lights from above at 520 W and 180 W, which lit every corner of the room to the same value. It is now a practical overhead, a warm pool from the desk lamp, cold light off the monitors and city glow through the window, with the ambient dropped from 1.6 to 0.6 so shadows are allowed to be shadows.
+> **The desk lamp's light was 2.4 m away from the desk lamp.** When the lamp moved to the back-right corner, three things stayed behind at its old position: its power cable, its camera stop, and its light — so the room's warmest pool fell on bare desk. That is the third instance of one bug, so `check_lights` now fails the build on it, and has been confirmed to catch the original.
+
+> **The ceiling is harder than it looks — read before starting it**
+>
+> Built, measured, reverted. A ceiling at 2.7 m needs the walls cut down to 2.7 m to be worth anything, and **the walls were quietly doing a second job: at 5.4 m they are what hides the Toronto skyline from the establishing camera.** Cut them and the sky plane's edge appears as a hard diagonal across the top-left of the shot, with buildings floating in the void beside the room.
+> So this item now has a prerequisite nobody knew about: the outside world needs to be a backdrop that reads correctly from any angle before the room can have a realistic ceiling height. Worth doing — it is the largest remaining lighting gain — but it is a day's work rather than an hour's, and it is not the thing to start with.
+
 - [ ] **Add a ceiling** `S` — Light currently escapes straight up, so nothing bounces back down. A ceiling is a huge soft reflector and will change the lighting character more than any other single edit. Hide it from the outside camera.
-- [ ] **Rebuild the light rig with a dominant source** `M` — One key that the room falls away from. Warm pool under the desk lamp, cold blue from the monitors, genuinely dark corners.
+- [x] **Rebuild the light rig with a dominant source** `M` — One key that the room falls away from. Warm pool under the desk lamp, cold blue from the monitors, genuinely dark corners.
 - [ ] **Make the skyline visible through the window** `S` — It reads as solid black right now, so the best surface in the room shows nothing.
 - [ ] **Raise bake samples and check the noise floor** `S` — 128 was a first pass. Find the point where more samples stop changing the image.
 - [ ] **Imperfection pass** `S` — Nothing in a real room is square to the world. Rotate books a degree or two, vary their heights, let a paper sit askew, scuff the floor near the door. Cheapest realism in the entire list.
