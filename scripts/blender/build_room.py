@@ -114,6 +114,9 @@ PALETTE = {
     # what a skyline's silhouette is actually read against — and `sky_haze` the
     # washed-out body of the far towers, because aerial perspective takes the
     # contrast out of a night skyline long before it takes the lights.
+    # The colour of nothing. The occluder behind the room is not a surface, it
+    # is the absence of one, and it has to match the background exactly.
+    "void": (0.004, 0.005, 0.008, 1),
     "night_sky": (0.055, 0.085, 0.190, 1),
     "sky_glow": (0.300, 0.210, 0.185, 1),
     "sky_haze": (0.115, 0.120, 0.165, 1),
@@ -155,7 +158,7 @@ WHOLE_SURFACE = re.compile(r"^rug(\.\d+)?$")
 # and sky are emissive already, and its towers are dark night silhouettes that
 # read correctly as flat colour. Baked lighting on a distant night skyline is
 # spend with no return.
-BAKE_EXCLUDE = re.compile(r"^(ix_window|cn_tower|sky|lake)(\.\d+)?$")
+BAKE_EXCLUDE = re.compile(r"^(ix_window|cn_tower|sky|lake|sky_occluder)(\.\d+)?$")
 
 # The smallest share of the atlas any object may claim, as a fraction of the
 # linear size the largest object gets. Packing strictly by surface area is right
@@ -896,6 +899,19 @@ def _wall_with_opening(wall_mat: bpy.types.Material) -> bpy.types.Object:
     parallax between the frame and the skyline as the camera moves is the whole
     reason the window reads as an opening and not as a poster.
     """
+    # Wider and taller than the room needs, because it is also the occluder that
+    # keeps the night sky where it belongs.
+    #
+    # The skyline has to be big enough to fill the window from the window's own
+    # camera stop — about 24 m across at 34 m out — but the establishing camera
+    # sits high on the +X side and can see past this wall's edge, so anything
+    # that wide shows up floating in the void beside the room. It went unnoticed
+    # for as long as the sky was near-black: an unlit slab against an unlit
+    # background is not visible. The moment the sky had a gradient worth looking
+    # at, it was.
+    #
+    # Everything added here is outside the room and lit by nothing, so it reads
+    # as the same black the background already is.
     wall = cube("wall_back", (11.0, 0.12, WALL_TOP), (0, -2.6, WALL_TOP / 2), wall_mat, bevel=0)
 
     bpy.ops.mesh.primitive_cube_add(size=1, location=(2.05, -2.6, 1.7))
@@ -1063,6 +1079,39 @@ def build_toronto() -> list[bpy.types.Object]:
     return parts
 
 
+def _sky_occluder() -> bpy.types.Object:
+    """
+    The black card that keeps the night sky inside the window.
+
+    The skyline has to be wide enough to fill the window from the window's own
+    camera stop — about 24 m across at 34 m out — but the establishing camera
+    sits high on the +X side and sees straight past the back wall's edge, so a
+    city that wide appears floating in the void beside the room. It also stands
+    on ground at z = -16, well below the floor, so its tower bases and their lit
+    windows show under the wall's bottom edge as a scatter of little squares.
+
+    This went unnoticed for as long as the sky was near-black: an unlit slab
+    against an unlit background is not visible. The moment the sky had a
+    gradient worth looking at, it was.
+
+    A separate object rather than a bigger `wall_back`, for a specific reason:
+    resizing the wall changes its UV island, which changes the atlas layout,
+    which invalidates every other object's baked lighting and costs an hour to
+    put right. This is excluded from the bake, so it claims no island and the
+    existing atlas stays valid.
+
+    Near-black, and it wants no baked lighting — it is a hole in the picture,
+    not a surface.
+    """
+    return cube(
+        "sky_occluder",
+        (52.0, 0.1, 52.0),
+        (0, -2.75, 6.0),
+        material("occluder", "void", roughness=1.0),
+        bevel=0,
+    )
+
+
 def _ceiling() -> bpy.types.Object:
     """
     The ceiling: a light source in everything but name.
@@ -1112,6 +1161,7 @@ def build_shell() -> list[bpy.types.Object]:
         cube("wall_left", (0.12, 5.2, WALL_TOP), (-3.2, 0, WALL_TOP / 2), accent, bevel=0),
         cube("skirting_back", (6.4, 0.05, 0.11), (0, -2.52, 0.055), material("skirt", "dark_metal")),
         cube("skirting_left", (0.05, 5.2, 0.11), (-3.12, 0, 0.055), material("skirt", "dark_metal")),
+        _sky_occluder(),
         # The ceiling. Bake-only — `EXPORT_EXCLUDE` drops it before the GLB is
         # written, so the browser still gets an open box it can look down into.
         #
