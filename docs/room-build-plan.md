@@ -266,7 +266,7 @@ What each object needs to survive being looked at closely. Tick the object when 
   - **One left ajar** by a centimetre. Nobody closes all three.
   - **The interior has to be modelled and baked open**, or it will be lit as though the drawer were still shut.
 
-- [ ] **Persian rug — Isfahan medallion, madder red** `L` — 17 details · the biggest single win in the room
+- [x] **Persian rug — Isfahan medallion, madder red** `L` — 17 details · built, and it was the biggest single win in the room
   - **This is the largest untextured surface you have** — 13.7 m² of flat blue-grey. Replacing it with a real Isfahan carpet changes the room more than any other single object, and it is the one piece that says where you are from.
   - **Structure, in the right order:** field, central medallion (_toranj_), corner spandrels (_lachak_), main border, and two or three guard borders either side of it. Getting this hierarchy right matters more than the motifs inside it.
   - **Four-fold symmetry is your way in.** A medallion carpet mirrors across both axes, so you generate one quarter and mirror it twice. The borders are a repeating motif along a path. This makes an intricate Persian design genuinely tractable to draw procedurally — which almost nothing else at this level of detail is.
@@ -283,6 +283,9 @@ What each object needs to survive being looked at closely. Tick the object when 
   - **It does not lie flat.** Corners curl slightly, and there is a shallow wave across the middle.
   - **Furniture compresses it.** The sofa legs and the plant pot should sit in slight depressions, not on top of the surface.
   - **The room's palette has to move to meet it.** A madder red rug against a blue-grey and purple room will fight. Warm the wall accent or pull the rug toward the room's blues in the border.
+  - **Built:** field, medallion, spandrels, three-part border, abrash, traffic wear and fringe, drawn procedurally at 2048 px and mapped once across the whole rug. The first field attempt thresholded a _product_ of two waves, which widens the line wherever either factor crosses zero — so the tracery came out as large blobs covering half the field rather than fine vine scrolls.
+  - **Still to do:** pile direction, and the room's palette moving to meet the red.
+  - **It cost 1.2 MB**, and would have cost 5.8 MB. A carpet is a photograph, not data, so it ships as JPEG — but the glTF exporter re-encodes any image without a recognisable filepath and hands back a PNG of identical pixels. It has to go through a real file.
   - **Give it a camera stop and a panel.** This is the one object in the room with a real story attached, and right now the room says nothing about where you grew up.
 
 - [ ] **Keyboard** `M` — 12 details
