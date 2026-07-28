@@ -144,6 +144,13 @@ TEXEL_FLOOR = 0.06
 # broken by a change that looks safe.
 WALL_TOP = 5.4
 
+# How thick the carpet is. A hand-knotted wool Isfahan runs 10-14 mm including
+# the pile, and having it as a real dimension rather than a fudge factor is what
+# lets anything else in the room sit *on* the rug rather than through it — the
+# sofa feet and the coffee table both stand on the floor, and the difference is
+# only visible because the rug has a height to be above.
+RUG_THICKNESS = 0.012
+
 # Geometry built for the bake and kept out of the GLB.
 EXPORT_EXCLUDE = re.compile(r"^ceiling(\.\d+)?$")
 
@@ -954,7 +961,25 @@ def build_shell() -> list[bpy.types.Object]:
         cube("wall_left", (0.12, 5.2, WALL_TOP), (-3.2, 0, WALL_TOP / 2), accent, bevel=0),
         cube("skirting_back", (6.4, 0.05, 0.11), (0, -2.52, 0.055), material("skirt", "dark_metal")),
         cube("skirting_left", (0.05, 5.2, 0.11), (-3.12, 0, 0.055), material("skirt", "dark_metal")),
-        plane("rug", (3.9, 3.5), (0.2, 0.8, 0.004),
+        # The carpet's body, and then its face.
+        #
+        # The face has to clear the floorboards, and by more than it looks. The
+        # board lines below are 4 mm-tall cubes *centred* on z = 0.004, so they
+        # occupy 0.002 to 0.006 — and the carpet used to be a flat plane at
+        # exactly 0.004, which put it halfway through them. That is not z-fighting
+        # that better precision would fix: the boards were genuinely standing
+        # proud of the carpet, so the floor's plank grid was drawn across the
+        # middle of an Isfahan medallion.
+        #
+        # A hand-knotted wool carpet is 10-14 mm thick, so it gets that as real
+        # geometry rather than being lifted a hair. It reads as a rug lying on a
+        # floor — with a visible edge you could catch a toe on — instead of as a
+        # decal printed onto the boards.
+        cube("rug_body", (3.9, 3.5, RUG_THICKNESS), (0.2, 0.8, 0.006 + RUG_THICKNESS / 2),
+             material("rug_pile", "rug", roughness=1.0, grain="pile"), bevel=0.004),
+        # Inset half a millimetre so it never shares a plane with the body's top
+        # face, and a shade smaller so the body shows as the carpet's own edge.
+        plane("rug", (3.88, 3.48), (0.2, 0.8, 0.006 + RUG_THICKNESS + 0.0005),
               material("rug", "paper", roughness=0.96, grain="persian")),
     ]
 
@@ -1394,9 +1419,12 @@ def build_lamp() -> list[bpy.types.Object]:
     # establishing camera looks along +X, so the open lid stood squarely
     # between the viewer and the lamp. Nothing was wrong with the lamp; it was
     # simply never visible.
-    foot = (1.58, -2.28, 0.79)
-    elbow = (1.58, -2.28, 1.32)
-    head = (1.40, -2.03, 1.18)
+    # Forward of the wall by 6 cm more than it was. The shade reaches z = 1.34
+    # and the window frame starts at 1.05, so at y = -2.28 the back of the lamp
+    # was inside the frame.
+    foot = (1.72, -2.20, 0.79)
+    elbow = (1.72, -2.20, 1.32)
+    head = (1.54, -1.95, 1.18)
 
     parts = [
         cylinder("lamp_base", 0.095, 0.02, (foot[0], foot[1], foot[2] + 0.01), metal),
@@ -1527,17 +1555,36 @@ def build_whiteboard() -> list[bpy.types.Object]:
 
 
 def build_server_rack() -> list[bpy.types.Object]:
+    """
+    The rack, in the back-right corner and clear of the window.
+
+    It used to stand at x 2.37..2.87 and 1.2 m tall, which put its top 15 cm
+    straight through the window frame — the sill starts at 1.05 — and stood it
+    directly in front of the radiator, so the one detail that says the room is
+    heated was hidden behind a box. Neither reads as a mistake from the
+    establishing shot; a solid ends where another begins and the eye takes it
+    for contact.
+
+    Two changes fix both. It moves right, into the corner, which opens a gap
+    beside the radiator so the two read as separate objects. And it loses 22 cm,
+    which is what actually clears the sill — a short rack under a window is the
+    normal way to fit one there anyway.
+    """
     case = material("rack", "plastic", roughness=0.4, metallic=0.3, grain="brushed")
-    parts = [cube("rack_body", (0.5, 0.62, 1.2), (2.62, -2.1, 0.6), case)]
+    rx, ry = 2.88, -2.14
+    height = 0.98
+    parts = [cube("rack_body", (0.5, 0.62, height), (rx, ry, height / 2), case)]
     leds = []
-    for i in range(6):
+    front = ry + 0.31
+    for i in range(5):
+        z = 0.16 + i * 0.17
         colour = "green" if i % 3 else "cyan"
-        parts.append(cube(f"unit_{i}", (0.48, 0.02, 0.15), (2.62, -1.79, 0.18 + i * 0.18), material("unit", "dark_metal", roughness=0.5)))
+        parts.append(cube(f"unit_{i}", (0.48, 0.02, 0.15), (rx, front, z), material("unit", "dark_metal", roughness=0.5)))
         leds.append(
             cube(
                 f"led_{i}",
                 (0.05, 0.012, 0.018),
-                (2.45, -1.78, 0.18 + i * 0.18),
+                (rx - 0.17, front + 0.01, z),
                 material(f"led_{colour}", colour, roughness=0.3, emission=5.0),
                 bevel=0,
             )
@@ -1962,7 +2009,9 @@ def build_lounge() -> list[bpy.types.Object]:
     # bookshelf occupies y = 0.05 to 1.85 — anything hung outside that band
     # either floats off the end of the wall or grows through a shelf.
     art = []
-    for i, (y, z, h) in enumerate(((2.15, 1.62, 0.52), (2.15, 2.24, 0.46))):
+    # y = 2.30, not 2.15. The frames are 46 cm tall and the bookshelf ends at
+    # y = 2.00, so at 2.15 the nearer 8 cm of both pictures was behind the case.
+    for i, (y, z, h) in enumerate(((2.30, 1.62, 0.52), (2.30, 2.24, 0.46))):
         art.append(cube(f"frame_{i}", (0.04, 0.46, h), (-3.11, y, z),
                         material("art_frame", "desk_frame", roughness=0.5)))
         art.append(cube(f"print_{i}", (0.01, 0.4, h - 0.06), (-3.08, y, z),
@@ -2154,7 +2203,14 @@ def build_fittings() -> list[bpy.types.Object]:
 
     # Sockets. One behind the desk where the power strip's lead goes, one on the
     # left wall for the floor lamp.
-    for index, (x, y, facing) in enumerate(((1.06, BACK, 0), (LEFT, 0.92, 1))):
+    #
+    # The left-wall one sat at y = 0.92, which is squarely behind the bookshelf
+    # — the case runs y -0.10 to 2.00 and stands 5 cm off the wall, so the
+    # socket was sealed inside it and had never been visible from any camera in
+    # the room. It moves to the clear stretch between the whiteboard and the
+    # bookshelf, which is also where a lead to the floor lamp would actually
+    # plug in.
+    for index, (x, y, facing) in enumerate(((1.06, BACK, 0), (LEFT, -0.32, 1))):
         sockets = []
         size = (0.13, 0.012, 0.086) if facing == 0 else (0.012, 0.13, 0.086)
         here = (x, y, 0.22) if facing == 0 else (x, y, 0.22)
@@ -2318,7 +2374,9 @@ def build_details() -> list[bpy.types.Object]:
     award.data.name = "award"
     top.append(shade(award, material("award", "warm", roughness=0.2, metallic=0.9)))
     out.append(join("shelf_top", top))
-    out.append(build_plant(-3.02, 1.66, scale=0.42, base_z=deck))
+    # Smaller, and further off the wall. At 0.42 its leaves spanned 29 cm on a
+    # 22 cm capping board and reached 4 cm inside the wall itself.
+    out.append(build_plant(-3.00, 1.66, scale=0.32, base_z=deck))
 
     # A roller blind, mostly retracted, and a plant on the sill.
     #
@@ -2333,7 +2391,9 @@ def build_details() -> list[bpy.types.Object]:
         cube("blind_bar", (1.46, 0.02, 0.028), (2.05, -2.45, 2.15), dark, bevel=0.004),
     ]
     out.append(join("blind", blind))
-    out.append(build_plant(1.6, -2.44, scale=0.34, base_z=1.11))
+    # Centred on the sill rather than at its left end. It used to reach 2 cm
+    # through the glass and overlap the desk lamp's shade by 20 cm.
+    out.append(build_plant(2.05, -2.40, scale=0.34, base_z=1.11))
 
     # A clock over the door. The room is at y > -2.54, so nearer the room means
     # a *larger* y — which the first version had backwards: the rim sat in front
@@ -2407,7 +2467,7 @@ def add_lighting() -> None:
     # back-right corner, so the room's warmest light came from a bare patch of
     # desk two and a half metres away from the lamp casting it. The third bug of
     # exactly this kind, after the lamp's power cable and six camera stops.
-    bpy.ops.object.light_add(type="POINT", location=(1.40, -2.03, 1.12))
+    bpy.ops.object.light_add(type="POINT", location=(1.54, -1.95, 1.12))
     warm = bpy.context.object
     warm.name = "lamp_light"
     warm.data.energy = 70
@@ -2658,7 +2718,8 @@ def main() -> None:
     # the bug. Saying so out loud is enough.
     for check in (export_room.check_resting, export_room.check_clearance,
                   export_room.check_stops, export_room.check_lights,
-                  export_room.check_buried):
+                  export_room.check_buried, export_room.check_furniture,
+                  export_room.check_swallowed):
         for complaint in check():
             print(f"[build_room] {complaint}", file=sys.stderr)
 

@@ -9,7 +9,7 @@ import {
   stickyTexture,
   terminalScreen,
   whiteboardTexture,
-} from './screens';
+} from './screenContent';
 import { LIVE_REGIONS, type LiveRegion } from './liveScreens';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
 
