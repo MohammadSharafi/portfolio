@@ -419,6 +419,14 @@ FURNITURE = (
     "light_switch", "socket_0", "socket_1", "ix_certificates",
 )
 
+# Pairs that are meant to share space. A chair pushed in at a desk puts its
+# armrests under the overhang, which is what "pushed in" means — the plan even
+# asks for it. Listing the few honest cases keeps the check useful for the many
+# dishonest ones.
+FURNITURE_ALLOWED = frozenset({
+    frozenset({"ix_chair", "desk_top"}),
+})
+
 # How far two pieces of furniture may overlap before it is a mistake. Generous:
 # a chair tucked under a desk and a lamp overhanging a sill are both correct and
 # both overlap a little once reduced to boxes.
@@ -553,6 +561,8 @@ def check_furniture() -> list[str]:
                 min(a[3], b[3]) - max(a[2], b[2]),
                 min(a[5], b[5]) - max(a[4], b[4]),
             ]
+            if frozenset({first, second}) in FURNITURE_ALLOWED:
+                continue
             if all(o > FURNITURE_TOLERANCE for o in overlap):
                 complaints.append(
                     f"{first} and {second} occupy the same space — "
@@ -593,6 +603,13 @@ def check_swallowed() -> list[str]:
         box = _world_box(obj)
         for name, big in boxes.items():
             if stem and (stem in name or name.split("_")[0] in obj.name):
+                continue
+            # Something standing *on* a piece of furniture is inside its
+            # bounding box and perfectly visible — an award on a bookcase's
+            # capping board sits between the two raised sides, so the box test
+            # calls it swallowed. Resting on the top surface is the one case
+            # where containment means the opposite of hidden.
+            if box[4] >= big[5] - 0.05:
                 continue
             inside = all(
                 box[axis * 2] > big[axis * 2] - BURIED_TOLERANCE

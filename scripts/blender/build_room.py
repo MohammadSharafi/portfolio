@@ -2621,6 +2621,58 @@ def build_chair_and_plant() -> list[bpy.types.Object]:
                      metal, bevel=0.002)
             )
 
+    # A hoodie over the back of the chair.
+    #
+    # Soft geometry against hard is worth more than three more rigid props: the
+    # backrest is the one big smooth silhouette in the room, and something
+    # slumped over it is what stops the chair reading as furniture from a
+    # catalogue.
+    #
+    # It hangs over the *top* edge. Draping it across the shoulder rows instead
+    # — which is what indexing back_rows[4] and [5] does — puts it on the front
+    # face of the backrest, where a person's back goes, and it renders as a
+    # patch stuck to the upholstery rather than as a garment over it.
+    hood_mat = material("hoodie", "book_c", roughness=0.95, grain="fabric")
+    neck_z, neck_dy, neck_half, _ = back_rows[6]
+    top_z, top_dy, top_half, _ = back_rows[7]
+
+    # (z, how far back, half width) — down the front, over the top, down the back.
+    drape = (
+        (neck_z - 0.20, neck_dy + 0.090, neck_half * 1.16),
+        (top_z - 0.035, top_dy + 0.058, top_half * 1.30),
+        (top_z + 0.040, top_dy - 0.004, top_half * 1.22),
+        (top_z - 0.045, top_dy - 0.062, top_half * 1.34),
+        (neck_z - 0.24, neck_dy - 0.100, neck_half * 1.22),
+    )
+    hood_verts: list[tuple[float, float, float]] = []
+    for z, dy, half in drape:
+        for u in columns:
+            # Slumped to one side, because nobody hangs a hoodie square.
+            hood_verts.append((u * half + 0.030, dy - 0.014 * u * u, z + 0.022 * u))
+    hood_faces = []
+    for row in range(len(drape) - 1):
+        for col in range(stride - 1):
+            a = row * stride + col
+            hood_faces.append((a, a + 1, a + stride + 1, a + stride))
+    hoodie = poly("chair_hoodie", hood_verts, hood_faces, (cx, cy, 0), hood_mat)
+    hoodie.modifiers.new("Thickness", "SOLIDIFY").thickness = 0.014
+    parts.append(smooth(hoodie, 2, crease=0.12))
+
+    # A sleeve hanging off one side, which is what makes it read as a garment
+    # rather than a towel.
+    parts.append(
+        cable(
+            "hoodie_sleeve",
+            [
+                (cx + neck_half * 1.20 + 0.03, cy + neck_dy + 0.03, neck_z - 0.14),
+                (cx + neck_half * 1.34 + 0.03, cy + neck_dy + 0.06, neck_z - 0.30),
+                (cx + neck_half * 1.18 + 0.03, cy + neck_dy + 0.02, neck_z - 0.44),
+            ],
+            0.032,
+            hood_mat,
+        )
+    )
+
     # A certification tag sewn into the seam. Every chair has one, and it is the
     # kind of thing nobody notices until it is missing.
     tag = cube("chair_tag", (0.05, 0.002, 0.032), (cx + 0.19, cy + 0.20, 0.455),
@@ -3336,6 +3388,96 @@ def build_details() -> list[bpy.types.Object]:
                  rotation=(math.radians(90), 0, 0)),
     ]
     out.append(join("clock", clock))
+
+    # --- signs that somebody lives here ---------------------------------
+    #
+    # None of this is furniture and none of it is expensive. The plan is right
+    # that it is the cheapest realism per hour in the whole document: a room
+    # reads as occupied because of the things nobody would think to model.
+
+    # A bin, with paper in it, and one piece that missed. Nothing says occupied
+    # like a near miss on the floor.
+    bin_mat = material("bin", "dark_metal", roughness=0.55, metallic=0.3)
+    bx, by = 1.34, -1.92
+    out.append(
+        cylinder("bin_body", 0.125, 0.30, (bx, by, 0.15), bin_mat, vertices=20)
+    )
+    out.append(
+        cylinder("bin_rim", 0.131, 0.014, (bx, by, 0.297), bin_mat, vertices=20)
+    )
+    # The opening. A solid cylinder has a lid, and everything dropped in it is
+    # buried — which is what the first pass produced: a bin with a dome on top
+    # and three invisible paper balls inside.
+    out.append(
+        cylinder("bin_well", 0.113, 0.26, (bx, by, 0.168),
+                 material("bin_void", "void", roughness=0.95), vertices=20)
+    )
+    paper_mat = material("waste_paper", "paper", roughness=0.85, grain="paper")
+    # Poking above the rim, because a bin somebody uses is never empty enough
+    # for its contents to sit below the line.
+    for i, (dx, dy, dz, spin) in enumerate((
+        (-0.035, 0.02, 0.305, 0.6), (0.042, -0.025, 0.322, -1.1), (0.005, 0.055, 0.292, 2.2),
+    )):
+        ball = cube(f"bin_paper_{i}", (0.062, 0.058, 0.050), (bx + dx, by + dy, dz), paper_mat, bevel=0)
+        ball.rotation_euler = (spin, spin * 0.6, spin * 0.3)
+        # Creased hard enough to stay faceted. Crumpled paper is planes and
+        # ridges; smoothed to a blob it reads as an egg.
+        out.append(smooth(ball, 1, crease=0.62))
+    # The one that missed, on the floor short of the bin.
+    missed = cube("paper_missed", (0.070, 0.064, 0.056), (bx + 0.26, by + 0.20, 0.030), paper_mat, bevel=0)
+    missed.rotation_euler = (0.4, 1.2, 0.8)
+    out.append(smooth(missed, 1, crease=0.62))
+
+    # A second mug, never taken to the kitchen. One mug is set dressing; two is
+    # a habit.
+    out.append(
+        cylinder("mug_second", 0.041, 0.093, (0.66, DESK_BACK + 0.20, DESK_TOP + 0.047),
+                 material("mug_second", "chair_light", roughness=0.32), vertices=22)
+    )
+    out.append(
+        cylinder("mug_second_well", 0.034, 0.070, (0.66, DESK_BACK + 0.20, DESK_TOP + 0.064),
+                 material("mug_void", "void", roughness=0.9), vertices=22)
+    )
+
+    # Shelf clutter. A shelf of upright books at even spacing is a shelf nobody
+    # owns — the ring binders, the archive box and the award are what a shelf
+    # accumulates around the books.
+    binder_mat = material("binder", "book_f", roughness=0.7)
+    for i in range(3):
+        out.append(
+            cube(f"shelf_binder_{i}", (0.20, 0.052, 0.29),
+                 (-3.06, 1.66 - i * 0.058, 0.32 + 3 * 0.5 + 0.145),
+                 binder_mat, bevel=0.004, rotation_z=math.radians(1.5 - i * 1.4))
+        )
+    out.append(
+        cube("shelf_box", (0.22, 0.30, 0.16), (-3.05, 0.36, 0.32 + 0.5 + 0.08),
+             material("archive_box", "desk", roughness=0.85, grain="paper"), bevel=0.006,
+             rotation_z=math.radians(-2.2))
+    )
+    # The award, on the capping board where the career timeline ends.
+    out.append(
+        cube("award_base", (0.09, 0.09, 0.022), (-3.04, 0.62, 2.191),
+             material("award_base", "dark_metal", roughness=0.4), bevel=0.004)
+    )
+    out.append(
+        cube("award_plate", (0.062, 0.014, 0.115), (-3.04, 0.62, 2.26),
+             material("award", "metal", roughness=0.22, metallic=0.85), bevel=0.006,
+             rotation_z=math.radians(4))
+    )
+
+    # Guitar accessories. An instrument with no accessories reads as decoration
+    # rather than as something played.
+    pick_mat = material("guitar_pick", "sticky", roughness=0.4)
+    for i, (dx, dy) in enumerate(((0.02, 0.03), (-0.03, -0.01))):
+        pick = cube(f"guitar_pick_{i}", (0.026, 0.024, 0.001),
+                    (-2.72 + dx, 2.28 + dy, 0.072), pick_mat, bevel=0.004)
+        pick.rotation_euler = (0, 0, 0.7 + i)
+        out.append(pick)
+    out.append(
+        cube("guitar_capo", (0.018, 0.062, 0.020), (-2.66, 2.34, 0.080),
+             material("capo", "metal", roughness=0.3, metallic=0.8), bevel=0.004,
+             rotation_z=math.radians(24))
+    )
 
     return out
 
