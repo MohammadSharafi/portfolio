@@ -187,6 +187,12 @@ def normal(kind: str) -> np.ndarray:
 
 RUG_SIZE = 2048
 
+# How far the border system reaches in from each edge, as a fraction of the
+# carpet. Named because the spandrels are positioned against it: a lachak sits
+# in the corner of the *field*, so both have to agree about where the field
+# starts or the corners come out half-buried.
+BORDER_DEPTH = 0.098
+
 # Natural dyes, in linear space. Madder is a deep brick with a brown undertone,
 # not a primary red — getting that wrong is the difference between an Isfahan
 # carpet and a doormat.
@@ -207,97 +213,199 @@ def _band(value: np.ndarray, centre: float, width: float) -> np.ndarray:
     return np.abs(value - centre) < width
 
 
+def _rosette(r: np.ndarray, a: np.ndarray, size: float, lobes: int, depth: float) -> np.ndarray:
+    """A lobed rosette — the shape almost every Persian motif is built from."""
+    return r < size * (1.0 + depth * np.cos(lobes * a))
+
+
 def persian_rug() -> np.ndarray:
     """A madder-red Isfahan medallion carpet, RGB, spanning the whole rug once."""
     n = RUG_SIZE
     rng = np.random.default_rng(1361)
     y, x = np.mgrid[0:n, 0:n] / (n - 1.0)
     u, v = x - 0.5, y - 0.5
-    radius = np.sqrt(u * u + (v * 1.12) ** 2)
-    angle = np.arctan2(v, u)
+
+    # Every motif below is a function of |u| and |v| rather than of u and v.
+    #
+    # That one substitution is what makes the carpet look woven instead of
+    # generated, and it is the whole reason an Isfahan is tractable to draw. A
+    # medallion carpet is symmetric about both axes, so a design expressed in
+    # absolute coordinates is four-fold symmetric for free — no quadrant to
+    # compose and mirror by hand, no seam down the middle to hide.
+    #
+    # The previous field was drawn from sine waves of u and v directly. Nothing
+    # lined up with anything, so instead of arabesque it produced a warped mesh
+    # that read as chicken wire stretched over the field, and the eye
+    # immediately knew it was looking at noise rather than ornament.
+    au, av = np.abs(u), np.abs(v)
     edge = np.minimum(np.minimum(x, 1 - x), np.minimum(y, 1 - y))
+    angle = np.arctan2(v, u)
+    radius = np.sqrt(u * u + (v * 1.06) ** 2)
 
     image = np.empty((n, n, 3))
     _lay(image, np.ones_like(x, dtype=bool), _MADDER)
 
-    # The field: arabesque vine scrolls. Thin continuous stems, made by taking a
-    # sine wave whose phase is warped by another wave and keeping only the
-    # values near zero. Thresholding a *product* of two waves instead — the
-    # first attempt — widens the line wherever either factor passes through
-    # zero, so the tracery came out as large amorphous blobs covering half the
-    # field. An Isfahan field is mostly red with fine ornament drawn over it.
-    def stem(freq: float, warp: float, wobble: float, phase: float, axis: int) -> np.ndarray:
-        drive = (x, y)[axis] * freq
-        cross = (y, x)[axis] * wobble
-        return np.abs(np.sin(np.pi * drive + warp * np.sin(np.pi * cross + phase)))
+    # ---------------------------------------------------------------- field
+    #
+    # A herati lattice: the commonest Persian field pattern there is, and the
+    # one most people would actually recognise. Each repeat is a diamond with a
+    # rosette at its centre and four curved leaves lying along the diagonals.
+    #
+    # Taking the modulus of |u| rather than of u keeps the lattice registered to
+    # the centre of the carpet, so the repeat mirrors about both axes and the
+    # medallion lands on a node instead of halfway between four of them.
+    def lattice(period: float, offset: float = 0.0):
+        lu = ((au + offset) / period) % 1.0 - 0.5
+        lv = ((av + offset) / period) % 1.0 - 0.5
+        return lu, lv, np.sqrt(lu * lu + lv * lv), np.arctan2(lv, lu)
 
-    _lay(image, stem(19, 1.05, 7, 0.0, 0) < 0.030, _IVORY)
-    _lay(image, stem(17, 1.15, 6, 1.4, 1) < 0.030, _IVORY)
-    _lay(image, stem(27, 0.85, 9, 2.1, 0) < 0.016, _GOLD)
-    _lay(image, stem(25, 0.95, 8, 0.6, 1) < 0.016, _GOLD)
-    _lay(image, stem(37, 0.70, 13, 1.9, 0) < 0.009, _GREEN)
+    period = 0.118
+    lu, lv, lr, la = lattice(period)
 
-    # Rosettes where the stems cross, alternating ivory and gold, and a scatter
-    # of small palmettes between them.
-    knot = (stem(19, 1.05, 7, 0.0, 0) < 0.075) & (stem(17, 1.15, 6, 1.4, 1) < 0.075)
-    _lay(image, knot, _GOLD)
-    _lay(image, knot & (stem(19, 1.05, 7, 0.0, 0) < 0.035), _IVORY)
-    buds = (np.sin(19 * np.pi * x + 1.6) * np.sin(17 * np.pi * y + 0.4)) > 0.988
-    _lay(image, buds, _IVORY)
+    # The vine that links each repeat to its neighbours, then the diamond it
+    # encloses. Thin: an Isfahan field is mostly ground with fine ornament over
+    # it, and a heavy line turns the lattice into a cage.
+    _lay(image, np.abs(np.abs(lu) + np.abs(lv) - 0.42) < 0.011, _GOLD)
+    _lay(image, np.abs(np.abs(lu) + np.abs(lv) - 0.30) < 0.007, _GREEN)
 
-    # The medallion — toranj. A lobed rosette, which is a circle whose radius is
-    # modulated by the angle, plus concentric rings and two pendants on the long
-    # axis. Sixteen lobes is the usual count.
-    lobed = 0.212 * (1.0 + 0.155 * np.cos(16 * angle))
+    # The four leaves — the "fish" of herati — lying along the diagonals of each
+    # cell, curved by biasing the band with the radius.
+    leaf = (np.abs(np.abs(lu) - np.abs(lv)) < 0.052 - 0.06 * lr) & (lr > 0.135) & (lr < 0.335)
+    _lay(image, leaf, _GREEN)
+    _lay(image, leaf & (np.abs(np.abs(lu) - np.abs(lv)) < 0.020 - 0.03 * lr), _IVORY)
+
+    # The rosette at every node.
+    _lay(image, _rosette(lr, la, 0.108, 8, 0.26), _IVORY)
+    _lay(image, _rosette(lr, la, 0.074, 8, 0.30), _RUST)
+    _lay(image, _rosette(lr, la, 0.036, 8, 0.34), _INDIGO)
+
+    # A second lattice, offset half a cell, carrying small palmettes into the
+    # gaps the first one leaves. Density is what separates a carpet from a
+    # tablecloth; a single lattice reads as far too sparse.
+    lu2, lv2, lr2, la2 = lattice(period, period / 2.0)
+    _lay(image, _rosette(lr2, la2, 0.052, 6, 0.40), _GOLD)
+    _lay(image, _rosette(lr2, la2, 0.022, 6, 0.40), _IVORY)
+
+    # ------------------------------------------------------------ medallion
+    #
+    # The toranj. Sixteen shallow lobes, not a starburst: a lobe on a real
+    # medallion is a rounded scallop, and driving the modulation hard enough to
+    # see from across the room turns it into a cog.
+    lobed = 0.225 * (1.0 + 0.072 * np.cos(16 * angle))
+    _lay(image, radius < lobed + 0.012, _IVORY)
     _lay(image, radius < lobed, _INDIGO)
-    _lay(image, _band(radius, lobed * 0.93, 0.006), _IVORY)
-    _lay(image, radius < lobed * 0.72, _RUST)
-    _lay(image, _band(radius, lobed * 0.60, 0.005), _GOLD)
-    # The rosette at the centre, and a ring of small lobes inside it.
-    _lay(image, radius < 0.085 * (1.0 + 0.22 * np.cos(12 * angle)), _IVORY)
-    _lay(image, radius < 0.040 * (1.0 + 0.30 * np.cos(8 * angle)), _INDIGO)
+    # Ornament inside the medallion, so it is not a flat disc of blue.
+    inner = radius < lobed * 0.90
+    _lay(image, inner, _INDIGO)
+    # A ring of small rosettes set around the medallion's inner field, placed by
+    # angle so they follow its edge. Borrowing the field lattice for this instead
+    # laid a bare X of crossing diagonals across the middle of the toranj —
+    # the lattice is registered to the carpet, not to the medallion, so nothing
+    # it produces here lands anywhere meaningful.
+    #
+    # Discrete blobs, found by distance to eight points on a ring, rather than a
+    # radial band gated by the angle. The gated band is the obvious way to write
+    # it and produces spokes: it keeps a *wedge* at every angle that passes the
+    # test, so the ornament fans out into a cartwheel instead of resolving into
+    # separate flowers.
+    sector = 2.0 * np.pi / 8.0
+    offset = (angle % sector) - sector / 2.0
+    seat = lobed * 0.74
+    blob = np.sqrt((radius - seat) ** 2 + (seat * offset) ** 2)
+    _lay(image, inner & (blob < 0.032), _GOLD)
+    _lay(image, inner & (blob < 0.017), _IVORY)
+    _lay(image, radius < lobed * 0.62, _RUST)
+    _lay(image, _band(radius, lobed * 0.62, 0.005), _GOLD)
+    _lay(image, radius < lobed * 0.50, _MADDER)
+    _lay(image, _rosette(radius, angle, 0.082, 12, 0.20), _IVORY)
+    _lay(image, _rosette(radius, angle, 0.056, 12, 0.24), _INDIGO)
+    _lay(image, _rosette(radius, angle, 0.026, 8, 0.30), _GOLD)
 
-    # Pendants, above and below.
-    for sign in (-1.0, 1.0):
-        # Close enough to overlap the medallion's lobes: a pendant is hung from
-        # the toranj, not set beside it.
-        pv = (v - sign * 0.255) * 2.2
-        stalk = np.sqrt(u * u * 26.0 + (v - sign * 0.20) ** 2 * 1.4) < 0.075
-        _lay(image, stalk, _INDIGO)
-        pendant = np.sqrt(u * u * 6.5 + pv * pv) < 0.155 * (1 + 0.22 * np.cos(12 * angle))
-        _lay(image, pendant, _INDIGO)
-        _lay(image, np.sqrt(u * u * 8.5 + pv * pv) < 0.085, _RUST)
-        _lay(image, np.sqrt(u * u * 14.0 + pv * pv) < 0.040, _IVORY)
+    # Pendants, hung from the medallion on the long axis. Written against |v| so
+    # both ends are identical without drawing either of them twice.
+    pv = (av - 0.300) * 2.1
+    stalk = (np.sqrt(u * u * 30.0 + (av - 0.245) ** 2 * 1.4) < 0.070) & (av > 0.18)
+    _lay(image, stalk, _INDIGO)
+    pendant = np.sqrt(u * u * 7.0 + pv * pv) < 0.150 * (1 + 0.14 * np.cos(12 * angle))
+    _lay(image, pendant, _IVORY)
+    _lay(image, np.sqrt(u * u * 7.6 + pv * pv) < 0.130 * (1 + 0.14 * np.cos(12 * angle)), _INDIGO)
+    _lay(image, np.sqrt(u * u * 9.5 + pv * pv) < 0.078, _RUST)
+    _lay(image, np.sqrt(u * u * 15.0 + pv * pv) < 0.034, _GOLD)
 
-    # Corner spandrels — lachak. Ivory quarter-fans in each corner, which is
-    # what frames the field and makes the medallion read as floating in it.
-    corner = np.minimum(np.abs(u), np.abs(v)) * 0 + np.sqrt(
-        (np.abs(u) - 0.5) ** 2 + (np.abs(v) - 0.5) ** 2
-    )
-    spandrel = corner < 0.235 * (1.0 + 0.10 * np.cos(10 * angle))
+    # ------------------------------------------------------------ spandrels
+    #
+    # Lachak: quarter-medallions in the corners, which is what frames the field
+    # and makes the toranj read as floating rather than as a stamp. Measured
+    # from the corner, with a scalloped inner edge so it meets the field the way
+    # the medallion does — a plain circular arc reads as a cream blob, which is
+    # exactly what the previous pass produced.
+    # Measured from the corner of the *field*, not the corner of the carpet.
+    #
+    # A lachak is a quarter-medallion sitting in the field's corner, so its
+    # centre is where the two inner guard borders would meet. Measuring from the
+    # carpet's own corner instead puts the centre of the fan underneath the
+    # border, which then overdraws most of it — what was left showing was a thin
+    # crescent with a hook on the end, and it read as damage rather than as
+    # ornament.
+    field_corner = 0.5 - BORDER_DEPTH
+    du, dv = field_corner - au, field_corner - av
+    corner = np.sqrt(du * du + dv * dv)
+    # Five scallops across the quarter turn, from an angle measured about that
+    # same corner. Guarded against the origin, where the angle is undefined and
+    # an unguarded arctan2 makes the modulation thrash.
+    corner_angle = np.arctan2(dv, np.where(np.abs(du) < 1e-6, 1e-6, du))
+    # Sized so the field still reads as the carpet's subject. At 0.250 the four
+    # fans met the medallion and squeezed the madder ground into a thin cross.
+    lip = 0.170 * (1.0 + 0.060 * np.cos(20 * corner_angle))
+    spandrel = (corner < lip) & (du > -0.02) & (dv > -0.02)
     _lay(image, spandrel, _IVORY)
-    _lay(image, spandrel & (stem(23, 0.9, 8, 0.7, 0) < 0.030), _RUST)
-    _lay(image, spandrel & (stem(21, 1.0, 7, 2.2, 1) < 0.026), _INDIGO)
-    _lay(image, spandrel & (corner > 0.225), _INDIGO)
+    # Ornament inside it, from the same lattice the field uses so the two agree.
+    _lay(image, spandrel & (np.abs(np.abs(lu) + np.abs(lv) - 0.42) < 0.011), _RUST)
+    _lay(image, spandrel & leaf, _GREEN)
+    _lay(image, spandrel & _rosette(lr, la, 0.074, 8, 0.30), _INDIGO)
+    _lay(image, spandrel & _rosette(lr, la, 0.036, 8, 0.34), _RUST)
+    # A gold hairline just inside the scalloped edge, then the edge itself.
+    _lay(image, spandrel & _band(corner, lip - 0.016, 0.003), _GOLD)
+    _lay(image, spandrel & (corner > lip - 0.006), _INDIGO)
 
-    # The border system: a wide main border between two narrow guard borders.
-    _lay(image, _band(edge, 0.052, 0.006), _GOLD)
-    main = _band(edge, 0.030, 0.020)
-    _lay(image, main, _INDIGO)
-    # Its repeating motif — alternating palmettes along the run, made from a
-    # single periodic function of whichever axis the border is running along.
+    # --------------------------------------------------------------- border
+    #
+    # A wide main border between two narrow guards, which is the standard
+    # system. Proportions matter more than the motifs: a border under about a
+    # tenth of the width reads as a picture frame rather than as part of the
+    # weaving.
     along = np.where(np.minimum(x, 1 - x) < np.minimum(y, 1 - y), y, x)
-    across = (edge - 0.030) / 0.020
-    # Cartouches: a lozenge repeated along the run, alternating in size, with a
-    # vine threaded between them. Straight stripes read as tape, not weaving.
-    beat = np.sin(64 * np.pi * along)
-    lozenge = (np.abs(across) + np.abs(beat) * 0.55) < 0.62
-    _lay(image, main & lozenge, _IVORY)
-    _lay(image, main & lozenge & ((np.abs(across) + np.abs(beat) * 0.55) < 0.30), _RUST)
-    _lay(image, main & (np.abs(np.sin(64 * np.pi * along + 1.57)) < 0.10) & (np.abs(across) > 0.55), _GOLD)
-    _lay(image, _band(edge, 0.010, 0.005), _GOLD)
-    _lay(image, edge < 0.005, _MADDER)
+    # Mirrored about the middle of each side, so the run of cartouches is
+    # symmetric and the corners resolve instead of being cut off mid-motif.
+    beat = np.abs(along - 0.5)
 
+    _lay(image, edge < BORDER_DEPTH, _INDIGO)
+
+    # Outer guard.
+    _lay(image, _band(edge, 0.086, 0.011), _GOLD)
+    _lay(image, _band(edge, 0.086, 0.011) & (np.abs(np.sin(70 * np.pi * beat)) < 0.42), _MADDER)
+
+    # Main border: alternating palmettes threaded on a vine.
+    main = edge < 0.078
+    across = (edge - 0.039) / 0.039
+    node = np.abs(np.sin(26 * np.pi * beat))
+    _lay(image, main & (np.abs(across) < 0.10), _GOLD)
+    big = main & ((np.abs(across) * 0.85 + (1.0 - node) * 1.5) < 0.60)
+    _lay(image, big, _IVORY)
+    _lay(image, big & ((np.abs(across) * 0.85 + (1.0 - node) * 1.5) < 0.34), _RUST)
+    _lay(image, big & ((np.abs(across) * 0.85 + (1.0 - node) * 1.5) < 0.15), _INDIGO)
+    small = main & ((np.abs(across) * 1.6 + node * 1.5) < 0.55)
+    _lay(image, small, _GOLD)
+    _lay(image, small & ((np.abs(across) * 1.6 + node * 1.5) < 0.28), _IVORY)
+
+    # Inner guard, then the selvedge the pile is bound off against.
+    _lay(image, _band(edge, 0.026, 0.010), _GOLD)
+    _lay(image, _band(edge, 0.026, 0.010) & (np.abs(np.sin(70 * np.pi * beat)) < 0.42), _MADDER)
+    _lay(image, edge < 0.012, _INDIGO)
+    _lay(image, edge < 0.006, _RUST)
+
+    # ----------------------------------------------------------------- wool
+    #
     # Abrash: faint horizontal bands where the dye lot changed mid-weave. The
     # single clearest signal that a carpet was knotted by hand rather than
     # printed, and it costs one line.
@@ -307,6 +415,12 @@ def persian_rug() -> np.ndarray:
     # Wool, and the knot grid it is tied on.
     knots = 1.0 + 0.055 * np.sin(np.pi * n * x / 11.0) * np.sin(np.pi * n * y / 11.0)
     image *= (knots * (1.0 + rng.normal(0, 0.018, (n, n))))[..., None]
+
+    # Pile direction. The nap lies one way, so the carpet is lighter seen from
+    # one end and darker from the other — miss it and the whole thing reads as
+    # wallpaper lying on the floor. A gentle gradient along the weave, which the
+    # anisotropic sheen in the normal map then agrees with.
+    image *= (1.0 + 0.10 * (y - 0.5))[..., None]
 
     # Traffic wear along the path from the door, and under the chair castors.
     wear = 1.0 - 0.20 * np.exp(-(((x - 0.30) / 0.16) ** 2 + ((y - 0.62) / 0.42) ** 2))
@@ -321,7 +435,6 @@ def persian_rug() -> np.ndarray:
         _lay(image, (y >= lo) & (y <= hi) & ~strands, (0.05, 0.05, 0.06))
 
     return np.clip(image, 0.0, 1.0)
-
 
 def persian_rug_normal() -> np.ndarray:
     """Pile depth for the carpet, from the luminance of its own design."""

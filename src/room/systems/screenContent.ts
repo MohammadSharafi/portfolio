@@ -33,22 +33,50 @@ function surface(width: number, height: number, background: string) {
   return { canvas, ctx };
 }
 
-function finish(canvas: HTMLCanvasElement, mirrored = false) {
+/**
+ * How a painted quad's UVs are oriented relative to the room.
+ *
+ * `plane()` in `build_room.py` gives every quad the same local UVs, so which way
+ * the drawing lands is decided entirely by the rotation that stands the quad up
+ * — and the desk and the left-hand wall need different rotations. There is no
+ * single correction that is right for both.
+ *
+ * - `as-drawn` — U runs right, V runs up. Nothing to do.
+ * - `mirror-u` — the desk surfaces. Their quads face the room across +Z, and
+ *   looking down +Z puts world +X on the left, so they sample U back to front.
+ * - `flip-v` — the left-hand wall. Standing a quad up to face +X leaves U
+ *   running to screen-right correctly but sends V *downward*.
+ *
+ * Corrected here rather than by negative-scaling the geometry, which inverts
+ * winding order and culls the face entirely — which is exactly what the first
+ * attempt at this did.
+ *
+ * A vertical flip is easy to misread as a mirror, and that cost real time here:
+ * the whiteboard was first diagnosed as needing `mirror-u` and given it, which
+ * turned a vertical flip into a 180° rotation. The tell is the letters —
+ * upside-down text renders `n` as `u` and `p` as `b` while leaving the
+ * left-to-right order of the line alone. Check a line's word order before
+ * reaching for a mirror.
+ */
+type Orientation = 'as-drawn' | 'mirror-u' | 'flip-v';
+
+function finish(canvas: HTMLCanvasElement, orientation: Orientation = 'as-drawn') {
   const texture = new CanvasTexture(canvas);
   texture.colorSpace = SRGBColorSpace;
   texture.minFilter = LinearFilter;
   texture.magFilter = LinearFilter;
   texture.anisotropy = 8;
 
-  // The screens face the room across +Z, and looking down +Z puts world +X on
-  // the left, so their quads sample U back to front and every line of text came
-  // out mirrored. Corrected here rather than by negative-scaling the geometry,
-  // which inverts winding order and culls the face entirely — which is exactly
-  // what the first attempt at this did.
-  if (mirrored) {
+  if (orientation === 'mirror-u') {
     texture.wrapS = RepeatWrapping;
     texture.repeat.x = -1;
     texture.offset.x = 1;
+  }
+
+  if (orientation === 'flip-v') {
+    texture.wrapT = RepeatWrapping;
+    texture.repeat.y = -1;
+    texture.offset.y = 1;
   }
 
   return texture;
@@ -181,7 +209,7 @@ export function clinicalScreen() {
     ctx.fillText(row, 68, y);
   });
 
-  return finish(canvas, true);
+  return finish(canvas, 'mirror-u');
 }
 
 /** Monitor 2 — the editor, showing code that is actually about this room. */
@@ -268,7 +296,7 @@ export function codeScreen() {
   ctx.fillStyle = '#7d8590';
   ctx.fillText('$ ', 22, H - 12);
 
-  return finish(canvas, true);
+  return finish(canvas, 'mirror-u');
 }
 
 /** The laptop — a terminal with the verifiable numbers. */
@@ -303,7 +331,7 @@ export function terminalScreen() {
   ctx.fillText('$ ', 30, y);
   ctx.fillRect(52, y - 15, 11, 19);
 
-  const texture = finish(canvas, true);
+  const texture = finish(canvas, 'mirror-u');
   // Where the prompt ended up, so the blinking caret can be drawn over it
   // rather than at a guessed offset. The terminal grows from the top and its
   // length depends on how many stats and roles the CV has, so the position is
@@ -414,7 +442,8 @@ export function whiteboardTexture() {
     y += 6;
   }
 
-  return finish(canvas);
+  // Faces +X on the left-hand wall, so V arrives pointing down.
+  return finish(canvas, 'flip-v');
 }
 
 /** The sticky notes — short, handwritten-feeling, and actually readable. */
@@ -462,7 +491,8 @@ export function stickyTexture() {
     ctx.restore();
   });
 
-  return finish(canvas);
+  // Same wall and same quad rotation as the whiteboard.
+  return finish(canvas, 'flip-v');
 }
 
 /**
@@ -577,7 +607,7 @@ export function cvTexture() {
   // glTF space along with them, so its quad samples U back to front and every
   // line of the CV would print in reverse. The whiteboard faces +X and is the
   // one readable surface here that does not need this.
-  return finish(canvas, true);
+  return finish(canvas, 'mirror-u');
 }
 
 /**

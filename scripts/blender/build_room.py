@@ -144,6 +144,13 @@ TEXEL_FLOOR = 0.06
 # broken by a change that looks safe.
 WALL_TOP = 5.4
 
+# How thick the carpet is. A hand-knotted wool Isfahan runs 10-14 mm including
+# the pile, and having it as a real dimension rather than a fudge factor is what
+# lets anything else in the room sit *on* the rug rather than through it — the
+# sofa feet and the coffee table both stand on the floor, and the difference is
+# only visible because the rug has a height to be above.
+RUG_THICKNESS = 0.012
+
 # Geometry built for the bake and kept out of the GLB.
 EXPORT_EXCLUDE = re.compile(r"^ceiling(\.\d+)?$")
 
@@ -954,7 +961,25 @@ def build_shell() -> list[bpy.types.Object]:
         cube("wall_left", (0.12, 5.2, WALL_TOP), (-3.2, 0, WALL_TOP / 2), accent, bevel=0),
         cube("skirting_back", (6.4, 0.05, 0.11), (0, -2.52, 0.055), material("skirt", "dark_metal")),
         cube("skirting_left", (0.05, 5.2, 0.11), (-3.12, 0, 0.055), material("skirt", "dark_metal")),
-        plane("rug", (3.9, 3.5), (0.2, 0.8, 0.004),
+        # The carpet's body, and then its face.
+        #
+        # The face has to clear the floorboards, and by more than it looks. The
+        # board lines below are 4 mm-tall cubes *centred* on z = 0.004, so they
+        # occupy 0.002 to 0.006 — and the carpet used to be a flat plane at
+        # exactly 0.004, which put it halfway through them. That is not z-fighting
+        # that better precision would fix: the boards were genuinely standing
+        # proud of the carpet, so the floor's plank grid was drawn across the
+        # middle of an Isfahan medallion.
+        #
+        # A hand-knotted wool carpet is 10-14 mm thick, so it gets that as real
+        # geometry rather than being lifted a hair. It reads as a rug lying on a
+        # floor — with a visible edge you could catch a toe on — instead of as a
+        # decal printed onto the boards.
+        cube("rug_body", (3.9, 3.5, RUG_THICKNESS), (0.2, 0.8, 0.006 + RUG_THICKNESS / 2),
+             material("rug_pile", "rug", roughness=1.0, grain="pile"), bevel=0.004),
+        # Inset half a millimetre so it never shares a plane with the body's top
+        # face, and a shade smaller so the body shows as the carpet's own edge.
+        plane("rug", (3.88, 3.48), (0.2, 0.8, 0.006 + RUG_THICKNESS + 0.0005),
               material("rug", "paper", roughness=0.96, grain="persian")),
     ]
 
