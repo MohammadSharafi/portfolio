@@ -33,6 +33,18 @@ Measured, not guessed: **the Toronto skyline is consuming 94% of your lightmap**
 
 That is why the bake looks soft. It is not the lighting. Fix this and every surface you actually look at gets roughly **16× the texel density**, for free.
 
+```
+Share of the 4096x4096 lightmap
+[############### Toronto skyline -- 94% ###############][.....]
+the whole room shares the last 6%  |  the desk gets 0.1%
+
+How much of that atlas is used at all
+[##14%##][.................................................]
+the other 85% of 16.7 million pixels is blank
+```
+
+_**Measured off the model, not estimated.** The skyline is 7,541 m² of building faces and Blender packs the atlas by surface area, so it wins by a landslide. Excluding it should give every surface in the room about sixteen times the texel density._
+
 - [ ] **Exclude the skyline from the lightmap** `S` — It is self-lit and 26 m outside a window. It needs no baked lighting at all — give it a flat emissive material and drop it from the bake set.
 - [ ] **Re-pack the atlas so it fills the square** `S` — 85% of 16.7 million pixels are currently empty. Tighter island margins and a repack.
 - [ ] **Give small props a texel floor** `M` — A pencil should not get the same share as a wall just because it is small. Weight the pack so nothing lands under a usable resolution.
@@ -62,6 +74,21 @@ _Phase 2_
 A room reads as real when it is full of things nobody would think to model. Not furniture — furniture is the easy part and yours is already there. It is the light switch, the socket behind the desk, the coat on the back of the door, the crumpled paper that missed the bin.
 
 **One thing to understand before you commit.** A room you look at from outside only needs detail where the camera goes. A room you _walk around in_ needs detail everywhere, because the player can put their nose against anything. Your keyboard currently has 75 blank keycaps with no legends on them — invisible from the establishing shot, and the first thing a walking character would stand on. Deciding to make this playable raises the detail bar across the entire room, and that is a cost worth accepting deliberately rather than discovering later.
+
+```
+  back wall -----------------------------------------------
+  |[whiteboard]  |monitors| |laptop| |kbd| |CV|   [window]  |
+  |              ============ desk ============    [rack]   |
+  |[bookshelf]              (chair)                         |
+  |         .....  walking route  .....                     |
+  |       +------------ Persian rug ------------+           |
+  |       |           [coffee table]            |   [plant] |
+  |       |              [sofa]                 |           |
+  |       +-------------------------------------+           |
+  (open) ------------------------------- (open)   camera ^
+```
+
+_**The room to scale, from the coordinates in `build_room.py`.** Two walls, two open sides, 6.4 × 5.2 m. Note how much floor is empty: that space is the walking route, and it is why the room can take a great deal more clutter around its edges without crowding._
 
 ### The shell — what a room has and yours does not
 
@@ -406,6 +433,20 @@ This is worth insisting on, because the fiction does three jobs at once. It make
 
 Get these wrong and nothing else lands. These are derived from your room's real dimensions, not picked by feel.
 
+```
+top of the window     235 cm   19.6x
+top of the bookshelf  211 cm   17.6x  <- the career climb
+top of the monitors   152 cm   12.7x
+top of the CV         109 cm    9.1x
+desk top               79 cm    6.6x  <- the cliff
+chair seat             55 cm    4.5x  <- first real obstacle
+sofa seat              42 cm    3.5x
+jump reach             26 cm    2.2x  <- cannot reach the chair
+the character          12 cm    1.0x
+```
+
+_**Why 12 cm is the right height.** The desk becomes 6.6× the character — the ratio a four-storey building has to a person. The bookshelf is 17.6×, which is why it can carry the whole career as a climb. Jump reach deliberately falls short of the chair seat._
+
 | Property       | Value                | Why                                                                                                                                                            |
 | -------------- | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Height         | 12 cm                | The desk at 79 cm becomes 6.6× your height — the same ratio a four-storey building has to a person. A genuine cliff.                                           |
@@ -585,6 +626,63 @@ Eleven, ordered roughly as a player would meet them. Each one is built around a 
   - **Add the shoulder charge next, not climbing.** Pushing things off the desk is a fraction of the cost of a climbing system and it is what makes the room a toy. Prove people want to play before paying for grip pads.
   - **Cut first if time runs short:** the timed challenge, the glider and the guitar. They are the most work for the least revealed about you.
   - **Never cut:** the way out. A recruiter who cannot get from the game to your CV in one click is a recruiter you have lost.
+
+---
+
+## Sound
+
+_Reference_
+
+The most undervalued half of realism. A room with the right sound and mediocre visuals reads as more real than the reverse, and almost nobody spends here. Your audio is currently synthesised in a Web Audio graph — excellent for keeping the download small, and it will not stretch to footsteps on six surfaces.
+
+- [ ] **Footsteps that change with the surface** `M` — Six variants: floorboard, rug pile, desk laminate, paper, fabric, metal. The character will spend its whole life walking, so this is the sound the visitor hears most and the one worth getting right.
+- [ ] **Positional audio, properly attenuated** `M` — The rack hums from the corner, the lamp buzzes faintly, the window carries traffic. Walking toward a sound and hearing it grow is the cheapest way to make a space feel like it has volume.
+- [ ] **A room tone under everything** `S` — Real silence does not exist. A barely audible bed of fan noise and street hum is what makes the moment you mute it feel wrong.
+- [ ] **Impact sounds keyed to physics** `M` — Velocity drives volume, material drives the sample. The mug landing on the rug and on the floorboards must not be the same sound.
+- [ ] **Mechanism sounds** `S` — Drawer runners, the chair's gas lift, the lamp switch, a keyboard press, the laptop lid. Each is a moment the room answers you.
+- [ ] **Never autoplay, and always leave the toggle visible** `S` — Browsers block it and people hate it. Sound off by default, one obvious control — which is already how your room behaves.
+- [ ] **Budget the bytes** `S` — Mono, 24 kHz, compressed, loaded after first render. Audio is easy to let quietly double your download.
+
+---
+
+## Reachable by everyone
+
+_Reference · do not skip_
+
+Your written site is already careful about this — there is a visually hidden document carrying every panel, reduced-motion handling, and real focus management. A game mode can undo all of that quietly, and this is a portfolio: **the person you cannot afford to lose is the one who cannot use a mouse.**
+
+- [ ] **Everything the game reveals must exist outside the game** `S` — The one non-negotiable. If a project can only be found by climbing a bookshelf, it cannot be found by a screen reader, a crawler, or anyone in a hurry. The written site is the contract.
+- [ ] **Full keyboard play** `S` — Move, jump, scan and interact without a mouse, with the bindings shown. Not an accessibility feature so much as a basic one.
+- [ ] **Reduced motion is respected in the game too** `S` — No camera shake, no bob, no idle sway. Your hook already reads the preference — the game has to honour it rather than starting fresh.
+- [ ] **No colour-only signals** `S` — Interactive objects need an outline or an icon, not just a tint. The red LEDs on the rack must also blink or move.
+- [ ] **An option to remove the timer** `S` — The 3 a.m. challenge is the only timed thing in the game. Offer to turn it off; it costs nothing and it excludes nobody.
+- [ ] **Announce what the scanner finds** `M` — A live region carrying the name of whatever is focused, so the game narrates itself.
+- [ ] **One obvious way out, always on screen** `S` — Not in a menu. A recruiter who cannot get from the game to your CV in a single click is a recruiter you have lost.
+
+---
+
+## Where each piece goes
+
+_Reference_
+
+Mapped onto the repository as it stands, so none of this has to be worked out twice. The pattern the room already follows is worth keeping: **geometry is generated by Python, behaviour lives in TypeScript, and content lives in `src/data`** so the room and the written site can never disagree about a fact.
+
+| Work                        | Where                                                                                                                               |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Anything with a shape       | `scripts/blender/build_room.py` — the whole room is generated here, including every new object in Phase 2.                          |
+| Surface treatment           | `scripts/blender/grain_maps.py` — add the Persian rug here as a new grain kind, and raise the resolution for it specifically.       |
+| Checks that catch mistakes  | `scripts/blender/export_room.py` — resting, clearance and camera-stop checks live here. Add one whenever something breaks silently. |
+| Lighting                    | `add_lighting()` in the builder, then `bake_room.py`. Nothing about lighting belongs in TypeScript.                                 |
+| Anything with writing on it | `src/room/systems/screens.ts` — canvas textures for screens, spines, the CV page. Keycap legends and labels go here too.            |
+| Camera stops and panels     | `src/room/data/objects.ts` — one entry per object. Never hard-code a camera position anywhere else.                                 |
+| Moving parts                | `src/room/systems/Animations.tsx` — drawers, the chair, the lid. Match by mesh name so the bake cannot break them.                  |
+| Game state                  | `src/room/engine/store.ts` — it already has `discovered` and an unused `secrets` array waiting for exactly this.                    |
+| Character and controller    | New: `src/room/character/`. Keep it out of the existing systems so the tour still works if the game is switched off.                |
+| Facts about you             | `src/data/*.ts` — one source, read by the room, the panels, the CV page and the written site alike.                                 |
+
+- [ ] **Keep the game switchable off** `S` — If the character system can be disabled with one flag and the room still works completely, you can ship the realism work without waiting for the game to be finished.
+- [ ] **Add a check for every silent failure** `S` — Three have bitten already: dead camera stops, props inside one another, and a stale bake. Each is now a check that runs on every build. Whenever something breaks without saying so, that is the signal to write the fourth.
+- [ ] **Never let a fact live in two places** `S` — Every number in the room traces back to `src/data`. The moment a figure is typed into a texture or a panel by hand, the room can start contradicting your CV.
 
 ---
 
