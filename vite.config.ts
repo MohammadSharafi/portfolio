@@ -5,7 +5,7 @@ import react from '@vitejs/plugin-react-swc';
 import tailwindcss from '@tailwindcss/vite';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type { Plugin } from 'vite';
 import { SITE_URL } from './src/lib/site';
@@ -62,8 +62,59 @@ function siteUrl(): Plugin {
   };
 }
 
+/**
+ * Lets the offline renderer use the screens the site actually draws.
+ *
+ * Every readable surface in the room — the dashboards, the code editor, the
+ * whiteboard, the CV — is a canvas painted at runtime by `screenContent.ts`.
+ * Blender has no equivalent, so in a Cycles render those surfaces come out
+ * black, and a hero shot of a developer's room with six dead monitors in it is
+ * not a hero shot.
+ *
+ * The alternative was reimplementing 700 lines of canvas drawing in Python,
+ * which would then be a second copy to keep in step with the first, and would
+ * be wrong in some small way nobody noticed until a render shipped. Instead the
+ * browser draws them exactly as it does for visitors and posts the pixels here,
+ * and `render_hero.py` loads what it wrote. One implementation, both outputs.
+ *
+ * Dev only, and deliberately narrow: it accepts a bare filename matching
+ * `[a-z][a-z0-9_]*`, joins it to one fixed directory, and rejects everything
+ * else. It writes files on request, so it must never be reachable from a
+ * built site — `apply: 'serve'` is what guarantees that.
+ */
+function screenDump(): Plugin {
+  const target = path.join(rootDir, 'scripts', 'blender', 'screens');
+  return {
+    name: 'screen-dump',
+    apply: 'serve',
+    configureServer(server) {
+      server.middlewares.use('/__screens', (request, response) => {
+        const name = (request.url ?? '').replace(/^\//, '');
+        if (request.method !== 'POST' || !/^[a-z][a-z0-9_]*$/.test(name)) {
+          response.statusCode = 400;
+          return response.end('expected POST /__screens/<name>');
+        }
+        const chunks: Buffer[] = [];
+        request.on('data', (chunk: Buffer) => chunks.push(chunk));
+        request.on('end', () => {
+          try {
+            mkdirSync(target, { recursive: true });
+            const body = Buffer.concat(chunks).toString('utf8');
+            const png = Buffer.from(body.replace(/^data:image\/png;base64,/, ''), 'base64');
+            writeFileSync(path.join(target, `${name}.png`), png);
+            response.end(`wrote ${name}.png (${png.length} bytes)`);
+          } catch (error) {
+            response.statusCode = 500;
+            response.end(String(error));
+          }
+        });
+      });
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [react(), tailwindcss(), siteUrl()],
+  plugins: [react(), tailwindcss(), siteUrl(), screenDump()],
   define: {
     __ROOM_HASH__: JSON.stringify(roomHash()),
   },

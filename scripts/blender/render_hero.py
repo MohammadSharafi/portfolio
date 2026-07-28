@@ -25,8 +25,8 @@ render's own scene and is never exported.
 from __future__ import annotations
 
 import argparse
-import math
 import os
+import re
 import sys
 
 import bpy
@@ -35,6 +35,8 @@ from mathutils import Vector
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.normpath(os.path.join(HERE, "..", ".."))
 OUT_DIR = os.path.join(HERE, "renders")
+# Written by the dev server's `screen-dump` endpoint; see vite.config.ts.
+SCREEN_DIR = os.path.join(HERE, "screens")
 
 sys.path.insert(0, HERE)
 
@@ -132,6 +134,83 @@ def photoreal_overrides() -> int:
     return upgraded
 
 
+# Which dumped canvas belongs on which object, and whether that surface emits.
+#
+# Keyed by object name and mirroring `Screens.tsx`'s own TARGETS map, because
+# these are the same surfaces: the browser paints them at runtime and this
+# paints them for the render. A screen is a light source in the room and a
+# whiteboard is paper, which is the whole difference between the two columns.
+SCREENS: dict[str, tuple[str, float]] = {
+    "ix_monitor_health_display": ("clinical", 2.6),
+    "ix_monitor_code_display": ("code", 2.6),
+    "ix_laptop_display": ("terminal", 2.2),
+    "ix_whiteboard_face": ("whiteboard", 0.0),
+    "ix_sticky_notes": ("sticky", 0.0),
+    "ix_cv_face": ("cv", 0.0),
+}
+
+
+def paint_screens() -> int:
+    """
+    Put the site's own screen content on the screens.
+
+    Without this every readable surface in the room renders black: they are
+    `MeshBasicMaterial` carrying a canvas at runtime, and Cycles has neither.
+    A hero shot of a developer's room with six dead monitors is not a hero shot.
+
+    The images come from the running dev server via the `screen-dump` endpoint
+    in `vite.config.ts`, so what renders here is what visitors actually see,
+    down to the line of code on the editor — not a second implementation that
+    drifts. Missing dumps are skipped with a warning rather than failing the
+    render, since the wide views do not all show a screen.
+    """
+    if not os.path.isdir(SCREEN_DIR):
+        print(f"[render_hero] no screen dumps in {SCREEN_DIR}; screens will render dark")
+        return 0
+
+    painted = 0
+    for obj in bpy.context.scene.objects:
+        if obj.type != "MESH":
+            continue
+        # glTF splits multi-material meshes and suffixes them; the runtime
+        # strips the same suffix for the same reason.
+        base = re.sub(r"_\d+$", "", obj.name)
+        entry = SCREENS.get(obj.name) or SCREENS.get(base)
+        if entry is None:
+            continue
+        name, emission = entry
+        path = os.path.join(SCREEN_DIR, f"{name}.png")
+        if not os.path.exists(path):
+            print(f"[render_hero] {obj.name} wants {name}.png, which is not there")
+            continue
+
+        mat = bpy.data.materials.new(f"render_{name}")
+        mat.use_nodes = True
+        bsdf = mat.node_tree.nodes["Principled BSDF"]
+        tex = mat.node_tree.nodes.new("ShaderNodeTexImage")
+        tex.image = bpy.data.images.load(path, check_existing=True)
+        tex.interpolation = "Cubic"
+        tex.location = (-400, 200)
+
+        if emission > 0:
+            # An emitting panel, so the picture goes to emission and the base
+            # colour goes black: a monitor is not a lit surface showing an
+            # image, it *is* the image, and leaving base colour in place would
+            # add a diffuse copy of the UI on top of the glowing one.
+            bsdf.inputs["Base Color"].default_value = (0.0, 0.0, 0.0, 1.0)
+            bsdf.inputs["Roughness"].default_value = 0.28
+            bsdf.inputs["Emission Strength"].default_value = emission
+            mat.node_tree.links.new(tex.outputs["Color"], bsdf.inputs["Emission Color"])
+        else:
+            bsdf.inputs["Roughness"].default_value = 0.62
+            mat.node_tree.links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
+
+        obj.data.materials.clear()
+        obj.data.materials.append(mat)
+        painted += 1
+    return painted
+
+
 def add_camera(view: str, no_dof: bool) -> bpy.types.Object:
     position, target, focal, fstop = VIEWS[view]
     bpy.ops.object.camera_add(location=position)
@@ -176,6 +255,7 @@ def main() -> None:
 
     upgraded = photoreal_overrides()
     print(f"[render_hero] upgraded {upgraded} material slot(s) beyond what the browser can draw")
+    print(f"[render_hero] painted {paint_screens()} screen(s) with the site's own content")
 
     scene = bpy.context.scene
     bake_room.configure_cycles(args.samples, force_cpu=False, exposure=0.0)
