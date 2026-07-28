@@ -629,6 +629,144 @@ Eleven, ordered roughly as a player would meet them. Each one is built around a 
 
 ---
 
+## Seven forks, and what each one costs
+
+_Decisions_
+
+Everywhere the plan so far assumes one path, here is the path and its alternatives. Each has a recommendation, but the recommendation is mine and the decision is yours — several of these are taste rather than engineering. Tick a fork once you have chosen.
+
+- [ ] **How the character is lit** `M` — 3 options
+  - **Blob shadow and a matched tone.** One soft shadow under the feet, ambient light tinted to the room. Half a day. Looks slightly pasted-on if you stare. _Recommended to start._
+  - **Light probes through the room.** Sample the baked lighting at a grid of points so the character picks up local colour as it moves — warm under the lamp, blue by the monitors. A week. This is what real games do.
+  - **Abandon the bake, light everything in real time.** Perfect consistency, a much lower ceiling on quality, and it spends your entire frame budget on lighting. _I would argue against this one._
+
+- [ ] **How climbing works** `L` — 3 options, and this is the most expensive fork in the document
+  - **Anchor points only.** You place climb points by hand; the character moves between them. Cheapest by a wide margin, completely predictable, and it means every route is deliberate. A few days.
+  - **Climbable volumes.** Invisible boxes around the chair, the shelf and the sofa that the character can climb freely inside. Middle cost, feels much freer, and the boxes have to be authored anyway.
+  - **A real surface-detection system.** Any material tagged climbable, with ledge grabs and transitions. Weeks, and the one thing here most likely to eat a month. _Only worth it if exploring turns out to be what people actually do._
+
+- [ ] **Where the camera sits during play** `M` — 3 options
+  - **Third person, behind the shoulder.** Conventional, readable, and it puts the room's scale right in front of you. Needs collision so it does not end up inside the sofa. _Recommended._
+  - **Fixed isometric, following.** Much simpler — no collision problem at all, since the camera never enters the room. Reads as a toy, which suits the premise, but loses the sense of being small.
+  - **First person.** Most immersive, hardest to control at this scale, and it throws away the character you spent time choosing. _Not for this._
+
+- [ ] **What the room is trying to look like** `M` — 3 options — this is taste, not engineering
+  - **Believable, not photoreal.** Real proportions, real wear, stylised materials. What Bruno Simon does, what your room already is, and what the web can actually carry. _Recommended._
+  - **Miniature diorama.** Lean into the toy scale — tilt-shift blur, slightly oversaturated, everything reading as a model on a table. Distinctive, memorable, and it makes the character's size the whole point.
+  - **Photoreal.** Scanned materials, 4K textures, heavy post. Forty megabytes and twenty frames per second on a phone. _The trap this document opens by warning about._
+
+- [ ] **How to fix the skyline's 94%** `S` — 3 options
+  - **Drop it from the bake entirely.** Flat emissive material, no lightmap at all. It is self-lit and 26 m away, so it loses nothing. Simplest and best. _Recommended._
+  - **Give it its own small atlas.** Keeps baked lighting on it if you ever want the buildings to catch a sunset, at the cost of a second texture.
+  - **Weight the packer so it gets less.** Keeps everything in one atlas but keeps the complexity too, and it will drift again the moment the skyline grows.
+
+- [ ] **How the content reaches the visitor** `M` — 3 options
+  - **Panels, as now.** Click, a card opens with the text. Fast, accessible, already built, and it works identically in both modes. _Keep this whatever else you add._
+  - **Diegetic only.** Everything is on a screen, a page or a spine inside the room; no cards at all. Beautiful, and it makes the content much harder to reach in a hurry.
+  - **Both, with the panel as the fallback.** Screens and pages carry the content for people exploring, panels carry it for people reading. More work, and it is what the room is already halfway to doing.
+
+- [ ] **How much of this ships at once** `S` — 3 options
+  - **Realism now, game later.** Phases 0 to 2 make the room clearly better on their own and need nothing from anyone else. Ship, then start the game. _Recommended — the room improves while the game is still being built._
+  - **Everything at once.** One big release. More coherent, and it means months with nothing live.
+  - **Game first, realism after.** Proves the fun quickly. The risk is that a game in a soft-looking room is a game nobody looks at twice.
+
+---
+
+## Sixty-five things the room could do
+
+_Catalogue · pick any of these and I will build them_
+
+Concrete, individually shippable actions. Almost all of them need nothing from you — no downloads, no modelling, no bake. The ones marked **needs the character** wait on the Quaternius file; everything else I can start today.
+
+They are ordered within each group by how much they give back for what they cost, so working down a group from the top is a reasonable strategy on its own.
+
+### What the character does to the room · needs the character
+
+- [ ] **Push and slide objects by walking into them** `S` — The physics bodies already exist; what is missing is the character being able to transfer force to them.
+- [ ] **Knock things off the desk edge** `S` — The first genuinely delightful thing anyone will do.
+- [ ] **Spin the chair by running into it** `S` — The spin maths was written and then removed. Rewiring it to a collision impulse is an hour.
+- [ ] **Ride the chair while it spins** `M` — Parent the character to the seat while it is standing on it. Silly, and people will do it repeatedly.
+- [ ] **Press a keyboard key and watch the letter appear on the monitor** `M` — The single best action in this list. It connects two objects across the room and it proves the room is a system rather than a set.
+- [ ] **Stand on the mouse and move the on-screen cursor** `M` — Same idea, and it turns a prop into a control.
+- [ ] **Bump the lamp switch on and off** `S` — The lamp already switches. This makes it physical.
+- [ ] **Open and close drawers by pushing and pulling** `M` — Needs the drawer faces split out first.
+- [ ] **Ride a drawer as a lift** `S` — Falls out of the previous item almost for free, and it is a real traversal route.
+- [ ] **Trampoline on the sofa cushion** `S` — One bouncy material and a jump multiplier.
+- [ ] **Tip a book over to make a ramp** `M` — Turns the shelf from scenery into a puzzle piece.
+- [ ] **Topple a row of books like dominoes** `S` — Pure physics, no new systems, and enormously satisfying.
+- [ ] **Roll the pencil, and ride it** `S` — A rolling cylinder is a moving platform you already own.
+- [ ] **Slide down a cable** `M` — The cables are already bezier curves, which is exactly what a zip line needs.
+- [ ] **Swing on a hanging cable** `M` — A two-link pendulum. More work than the slide, more fun than it too.
+- [ ] **Tip the mug and spill it** `M` — The consequence moment. Pairs with the papers underneath.
+- [ ] **Hide inside the mug** `S` — Nobody will expect it to work. That is the entire reason to build it.
+- [ ] **Peel off a sticky note and carry it** `M` — Carrying anything at all is a new verb, and this is the cheapest thing to test it on.
+- [ ] **Walk the guitar strings like a xylophone** `M` — Six strings, six notes, and it turns an ornament into an instrument.
+- [ ] **Pull the blind cord** `S` — A small mechanism that changes the room's light.
+- [ ] **Climb the plant** `M` — Organic climbing geometry, quite different in feel from furniture.
+- [ ] **Push the door open** `S` — A hinge constraint and a stop.
+- [ ] **Turn the clock hands** `S` — And if the clock is showing real time, watch it snap back.
+- [ ] **Drag paper across the desk** `M` — Needed for the spill rescue, useful on its own.
+- [ ] **Turn the notebook's pages** `L` — The hard one. A page bends, so it needs bones and hand-authored animation.
+
+### Tools the character carries · needs the character
+
+- [ ] **Scanner — highlight and read nearby objects** `M` — The diegetic replacement for clicking.
+- [ ] **Data jack — plug into ports to open a project** `M` — The strongest content delivery in the whole design.
+- [ ] **Torch** `S` — Doubles the explorable room for very little modelling.
+- [ ] **Grapple line to authored anchor points** `M` — Vertical traversal without a climbing system.
+- [ ] **Grip pads for soft surfaces** `L` — The expensive one. See the climbing fork above.
+- [ ] **Paper glider for getting down** `S` — Solves the stranded-on-the-desk problem you will hit within minutes.
+- [ ] **Drive the toy car** `M` — The speed contrast, and the nod to what inspired this.
+- [ ] **Sit on things** `S` — Chair, sofa, books. Small, and it makes the character read as inhabiting rather than traversing.
+- [ ] **Emotes — wave, celebrate, look around** `S` — Idle personality. Cheap if the animation set has them.
+
+### What the room does on its own · I can build all of these now
+
+- [ ] **The clock tells the visitor's real time** `S` — Two lines of code, and the first thing anyone notices when they spot it.
+- [ ] **Time of day follows the visitor's local clock** `M` — Morning light for a morning visitor. The store already has a time-of-day field doing nothing.
+- [ ] **Mug steam** `S` — Reacts to the mug moving, stops when it is knocked over.
+- [ ] **Dust motes in the lamp beam** `M` — Almost the definition of atmosphere.
+- [ ] **Rack LEDs blinking independently** `S` — Synchronised blinking is the giveaway. Independent rates cost nothing and fix it.
+- [ ] **Skyline windows twinkling** `S` — A few hundred lights going on and off on their own schedules.
+- [ ] **The terminal types by itself** `S` — The live-region system is already painting the screens at 12 Hz.
+- [ ] **Screens cycle through content** `M` — More of your work visible without anyone clicking anything.
+- [ ] **The lamp flickers as it comes on** `S` — Two hundred milliseconds of imperfection.
+- [ ] **The LED strip drifts slowly through hues** `S` — The wall wash changes colour over minutes rather than seconds.
+- [ ] **The plant sways** `S` — Barely. Enough that the room is never quite still.
+- [ ] **The phone lights up with a notification** `S` — Occasionally, briefly. A room where something happens without you.
+- [ ] **The screens sleep after a long idle** `M` — And wake when the visitor moves. The room notices you are there.
+- [ ] **Heat shimmer over the server rack** `M` — Small, and nobody models it.
+- [ ] **Room tone that rises and falls** `S` — Fan noise breathing under everything.
+- [ ] **The chair settles slowly after being spun** `S` — Already written and removed. Twenty minutes to restore.
+
+### For the visitor, with no character at all · I can build all of these now
+
+- [ ] **Photo mode** `M` — Free camera, hide the interface, save the image. The most valuable single feature for reach — people share screenshots, and every one carries your name.
+- [ ] **A guided tour that plays itself** `M` — Camera moves object to object with the panels opening. For anyone who lands and does not want to click.
+- [ ] **Free camera in tour mode** `S` — Orbit, pan, zoom anywhere. Some people just want to look.
+- [ ] **Reset the room** `S` — Necessary the moment anything can be disarranged.
+- [ ] **Deep links to an object** `S` — A URL that opens the room already looking at one project. Shareable, and it means a specific piece of work can be sent to someone directly.
+- [ ] **Discovery counter** `S` — Quiet progress, no percentage bar. The store already tracks what has been found.
+- [ ] **Hidden things in hard places** `M` — Seven of them, listed earlier. The unused secrets array is waiting.
+- [ ] **A welcome back for returning visitors** `S` — The store already counts visits and does nothing with the number.
+- [ ] **Achievements** `M` — Only if they mark real exploration. Otherwise it is noise.
+- [ ] **A generated social preview of the room** `M` — An image for link unfurls, rendered from the actual model rather than a screenshot that will go stale.
+
+### Under the hood · unglamorous, and each prevents a class of bug
+
+- [ ] **A performance overlay in development** `S` — Frames, draw calls, memory. You cannot hold a budget you cannot see.
+- [ ] **A visual regression check on the room** `M` — Render the model from fixed cameras on every build and diff. It would have caught three bugs in this document before they shipped.
+- [ ] **A texel-density check in the export** `S` — Fails the build if any object drifts off the half-metre tile.
+- [ ] **A size budget that fails the build** `S` — The most effective way to keep a 3D site loadable is to make exceeding the budget an error.
+- [ ] **One flag that turns the game off** `S` — So the realism work can ship without waiting for the game to be finished.
+
+> **If you want a shortlist**
+>
+> **Five that need nothing from you and change the room today:** the real-time clock, the chair settling, independent rack LEDs, mug steam, and photo mode. Between them that is about two days, and the room stops being a still image.
+> **And one that is worth more than any of them:** pressing a keyboard key and watching the letter appear on the monitor. It connects two objects across the room and proves the place is a system rather than a set. It needs the character, so it waits — but when you ask me what to build first once the character lands, that is the answer.
+
+---
+
 ## Sound
 
 _Reference_
