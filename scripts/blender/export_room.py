@@ -348,6 +348,50 @@ def check_lights() -> list[str]:
     return complaints
 
 
+# Things whose whole meaning is their distance from something else, as
+# (object, reference, nearest, furthest, along which axis, what it is for).
+# A chair belongs to a desk. Measured front-edge to front-edge: a chair tucked
+# in overlaps the desk by a few centimetres, and one pushed back sits within
+# arm's reach of it. Half a metre is a chair in the middle of the room.
+PAIRED = (
+    ("ix_chair", "desk_top", -0.10, 0.35, 1, "a chair belongs to its desk"),
+)
+
+
+def check_paired() -> list[str]:
+    """
+    Objects that only make sense next to another object, drifting apart.
+
+    The desk rescale moved its front edge back 55 cm. Everything standing *on*
+    the desk was rebuilt with it, but the chair — which is not on the desk and
+    so was not in the list — stayed where it was, leaving it stranded half a
+    metre out in open floor. A chair nobody could reach the keyboard from, in a
+    room where the chair is the object people look at hardest.
+
+    Nothing about that looks broken in a render. It reads as a chair someone
+    pushed back, because that is a thing chairs do — which is why the fix is a
+    check and not a better look at the picture.
+    """
+    complaints = []
+    for name, reference, nearest, furthest, axis, why in PAIRED:
+        obj = bpy.data.objects.get(name)
+        ref = bpy.data.objects.get(reference)
+        if obj is None or ref is None:
+            continue
+        # Front edges: the lesser extent along the axis for the object, and the
+        # greater for the reference, since the room seats a person on the +y
+        # side of a desk pushed against the -y wall.
+        front = min((obj.matrix_world @ v.co)[axis] for v in obj.data.vertices)
+        edge = max((ref.matrix_world @ v.co)[axis] for v in ref.data.vertices)
+        gap = front - edge
+        if not nearest <= gap <= furthest:
+            complaints.append(
+                f"{name} is {gap * 100:.0f} cm from {reference}, outside "
+                f"{nearest * 100:.0f}–{furthest * 100:.0f} cm — {why}"
+            )
+    return complaints
+
+
 # The solids that make up the room's shell. Anything mounted on one has to be
 # in front of it, not inside it.
 # Not the floor: a rug lying on it is inside its bounding box and entirely
