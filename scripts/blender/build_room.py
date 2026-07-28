@@ -1361,6 +1361,60 @@ def build_monitors() -> list[bpy.types.Object]:
         # last decade is proportioned.
         panel = cube(f"{name}_body", (panel_w, 0.019, panel_h), (x, back, centre_z), shell, rotation_z=tilt)
         parts = [panel]
+
+        # Glass over the panel, with the display set behind it.
+        #
+        # An emissive plane flush with the bezel is the single thing that most
+        # reliably makes a monitor read as a screenshot of a monitor. A real one
+        # has a sheet of glass in front, the panel recessed behind it, and a
+        # black mask between the two — and at night, when most of the screen is
+        # dark, that glass is mostly reflecting the room.
+        glass = cube(f"{name}_glass", (panel_w - 0.008, 0.003, panel_h - 0.008),
+                     (x + math.sin(tilt) * 0.011, back + 0.011, centre_z), 
+                     material("screen_glass", "screen", roughness=0.06, metallic=0.4),
+                     rotation_z=tilt, bevel=0.001)
+        parts.append(glass)
+        # The mask around the panel, which is what the bezel lips over.
+        parts.append(
+            cube(f"{name}_mask", (panel_w - 0.004, 0.004, panel_h - 0.004),
+                 (x + math.sin(tilt) * 0.008, back + 0.008, centre_z),
+                 material("screen_mask", "void", roughness=0.9), rotation_z=tilt, bevel=0)
+        )
+        # The OSD joystick nub under the right of the chin, and a brand mark on
+        # it. Every monitor has both and neither is ever modelled.
+        parts.append(
+            cylinder(f"{name}_osd", 0.005, 0.010,
+                     (x + math.cos(tilt) * 0.20, back - 0.014, centre_z - panel_h / 2 + 0.010),
+                     material("osd_nub", "dark_metal", roughness=0.4), vertices=8,
+                     rotation=(math.radians(90), 0, 0))
+        )
+        parts.append(
+            cube(f"{name}_brand", (0.038, 0.004, 0.007),
+                 (x, back + 0.011, centre_z - panel_h / 2 + 0.011),
+                 material("brand_mark", "metal", roughness=0.3, metallic=0.7),
+                 rotation_z=tilt, bevel=0)
+        )
+        # Ventilation slots across the back, and the VESA plate with its four
+        # screws. A monitor's back is a moulding, not a slab.
+        for slot in range(7):
+            parts.append(
+                cube(f"{name}_vent_{slot}", (0.20, 0.004, 0.005),
+                     (x + math.sin(tilt) * 0.04, back - 0.045, centre_z + 0.055 + slot * 0.011),
+                     material("vent", "void", roughness=0.9), rotation_z=tilt, bevel=0)
+            )
+        parts.append(
+            cube(f"{name}_vesa", (0.10, 0.006, 0.10),
+                 (x + math.sin(tilt) * 0.045, back - 0.047, centre_z - 0.010),
+                 material("vesa", "dark_metal", roughness=0.5), rotation_z=tilt, bevel=0.002)
+        )
+        for sx in (-0.04, 0.04):
+            for sz in (-0.04, 0.04):
+                parts.append(
+                    cylinder(f"{name}_vesa_screw_{sx}_{sz}", 0.0035, 0.004,
+                             (x + sx + math.sin(tilt) * 0.05, back - 0.050, centre_z - 0.010 + sz),
+                             material("vesa_screw", "metal", roughness=0.3, metallic=0.9),
+                             vertices=6, rotation=(math.radians(90), 0, 0))
+                )
         parts.append(
             cube(f"{name}_housing", (0.34, 0.036, 0.20), (x + math.sin(tilt) * 0.03, back - 0.026, centre_z - 0.005),
                  shell, rotation_z=tilt)
@@ -1443,6 +1497,64 @@ def build_laptop() -> list[bpy.types.Object]:
                 )
             )
 
+    # --- the parts that say "machined aluminium" -------------------------
+    #
+    # A laptop is a milled shell, and everything that says so lives on its
+    # edges: a polished chamfer catching a line of light, ports cut into the
+    # side with a visible wall thickness, a seam where lid meets base. Without
+    # them it is a box with keys on it.
+
+    chamfer_mat = material("laptop_chamfer", "metal", roughness=0.18, metallic=0.9)
+    for side in (-1, 1):
+        parts_base.append(
+            cube(f"laptop_chamfer_x_{side}", (0.0022, 0.245, 0.0022),
+                 (lx + side * 0.175, ly, DESK_TOP + 0.0118), chamfer_mat, bevel=0)
+        )
+    for edge, dy in (("front", -0.1225), ("back", 0.1225)):
+        parts_base.append(
+            cube(f"laptop_chamfer_y_{edge}", (0.35, 0.0022, 0.0022),
+                 (lx, ly + dy, DESK_TOP + 0.0118), chamfer_mat, bevel=0)
+        )
+
+    # Ports, cut into the sides with a wall thickness rather than painted on.
+    port_mat = material("laptop_port", "void", roughness=0.9)
+    for side, offsets in ((-1, (-0.05, 0.0, 0.05)), (1, (-0.03, 0.03))):
+        for index, dy in enumerate(offsets):
+            parts_base.append(
+                cube(f"laptop_port_{side}_{index}", (0.006, 0.0092, 0.0034),
+                     (lx + side * 0.1735, ly + dy, DESK_TOP + 0.0062), port_mat, bevel=0)
+            )
+
+    # Speaker grilles flanking the keyboard, perforated rather than painted.
+    grille_mat = material("laptop_grille", "void", roughness=0.85)
+    for side in (-1, 1):
+        for hole in range(14):
+            parts_base.append(
+                cube(f"laptop_grille_{side}_{hole}", (0.0034, 0.0034, 0.001),
+                     (lx + side * 0.152, ly - 0.098 + hole * 0.0092, deck_top - 0.0005),
+                     grille_mat, bevel=0)
+            )
+
+    # The seam where lid meets base, consistent all the way round.
+    parts_base.append(
+        cube("laptop_seam", (0.35, 0.245, 0.0012), (lx, ly, DESK_TOP + 0.0122),
+             material("laptop_seam", "bezel", roughness=0.5), bevel=0)
+    )
+
+    # Underside: rubber strips rather than four dots, and a regulatory panel.
+    foot_mat = material("laptop_foot", "bezel", roughness=0.9)
+    for dy in (-0.10, 0.10):
+        parts_base.append(
+            cube(f"laptop_foot_{dy}", (0.30, 0.010, 0.0016), (lx, ly + dy, DESK_TOP + 0.0008),
+                 foot_mat, bevel=0)
+        )
+
+    # A charger, plugged in and running off the desk edge.
+    parts_base.append(
+        cube("laptop_charger_plug", (0.010, 0.016, 0.008), (lx - 0.178, ly + 0.08, DESK_TOP + 0.008),
+             material("charger", "dark_metal", roughness=0.5), bevel=0.002)
+    )
+
     # Trackpad, palm rest side.
     parts_base.append(
         cube("laptop_trackpad", (0.10, 0.062, 0.0015), (lx, ly + 0.064, deck_top + 0.0005),
@@ -1524,28 +1636,88 @@ def build_keyboard_and_props() -> list[bpy.types.Object]:
         (1.25, 1.25, 1.25, 6.25, 1.25, 1.25, 1.25, 1.25),
     )
 
+    # The function row stands off the main block. Every keyboard has that gap
+    # and a continuous grid of six rows does not read as one — the cluster gap
+    # is what the eye uses to tell a keyboard from a calculator.
+    cluster_gap = U * 0.42
+
     keys = []
+    stems = []
+    stem_mat = material("kb_stem", "book_b", roughness=0.5)
     for row_index, widths in enumerate(rows):
         # Rows are sculpted: the far row sits higher and the near row lower, so
         # the block dishes toward the fingers instead of being a flat plane.
         lift = (0.0032, 0.0016, 0.0, 0.0, 0.0008, 0.0022)[row_index]
-        y = KY + (len(rows) - 1 - row_index) * U
+        # Each row is also angled, not just raised. A keycap's top is tilted
+        # toward the typist, and the run of those angles down the block is what
+        # makes the profile recognisable from the side.
+        tilt = (-0.13, -0.07, -0.02, 0.02, 0.07, 0.10)[row_index]
+        y = KY + (len(rows) - 1 - row_index) * U + (cluster_gap if row_index == 0 else 0.0)
         x = KX - 15 * U / 2
         for col, width in enumerate(widths):
             span = width * U
-            keys.append(
+            cap = cube(
+                f"key_{row_index}_{col}",
+                (span - 0.0025, U - 0.0025, 0.0075),
+                (x + span / 2, y, deck + lift),
+                key_mat,
+                bevel=0.0008,
+            )
+            cap.rotation_euler = (tilt, 0, 0)
+            keys.append(cap)
+            # The switch stem under each cap, visible in the gaps from a low
+            # angle — which is exactly the angle anything standing on the desk
+            # would see the keyboard from.
+            stems.append(
                 cube(
-                    f"key_{row_index}_{col}",
-                    (span - 0.0025, U - 0.0025, 0.0075),
-                    (x + span / 2, y, deck + lift),
-                    key_mat,
-                    bevel=0.0008,
+                    f"kb_stem_{row_index}_{col}",
+                    (0.0042, 0.0042, 0.006),
+                    (x + span / 2, y, deck + lift - 0.005),
+                    stem_mat,
+                    bevel=0,
                 )
             )
             x += span
 
-    body = cube("kb_body", (15 * U + 0.016, len(rows) * U + 0.014, 0.016),
-                (KX, KY + (len(rows) - 1) * U / 2, DESK_TOP + 0.008), body_mat, bevel=0.003)
+    depth = len(rows) * U + 0.014 + cluster_gap
+    body = cube("kb_body", (15 * U + 0.016, depth, 0.016),
+                (KX, KY + (len(rows) - 1) * U / 2 + cluster_gap / 2, DESK_TOP + 0.008),
+                body_mat, bevel=0.003)
+
+    # A caps-lock indicator, above the left of the block.
+    caps_led = cube("kb_caps_led", (0.0032, 0.0032, 0.001),
+                    (KX - 15 * U / 2 + 0.012, KY + (len(rows) - 1) * U + cluster_gap + U * 0.62,
+                     deck + 0.0012),
+                    material("kb_led", "green", roughness=0.3, emission=3.0), bevel=0)
+
+    # Flip-out feet at the back, which is what produces the slope. Modelled
+    # rather than faked by tilting the case alone, because the gap under the
+    # back edge is visible from desk height and is half of what says the feet
+    # are down.
+    feet = [
+        cube(f"kb_foot_{side}", (0.016, 0.010, 0.010),
+             (KX + side * (15 * U / 2 - 0.03), KY + (len(rows) - 1) * U + cluster_gap, DESK_TOP + 0.005),
+             body_mat, bevel=0.002)
+        for side in (-1, 1)
+    ]
+
+    # A wrist rest, compressed where forearms sit.
+    wrist = cube("kb_wrist_rest", (15 * U + 0.016, 0.062, 0.011),
+                 (KX, KY - U * 0.5 - 0.040, DESK_TOP + 0.0075),
+                 material("wrist_rest", "chair_dark", roughness=0.9, grain="fabric"), bevel=0)
+    smooth(wrist, 2, crease=0.55)
+
+    # The cable, off the back edge and away toward the desk's grommet.
+    kb_cable = cable(
+        "kb_cable",
+        [
+            (KX, KY + (len(rows) - 1) * U + cluster_gap + 0.012, DESK_TOP + 0.010),
+            (KX + 0.10, KY + 0.16, DESK_TOP + 0.006),
+            (KX + 0.28, KY + 0.24, DESK_TOP + 0.004),
+        ],
+        0.0026,
+        material("kb_cable", "bezel", roughness=0.6),
+    )
     # A desk mat under the keyboard and mouse.
     #
     # Almost universal on a desk like this, and it changes the read of the whole
@@ -1564,7 +1736,15 @@ def build_keyboard_and_props() -> list[bpy.types.Object]:
         rotation_z=math.radians(-1.2),
     )
 
-    keyboard = join("ix_keyboard", [body] + keys)
+    keyboard = join("ix_keyboard", [body] + keys + stems + feet + [caps_led])
+    # Six degrees of slope, pivoted about the front edge so the near edge stays
+    # on the desk and the back lifts onto the feet.
+    # Positive, not negative. Rx(-6) sends a point behind the pivot *downward*,
+    # which drove the back of the case 1.4 cm into the desktop — caught by
+    # `check_resting` rather than by eye, because a keyboard sunk into a desk
+    # from above looks exactly like a keyboard lying on one.
+    set_origin(keyboard, (KX, KY - U * 0.5, DESK_TOP))
+    keyboard.rotation_euler = (math.radians(6), 0, 0)
 
     # A mouse is a dome, not a disc. Subdividing a short box rounds the top and
     # keeps the base flat on the desk, which a scaled cylinder cannot do.
@@ -1606,7 +1786,7 @@ def build_keyboard_and_props() -> list[bpy.types.Object]:
         rotation=(0, math.radians(90), math.radians(14)),
     )
 
-    return [mat_pad, keyboard, mouse, mug, pencil, notebook,
+    return [mat_pad, keyboard, wrist, kb_cable, mouse, mug, pencil, notebook,
             build_headphones(-0.95, DESK_FRONT - 0.09, DESK_TOP)]
 
 
