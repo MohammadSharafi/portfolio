@@ -507,6 +507,79 @@ PAINTED_ORIENTATION = {
 }
 
 
+def check_uv_stretch(layer: int = 0, starved: float = 0.25, share: float = 0.04) -> list[str]:
+    """
+    Meshes with a real amount of surface starved of texels.
+
+    A face whose UV island is squashed gets fewer texels than its area
+    deserves, so whatever is sampled through it is smeared. That mattered
+    little when UV0 carried nothing but a repeating half-metre tile of wood
+    grain — a smear in noise still looks like noise. It matters on UV1, where
+    the lightmap and the aging masks live, because those are *positional*: a
+    starved island puts one texel of dust across a hand's width of desk, and
+    the edge of a wear mark lands somewhere the edge is not.
+
+    Measured by area, not by ratio, which is the whole difference between this
+    being useful and being ignored. The first version reported the spread
+    between the least and most dense face and fired on nine objects at once
+    with numbers like 2245x — all of them cylinder poles and cone tips, a few
+    square millimetres of degenerate triangle that no texture will ever be read
+    from. Weighting by surface area drops those to nothing and leaves the
+    question worth asking: how much of this object is genuinely under-sampled?
+
+    `share` is deliberately different for the two layers. UV1 is held tight
+    because the masks on it are positional. UV0 is run loose, because what it
+    carries is a repeating noise tile and a fifth of a cable at half density is
+    a fifth of a cable whose grain is slightly finer — nobody can see it, and
+    the objects it fires on (the blind's slats, the guitar's body, the
+    radiator's fins, the cables) are curved or thin enough that no planar
+    unwrap avoids it. Lowering the projection angle to split them into flatter
+    islands was tried and made it worse: more islands meant more of the mesh
+    near a seam. That is a real constraint of unwrapping curved geometry, not
+    a bug waiting to be fixed.
+    """
+    complaints = []
+    for obj in bpy.context.scene.objects:
+        if obj.type != "MESH" or len(obj.data.uv_layers) <= layer:
+            continue
+        mesh = obj.data
+        uv = mesh.uv_layers[layer]
+
+        faces = []
+        for polygon in mesh.polygons:
+            loops = list(polygon.loop_indices)
+            origin = uv.data[loops[0]].uv
+            area = 0.0
+            for index in range(1, len(loops) - 1):
+                a = uv.data[loops[index]].uv - origin
+                b = uv.data[loops[index + 1]].uv - origin
+                area += abs(a.x * b.y - a.y * b.x) * 0.5
+            if area > 1e-12 and polygon.area > 1e-9:
+                faces.append((area / polygon.area, polygon.area))
+
+        total = sum(weight for _, weight in faces)
+        if len(faces) < 8 or total <= 0:
+            continue
+
+        # Area-weighted median density: the density half the surface is below.
+        faces.sort()
+        running = 0.0
+        median = faces[-1][0]
+        for density, weight in faces:
+            running += weight
+            if running >= total * 0.5:
+                median = density
+                break
+
+        smeared = sum(weight for density, weight in faces if density < median * starved)
+        if smeared / total > share:
+            complaints.append(
+                f"{obj.name} UV{layer} has {100 * smeared / total:.0f}% of its surface "
+                f"under {starved:.0%} of its own texel density"
+            )
+    return complaints
+
+
 def check_metalness() -> list[str]:
     """
     Materials sitting between conductor and dielectric.

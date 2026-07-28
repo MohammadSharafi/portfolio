@@ -3762,6 +3762,24 @@ def texture_uvs() -> None:
     bpy.ops.object.mode_set(mode="EDIT")
     bpy.ops.mesh.select_all(action="SELECT")
     bpy.ops.uv.smart_project(angle_limit=math.radians(66), island_margin=0.02)
+    # Equalise texel density across islands before anything else touches them.
+    #
+    # Smart UV Project packs islands to fill the square, not to a consistent
+    # scale, so a joined mesh comes out with its parts at wildly different
+    # densities — `desk_clutter` measured 2245x between its coarsest and finest
+    # face, meaning the same wood grain was a fingerprint on one prop and
+    # floorboards on the next. The per-object factor below cannot fix that: it
+    # scales the whole mesh by one number and preserves the ratio exactly.
+    #
+    # It went unnoticed because these are all *joins* of small props, and a
+    # smear in a noise texture still looks like noise. It stops being harmless
+    # on UV1, where the lightmap and the aging masks are positional.
+    #
+    # The UV selection matters: these operators act on selected *UVs*, not on
+    # the selected faces, and without it this call returns success and changes
+    # nothing at all.
+    bpy.ops.uv.select_all(action="SELECT")
+    bpy.ops.uv.average_islands_scale()
     bpy.ops.object.mode_set(mode="OBJECT")
     bpy.ops.object.select_all(action="DESELECT")
 
@@ -3968,6 +3986,7 @@ def main() -> None:
                   export_room.check_painted_uvs,
                   export_room.check_uniform_materials,
                   export_room.check_metalness,
+                  lambda: export_room.check_uv_stretch(0, share=0.45),
                   export_room.check_dark_fixtures):
         for complaint in check():
             print(f"[build_room] {complaint}", file=sys.stderr)

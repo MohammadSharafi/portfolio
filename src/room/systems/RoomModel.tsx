@@ -6,6 +6,7 @@ import { useEngine } from '../engine/store';
 import { type ObjectId } from '../data/objects';
 import { roomAudio } from '../engine/audio';
 import { toObjectId } from './objectId';
+import { applyAging, prepareAgingTexture } from './aging';
 
 /**
  * A 1x1 transparent PNG.
@@ -19,11 +20,14 @@ const EMPTY_PIXEL =
 export function RoomModel({
   url,
   lightmap,
+  aging,
   intensity,
   onReady,
 }: {
   url: string;
   lightmap: string | null;
+  /** Dust, wear and occlusion baked from the room's own geometry. */
+  aging: string | null;
   /** What the bake says `lightMapIntensity` must be. See `useRoomAsset`. */
   intensity: number;
   onReady?: (root: Object3D) => void;
@@ -44,6 +48,9 @@ export function RoomModel({
   lit.channel = 1;
   lit.colorSpace = SRGBColorSpace;
   lit.needsUpdate = true;
+
+  const aged = aging !== null;
+  const wear = prepareAgingTexture(useTexture(aging ?? EMPTY_PIXEL) as Texture);
   const hover = useEngine((state) => state.hover);
   const focus = useEngine((state) => state.focus);
   const toggleLamp = useEngine((state) => state.toggleLamp);
@@ -82,12 +89,19 @@ export function RoomModel({
         material.lightMapIntensity = intensity;
       }
 
+      if (aged) {
+        // Occlusion at zero when the room is baked: the lightmap is path-traced
+        // irradiance and has that occlusion in it already, so applying the mask
+        // as well would darken every corner in the room twice.
+        applyAging(node.material as MeshStandardMaterial, wear, { occlusion: baked ? 0 : 1 });
+      }
+
       const id = toObjectId(node.name);
       if (id) node.userData.objectId = id;
     });
 
     return root;
-  }, [scene, baked, lit, intensity]);
+  }, [scene, baked, lit, intensity, aged, wear]);
 
   useEffect(() => {
     onReady?.(prepared);

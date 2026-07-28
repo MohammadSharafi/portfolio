@@ -56,6 +56,8 @@ OUT_PNG = os.path.join(HERE, "room-bake.png")
 # full float precision. This is what `--reuse-atlas` re-encodes from, and it has
 # to be the raw one — see `write_lightmap_from_raw`. Gitignored; it is large.
 OUT_RAW = os.path.join(HERE, "room-bake.exr")
+# Dust, wear and occlusion, on the same UV1 atlas as the lightmap.
+OUT_AGING = os.path.join(OUT_DIR, "room-aging.png")
 OUT_STAMP = os.path.join(OUT_DIR, "room-lightmap.json")
 
 sys.path.insert(0, HERE)
@@ -66,6 +68,13 @@ def parse_args() -> argparse.Namespace:
     argv = sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else []
     parser = argparse.ArgumentParser(prog="bake_room")
     parser.add_argument("--size", type=int, default=4096, help="atlas resolution")
+    parser.add_argument(
+        "--aging-size",
+        type=int,
+        default=2048,
+        help="resolution of the dust/wear/occlusion atlas",
+    )
+    parser.add_argument("--skip-aging", action="store_true", help="lightmap only")
     parser.add_argument("--samples", type=int, default=256, help="Cycles samples")
     parser.add_argument("--cpu", action="store_true", help="force CPU rendering")
     parser.add_argument(
@@ -377,6 +386,66 @@ def write_lightmap_from_raw(source_exr: str, *, exposure: float, saturation: flo
     return finish_atlas(image, OUT_PNG, exposure=exposure, saturation=saturation)
 
 
+def bake_aging(size: int, samples: int, meshes: list[bpy.types.Object]) -> None:
+    """
+    Bake the dust, wear and occlusion masks into their own atlas.
+
+    Deliberately in the same Blender session as the lightmap, immediately after
+    it, and not a separate script. Both atlases are indexed by the UV1 layout
+    that `unwrap_all` produced, and that layout is only reproducible by running
+    the identical unwrap on the identical geometry. A separate script that
+    re-unwrapped would agree *almost* always, and the failure mode when it did
+    not is dust appearing on the underside of the desk and wear down the middle
+    of the wall — wrong in a way that looks like a shader bug rather than a
+    stale file. Sharing the session removes the question.
+
+    Every object is given the same mask material for the duration, since the
+    masks depend on geometry and not on what the surface is made of. Materials
+    are restored afterwards; nothing here is exported.
+    """
+    import aging
+
+    scene = bpy.context.scene
+    atlas = bpy.data.images.new("room_aging", size, size, float_buffer=False)
+    mask = aging.mask_material()
+
+    node = mask.node_tree.nodes.new("ShaderNodeTexImage")
+    node.image = atlas
+    mask.node_tree.nodes.active = node
+
+    saved = [(obj, [slot.material for slot in obj.material_slots]) for obj in meshes]
+    for obj in meshes:
+        obj.data.materials.clear()
+        obj.data.materials.append(mask)
+
+    # EMIT writes the shader's own output rather than anything lit, which is
+    # what makes this a data bake instead of a render.
+    previous_type, previous_samples = scene.cycles.bake_type, scene.cycles.samples
+    scene.cycles.bake_type = "EMIT"
+    scene.cycles.samples = samples
+
+    print(f"[bake_room] baking aging masks at {size}px, {samples} samples")
+    started = time.time()
+    bake_in_batches(meshes)
+    print(f"[bake_room] aging masks took {time.time() - started:.0f}s")
+
+    scene.cycles.bake_type, scene.cycles.samples = previous_type, previous_samples
+    for obj, materials in saved:
+        obj.data.materials.clear()
+        for material in materials:
+            obj.data.materials.append(material)
+
+    # PNG, not JPEG, and this is not a size decision that can be revisited.
+    # These are three independent masks living in three channels, and JPEG
+    # subsamples chroma — it assumes the channels are a colour anyone is
+    # looking at, and smears them into each other. Wear would bleed into dust
+    # along every edge in the room.
+    atlas.filepath_raw = OUT_AGING
+    atlas.file_format = "PNG"
+    atlas.save()
+    print(f"[bake_room] wrote {OUT_AGING} ({os.path.getsize(OUT_AGING) / 1024 / 1024:.1f} MB)")
+
+
 def stamp_source(scale: float = 1.0) -> None:
     """Records which room.glb this bake came from, so a stale one is ignored."""
     # Record which room this was baked from.
@@ -490,6 +559,16 @@ def main() -> None:
     # white shapes, and per-channel clipping shifted warm highlights' hue on the
     # way there. The float buffer keeps the full range so `tonemap.apply` has
     # something left to compress.
+    # The atlas UVs exist now, and this is the only place they can be checked.
+    # UV1 is generated here rather than stored in the model, so nothing
+    # downstream ever sees it — and it is the layer that matters most, because
+    # the lightmap and the aging masks read through it are positional. A
+    # starved island puts one texel of dust across a hand's width of desk.
+    import export_room
+
+    for complaint in export_room.check_uv_stretch(1, share=0.06):
+        print(f"[bake_room] {complaint}", file=sys.stderr)
+
     atlas = bpy.data.images.new("room_bake", args.size, args.size, float_buffer=True)
     meshes = prepare_materials(atlas, build_room)
 
@@ -499,6 +578,11 @@ def main() -> None:
     os.makedirs(OUT_DIR, exist_ok=True)
     scale = finish_atlas(atlas, OUT_PNG, exposure=args.exposure, saturation=args.saturation)
     print(f"[bake_room] wrote {OUT_PNG} ({os.path.getsize(OUT_PNG) / 1024 / 1024:.1f} MB)")
+
+    # Straight on into the aging masks, while the UV1 layout that both atlases
+    # are indexed by is still the one in memory. See `bake_aging`.
+    if not args.skip_aging:
+        bake_aging(args.aging_size, max(32, args.samples // 2), meshes)
 
     # No rewiring. The materials keep their own base colour, roughness, metalness
     # and normal maps — that is the entire point of a lightmap over a combined

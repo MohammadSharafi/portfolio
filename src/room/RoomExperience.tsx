@@ -25,10 +25,12 @@ import { useEngine } from './engine/store';
 function Scene({
   url,
   lightmap,
+  aging,
   intensity,
 }: {
   url: string;
   lightmap: string | null;
+  aging: string | null;
   intensity: number;
 }) {
   const baked = lightmap !== null;
@@ -100,7 +102,13 @@ function Scene({
         </>
       )}
 
-      <RoomModel url={url} lightmap={lightmap} intensity={intensity} onReady={setRoot} />
+      <RoomModel
+        url={url}
+        lightmap={lightmap}
+        aging={aging}
+        intensity={intensity}
+        onReady={setRoot}
+      />
 
       {root ? <Screens root={root} /> : null}
       {root ? <Animations root={root} /> : null}
@@ -164,7 +172,12 @@ export function RoomExperience() {
       >
         <Suspense fallback={null}>
           {asset.resolved ? (
-            <Scene url={asset.url} lightmap={asset.lightmap} intensity={asset.intensity} />
+            <Scene
+              url={asset.url}
+              lightmap={asset.lightmap}
+              aging={asset.aging}
+              intensity={asset.intensity}
+            />
           ) : null}
         </Suspense>
       </Canvas>

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 
 const ROOM = '/models/room.glb';
 const LIGHTMAP = '/models/room-lightmap.jpg';
+const AGING = '/models/room-aging.png';
 const STAMP = '/models/room-lightmap.json';
 
 /** SHA-256 of the `room.glb` this bundle was built against, inlined by Vite. */
@@ -21,6 +22,16 @@ export interface RoomAsset {
    * exposure until someone noticed and re-tuned a constant by eye.
    */
   intensity: number;
+  /**
+   * Dust, wear and occlusion, baked from the room's own geometry.
+   *
+   * Gated on the same stamp as the lightmap and never resolved separately.
+   * Both atlases are indexed by one UV1 layout produced by a single unwrap, so
+   * an aging atlas from a different bake would put dust on the underside of
+   * the desk — and unlike a stale lightmap, which looks like bad lighting,
+   * that looks like a shader bug and would be chased in the wrong file.
+   */
+  aging: string | null;
   resolved: boolean;
 }
 
@@ -49,17 +60,24 @@ export function useRoomAsset(): RoomAsset {
     url: ROOM,
     lightmap: null,
     intensity: 1,
+    aging: null,
     resolved: false,
   });
 
   useEffect(() => {
     let cancelled = false;
 
-    const settle = (found: boolean, intensity = 1) => {
+    const settle = (found: boolean, intensity = 1, aged = false) => {
       if (cancelled) return;
       // One model either way. The bake adds lighting to it rather than
       // replacing it — there is no second copy of the room any more.
-      setAsset({ url: ROOM, lightmap: found ? LIGHTMAP : null, intensity, resolved: true });
+      setAsset({
+        url: ROOM,
+        lightmap: found ? LIGHTMAP : null,
+        intensity,
+        aging: found && aged ? AGING : null,
+        resolved: true,
+      });
     };
 
     // A dev server that rewrites unknown paths to index.html answers 200 with
@@ -85,7 +103,11 @@ export function useRoomAsset(): RoomAsset {
         // its own unknown divisor, so 1 is the only safe reading of a missing
         // field — and it is wrong, which is the point: it looks wrong rather
         // than looking plausible and being wrong.
-        settle(Boolean(source) && source === __ROOM_HASH__, intensity ?? 1);
+        const matches = Boolean(source) && source === __ROOM_HASH__;
+        // Older bakes predate the aging pass, and `--skip-aging` omits it, so
+        // its absence is normal rather than an error.
+        const aged = matches && isRealFile(await fetch(AGING, { method: 'HEAD' }));
+        settle(matches, intensity ?? 1, aged);
       } catch {
         settle(false);
       }

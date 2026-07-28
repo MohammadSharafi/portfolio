@@ -41,6 +41,65 @@ Every array is typed and covered by `src/data/content.test.ts`, which enforces
 things like unique project slugs, valid repo URLs, and awards that carry an
 issuer and a year.
 
+## The room pipeline
+
+The 3D room is built by a script, not modelled by hand, and shipped as one glTF
+plus two baked atlases.
+
+```
+scripts/blender/
+├── build_room.py     Builds every object, material and light. Exports room.glb
+├── grain_maps.py     Synthesises the tiling surface maps packed into the GLB
+├── aging.py          The dust / wear / occlusion masks, derived from geometry
+├── bake_room.py      Bakes the lightmap and the aging atlas. Run after a change
+├── render_hero.py    Offline Cycles stills for the hero and OG images
+├── export_room.py    The checks the build runs, and a .blend export path
+└── tonemap.py        The one view transform shared by bake and preview
+```
+
+Rebuild the model and then the bake:
+
+```bash
+blender --background --python scripts/blender/build_room.py --
+```
+
+```bash
+blender --background --python scripts/blender/bake_room.py -- --size 4096 --samples 128
+```
+
+The bake produces `room-lightmap.jpg` (irradiance) and `room-aging.png` (dust,
+wear and occlusion). Both are indexed by a UV1 atlas generated during the bake,
+so they are produced in one run and are only valid together — the runtime gates
+both on a hash of the `room.glb` they came from and ignores a stale pair rather
+than showing an older room.
+
+### What is automatic, and what is not
+
+Dust, edge wear and occlusion are computed from geometry at bake time and need
+no per-object authoring: a new object added to `build_room.py` gets dust on its
+upward faces and wear on its exposed edges at reachable heights, with nothing to
+remember. Surface finish is the same — a material that does not name a `grain`
+is given one from its own roughness and metalness, so the default is detail
+rather than a flat value.
+
+Three constraints are real and are not going to be solved by more code:
+
+- **Curved and thin geometry cannot be unwrapped without distortion.** The
+  blind's slats, the guitar body, the radiator fins and the cables all carry
+  regions at well under their own average texel density. Splitting into flatter
+  islands was tried and made it worse, because more islands means more of the
+  mesh near a seam. The maps on UV0 are repeating noise, where this is
+  invisible; `check_uv_stretch` holds UV1 to a much tighter bound because the
+  masks there are positional.
+- **Wear is placed by height and exposure, not by use.** The mask has no idea
+  which drawer is opened daily. A convex edge within arm's reach wears; one at
+  the ceiling does not. That is a good approximation of a real room and it is
+  still an approximation.
+- **The screens cannot be rendered offline from the model alone.** They are
+  canvases painted by the browser at runtime. `render_hero.py` reads what the
+  dev server dumped rather than reimplementing them, so a hero render needs
+  `npm run dev` to have been visited at least once.
+
 ## Design system
 
 Colour is authored in OKLCH so light and dark stay perceptually matched, exposed
