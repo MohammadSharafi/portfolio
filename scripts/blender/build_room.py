@@ -128,6 +128,27 @@ BAKE_EXCLUDE = re.compile(r"^(ix_window|cn_tower|sky|lake)(\.\d+)?$")
 # thing a 12 cm character stands next to.
 TEXEL_FLOOR = 0.06
 
+# How high the walls run.
+#
+# Far higher than a room, and deliberately so: they are also what stops the
+# camera seeing the Toronto skyline standing in the void beside the room. Cut
+# to a realistic 2.7 m, the establishing shot showed the sky plane's edge as a
+# hard diagonal across the top-left corner. The height is doing two jobs and
+# only one of them is obvious, which is exactly the sort of thing that gets
+# broken by a change that looks safe.
+WALL_TOP = 5.4
+
+# Geometry built for the bake and kept out of the GLB.
+EXPORT_EXCLUDE = re.compile(r"^ceiling(\.\d+)?$")
+
+
+def drop_export_only() -> int:
+    """Remove the bake-only geometry. Call immediately before an export."""
+    doomed = [o for o in bpy.context.scene.objects if EXPORT_EXCLUDE.match(o.name)]
+    for obj in doomed:
+        bpy.data.objects.remove(obj, do_unlink=True)
+    return len(doomed)
+
 
 def reset_scene() -> None:
     global _plants
@@ -767,7 +788,7 @@ def _wall_with_opening(wall_mat: bpy.types.Material) -> bpy.types.Object:
     parallax between the frame and the skyline as the camera moves is the whole
     reason the window reads as an opening and not as a poster.
     """
-    wall = cube("wall_back", (11.0, 0.12, 5.4), (0, -2.6, 2.7), wall_mat, bevel=0)
+    wall = cube("wall_back", (11.0, 0.12, WALL_TOP), (0, -2.6, WALL_TOP / 2), wall_mat, bevel=0)
 
     bpy.ops.mesh.primitive_cube_add(size=1, location=(2.05, -2.6, 1.7))
     cutter = bpy.context.object
@@ -892,7 +913,7 @@ def build_shell() -> list[bpy.types.Object]:
         # Floorboards, as shallow insets rather than a texture: they survive a
         # bake and cost a handful of triangles each.
         _wall_with_opening(wall),
-        cube("wall_left", (0.12, 5.2, 5.4), (-3.2, 0, 2.7), accent, bevel=0),
+        cube("wall_left", (0.12, 5.2, WALL_TOP), (-3.2, 0, WALL_TOP / 2), accent, bevel=0),
         cube("skirting_back", (6.4, 0.05, 0.11), (0, -2.52, 0.055), material("skirt", "dark_metal")),
         cube("skirting_left", (0.05, 5.2, 0.11), (-3.12, 0, 0.055), material("skirt", "dark_metal")),
         plane("rug", (3.9, 3.5), (0.2, 0.8, 0.004), material("rug", "rug", roughness=1.0, grain="pile")),
@@ -2208,54 +2229,69 @@ def build_details() -> list[bpy.types.Object]:
 
 def add_lighting() -> None:
     """
-    Lights exist so the exported scene can be baked. The runtime does not import
-    them — it rigs its own — but a bake needs them, and keeping them here means
-    the bake and the real-time render start from the same intent.
+    The rig the bake resolves. The runtime does not import these — it rigs its
+    own — but keeping them here means both start from the same intent.
+
+    This is a room at night, and it is lit like one: a practical overhead, a
+    warm pool from the desk lamp, cold light off the monitors, and city glow
+    through the window. The previous rig was two large soft area lights from
+    above at 520 W and 180 W, which lit every corner to the same value — and an
+    evenly lit room is the single clearest sign of a rendered space. Real rooms
+    have a source and fall away from it.
     """
     # A world, first. `read_factory_settings(use_empty=True)` leaves the scene
     # without one, and Cycles gathers ambient light from the world — with none,
     # every surface the lamps do not reach directly bakes to black. That is why
     # the first baked room came out a dark cave with three bright screens
     # floating in it.
+    #
+    # Held low. Ambient is what fills the shadows, and shadows that are filled
+    # to the same level as everything else are not shadows.
     world = bpy.data.worlds.get("room_world") or bpy.data.worlds.new("room_world")
     bpy.context.scene.world = world
     world.use_nodes = True
     background = world.node_tree.nodes["Background"]
-    background.inputs["Color"].default_value = (0.075, 0.095, 0.155, 1.0)
-    background.inputs["Strength"].default_value = 1.6
+    background.inputs["Color"].default_value = (0.055, 0.072, 0.125, 1.0)
+    background.inputs["Strength"].default_value = 0.6
 
-    # Energies are for a room 6.4 x 5.2 m with 2.7 m of usable height. The first
-    # pass used 90 W for the key, which is a desk lamp's worth of light for a
-    # space the size of a bedroom.
-    bpy.ops.object.light_add(type="AREA", location=(1.2, 0.6, 2.6))
-    key = bpy.context.object
-    key.name = "key"
-    key.data.energy = 520
-    key.data.size = 3.2
-    key.data.color = (0.68, 0.77, 1.0)
+    def area(name, energy, size, location, colour, rotation=(0, 0, 0)):
+        bpy.ops.object.light_add(type="AREA", location=location)
+        light = bpy.context.object
+        light.name = name
+        light.data.energy = energy
+        light.data.size = size
+        light.data.color = colour
+        light.rotation_euler = rotation
+        return light
 
-    # A second, softer source from the other side, so the room is not lit from
-    # one corner only.
-    bpy.ops.object.light_add(type="AREA", location=(-2.2, 1.4, 2.5))
-    fill = bpy.context.object
-    fill.name = "fill"
-    fill.data.energy = 180
-    fill.data.size = 2.6
-    fill.data.color = (1.0, 0.88, 0.76)
+    # The practical overhead, just under the ceiling. Small and close rather
+    # than huge and far, so it falls off across the room instead of flooding it.
+    area("key", 260, 1.5, (0.35, 0.15, 2.58), (1.0, 0.94, 0.86))
 
-    bpy.ops.object.light_add(type="POINT", location=(-1.02, -2.0, 1.15))
+    # A weak bounce off the left wall, enough that the shelf side of the room is
+    # not a silhouette. Deliberately far below the key.
+    area("fill", 55, 2.4, (-2.4, 1.2, 2.2), (0.82, 0.86, 1.0))
+
+    # The desk lamp. Positioned from the lamp's actual head — it used to sit at
+    # (-1.02, -2.0), which is where the lamp stood before it was moved to the
+    # back-right corner, so the room's warmest light came from a bare patch of
+    # desk two and a half metres away from the lamp casting it. The third bug of
+    # exactly this kind, after the lamp's power cable and six camera stops.
+    bpy.ops.object.light_add(type="POINT", location=(1.40, -2.03, 1.12))
     warm = bpy.context.object
     warm.name = "lamp_light"
-    warm.data.energy = 55
-    warm.data.color = (1.0, 0.66, 0.34)
+    warm.data.energy = 70
+    warm.data.color = (1.0, 0.62, 0.28)
+    warm.data.shadow_soft_size = 0.06
 
-    bpy.ops.object.light_add(type="AREA", location=(0, -2.0, 1.25))
-    screens = bpy.context.object
-    screens.name = "screen_bounce"
-    screens.data.energy = 45
-    screens.data.size = 1.6
-    screens.data.color = (0.42, 0.66, 1.0)
-    screens.rotation_euler = (math.radians(90), 0, 0)
+    # The monitors, throwing cold light forward onto the desk and the chair.
+    area("screen_bounce", 70, 1.9, (0.02, -2.05, 1.21), (0.42, 0.66, 1.0),
+         rotation=(math.radians(90), 0, 0))
+
+    # City glow through the window. Weak, cold, and coming from the one place in
+    # the room where outside light could plausibly arrive.
+    area("window_glow", 45, 1.3, (2.05, -2.42, 1.72), (0.52, 0.66, 1.0),
+         rotation=(math.radians(90), 0, 0))
 
 
 def texture_uvs() -> None:
@@ -2489,7 +2525,8 @@ def main() -> None:
     # A warning rather than a failure: sinking a prop into a surface is
     # sometimes deliberate, and refusing to export over it would be worse than
     # the bug. Saying so out loud is enough.
-    for check in (export_room.check_resting, export_room.check_clearance, export_room.check_stops):
+    for check in (export_room.check_resting, export_room.check_clearance,
+                  export_room.check_stops, export_room.check_lights):
         for complaint in check():
             print(f"[build_room] {complaint}", file=sys.stderr)
 
@@ -2506,6 +2543,10 @@ def main() -> None:
         unwrap_all()
     except Exception as exc:  # pragma: no cover - unwrap is best-effort
         print(f"[build_room] unwrap skipped: {exc}", file=sys.stderr)
+
+    hidden = drop_export_only()
+    if hidden:
+        print(f"[build_room] {hidden} bake-only object(s) kept out of the GLB")
 
     os.makedirs(OUT_DIR, exist_ok=True)
     bpy.ops.export_scene.gltf(
