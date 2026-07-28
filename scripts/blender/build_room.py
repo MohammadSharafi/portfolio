@@ -146,6 +146,10 @@ PAINTED = re.compile(
 # is a carpet nobody would recognise.
 WHOLE_SURFACE = re.compile(r"^rug(\.\d+)?$")
 
+# The rug's footprint in metres. Named because two places need to agree about
+# it: the plane that carries the design, and the pile maps that tile across it.
+RUG_SPAN = (3.88, 3.48)
+
 # Meshes that get no share of the lightmap.
 #
 # The Toronto skyline is 7,541 m² of building faces — more surface than
@@ -247,6 +251,74 @@ def reset_scene() -> None:
     scene.unit_settings.scale_length = 1.0
 
 
+# Materials that are allowed to be perfectly uniform, and why.
+#
+# Backdrop: the skyline, the lake and the occluder are painted scenery seen
+# through a window at fifteen metres. They have no surface to describe.
+# Panels: a screen's appearance is its emission and the canvas the runtime
+# paints onto it, not the finish of the glass in front.
+FLAT_BY_DESIGN = frozenset(
+    {
+        "occluder",
+        "sky_lit",
+        "sky_lit_cool",
+        "sky_tower",
+        "sky_tower_far",
+        "lake",
+        "screen",
+        "laptop_screen",
+        "board_face_mat",
+        "cv_board",
+        "screen_mask",
+        "beacon",
+        "bulb",
+        "led_red",
+        "led_strip",
+        "kb_led",
+        "monitor_led",
+    }
+)
+
+
+# A note on `metallic`, because the room used to get this wrong in thirteen
+# places and it is the sort of wrong that looks like a style choice.
+#
+# Metalness is not a slider. In the metal/rough workflow it selects between two
+# different physical models: a conductor, which has no diffuse colour and tints
+# its own reflection, and a dielectric, which has diffuse colour and reflects
+# white at about 4%. There is no substance that is 30% of the way between them.
+# An intermediate value is only meaningful inside a *texture*, where it marks
+# the boundary between bare metal and the paint on top of it.
+#
+# A plastic bin at 0.3 gets 30% of its diffuse colour deleted and 30% of a
+# metallic reflection it should not have, which reads as dingy grey — and the
+# instinct is then to brighten its colour, which makes it worse. Anything that
+# is metal is 1.0 and carries its look in roughness; anything else is 0.0.
+
+
+def default_grain(roughness: float, metallic: float) -> str:
+    """
+    The finish a material gets when it does not ask for one.
+
+    Nothing in a real room has a constant roughness. A uniform value returns a
+    highlight of identical size and sharpness across a whole surface, and that
+    single property is the most reliable giveaway that an image was rendered —
+    it is why untextured 3D reads as plastic even when the colours are right.
+
+    Rather than tag a hundred and sixteen materials by hand and rely on whoever
+    adds the hundred and seventeenth remembering to, the fallback is derived
+    from what the material already says about itself. Metal is metal, anything
+    polished has been lacquered or moulded glossy, and everything else is some
+    kind of moulded plastic — which, for a desk, a bin, a keyboard and a
+    monitor shell, is simply true.
+    """
+    if metallic > 0.3:
+        return "metal"
+    if roughness < 0.32:
+        return "lacquer"
+    return "plastic"
+
+
 def material(
     name: str,
     colour_key: str,
@@ -262,9 +334,16 @@ def material(
     `grain` names a procedural surface break-up. It is recorded as a custom
     property on the material rather than wired in here — see `apply_grain`,
     which the bake calls and the plain export does not.
+
+    Omitting it does not mean "no surface detail"; it means "choose one" — see
+    `default_grain`. Genuine exceptions go in `FLAT_BY_DESIGN`, which is a short
+    and deliberately awkward list to be added to.
     """
     if name in _materials:
         return _materials[name]
+
+    if grain is None and name not in FLAT_BY_DESIGN and emission <= 0:
+        grain = default_grain(roughness, metallic)
 
     mat = bpy.data.materials.new(name)
     mat.use_nodes = True
@@ -386,17 +465,57 @@ def _add_maps(mat: bpy.types.Material, kind: str, colour, base_rough: float) -> 
         )
         tree.links.new(weave.outputs["Color"], bsdf.inputs["Base Color"])
         bsdf.inputs["Roughness"].default_value = 0.96
+        # The design is one image spanning the rug once; the *pile* is a
+        # separate thing that repeats every half metre, and it is what stops a
+        # carpet reading as a printed sheet of paper lying on the floor. Wool
+        # catches light along the lie of the tuft, so this is the one surface in
+        # the room where the normal map matters more than the colour.
+        #
+        # The rug is the one object that keeps the 0..1 UVs it was born with, so
+        # that the design lands on it exactly once (`WHOLE_SURFACE`). That is
+        # right for the pattern and wrong for the pile: sharing those UVs would
+        # stretch a half-metre tile of wool across all 3.9 m of it, which is not
+        # pile but a smear. So the pile gets its own mapping, tiled at the same
+        # physical scale `texture_uvs` gives every other surface in the room.
+        tiles = tree.nodes.new("ShaderNodeMapping")
+        tiles.location = (-1080, -120)
+        tiles.inputs["Scale"].default_value = (
+            RUG_SPAN[0] / grain_maps.TILE_METRES,
+            RUG_SPAN[1] / grain_maps.TILE_METRES,
+            1.0,
+        )
+        uv = tree.nodes.new("ShaderNodeUVMap")
+        uv.location = (-1280, -120)
+        tree.links.new(uv.outputs["UV"], tiles.inputs["Vector"])
+
+        rough = _texture_node(
+            tree,
+            _image("grain_pile_rough_10", grain_maps.roughness("pile", 0.96), data=True),
+            (-520, 20),
+        )
+        tree.links.new(tiles.outputs["Vector"], rough.inputs["Vector"])
+        tree.links.new(rough.outputs["Color"], bsdf.inputs["Roughness"])
+
+        pile = _texture_node(tree, _image("grain_pile_normal", grain_maps.normal("pile"), data=True), (-520, -260))
+        tree.links.new(tiles.outputs["Vector"], pile.inputs["Vector"])
+        pile_normal = tree.nodes.new("ShaderNodeNormalMap")
+        pile_normal.location = (-240, -260)
+        tree.links.new(pile.outputs["Color"], pile_normal.inputs["Color"])
+        tree.links.new(pile_normal.outputs["Normal"], bsdf.inputs["Normal"])
         return
 
-    albedo = _texture_node(tree, _image(f"grain_{kind}_albedo", grain_maps.albedo(kind), data=False), (-820, 300))
-    tint = tree.nodes.new("ShaderNodeMix")
-    tint.data_type = "RGBA"
-    tint.blend_type = "MULTIPLY"
-    tint.inputs["Factor"].default_value = 1.0
-    tint.inputs[7].default_value = tuple(colour[:3]) + (1.0,)
-    tint.location = (-520, 300)
-    tree.links.new(albedo.outputs["Color"], tint.inputs[6])
-    tree.links.new(tint.outputs[2], bsdf.inputs["Base Color"])
+    # A micro-finish describes how a surface reflects, not what colour it is, so
+    # it leaves base colour alone and contributes roughness and normal only.
+    if kind not in grain_maps.MICRO:
+        albedo = _texture_node(tree, _image(f"grain_{kind}_albedo", grain_maps.albedo(kind), data=False), (-820, 300))
+        tint = tree.nodes.new("ShaderNodeMix")
+        tint.data_type = "RGBA"
+        tint.blend_type = "MULTIPLY"
+        tint.inputs["Factor"].default_value = 1.0
+        tint.inputs[7].default_value = tuple(colour[:3]) + (1.0,)
+        tint.location = (-520, 300)
+        tree.links.new(albedo.outputs["Color"], tint.inputs[6])
+        tree.links.new(tint.outputs[2], bsdf.inputs["Base Color"])
 
     # Roughness is baked per material rather than shared, because it is keyed to
     # the material's own base roughness — a rough fabric and a polished lacquer
@@ -445,7 +564,15 @@ def apply_grain() -> int:
             continue
         bsdf = mat.node_tree.nodes.get("Principled BSDF")
         # Already wired, or hand-authored into something this would trample.
-        if bsdf is None or bsdf.inputs["Base Color"].is_linked:
+        #
+        # Roughness is checked as well as base colour. A micro-finish never
+        # links base colour, so testing that alone declared the image-mapped
+        # micro materials untouched and wired the procedural version straight
+        # over their roughness and normal — quietly discarding the maps the GLB
+        # had just been given.
+        if bsdf is None:
+            continue
+        if bsdf.inputs["Base Color"].is_linked or bsdf.inputs["Roughness"].is_linked:
             continue
         _add_grain(mat, tuple(bsdf.inputs["Base Color"].default_value), str(kind))
         applied += 1
@@ -476,6 +603,12 @@ _GRAIN = {
     "brushed": ((150.0, 5.0, 150.0), 0.0, 0.03, 0.14),
     # Paper tooth, barely there.
     "paper": ((110.0, 110.0, 110.0), 0.0, 0.018, 0.04),
+    # The micro-finishes. Colour spread is 0.0 for all four: they vary how a
+    # surface reflects, never what colour it is. See `grain_maps.MICRO`.
+    "plastic": ((95.0, 95.0, 95.0), 0.2, 0.0, 0.06),
+    "metal": ((100.0, 26.0, 100.0), 0.0, 0.0, 0.13),
+    "lacquer": ((14.0, 14.0, 14.0), 0.3, 0.0, 0.04),
+    "rubber": ((80.0, 80.0, 80.0), 0.0, 0.0, 0.10),
 }
 
 
@@ -503,30 +636,35 @@ def _add_grain(mat: bpy.types.Material, colour: tuple[float, ...], kind: str) ->
     ramp.color_ramp.elements[0].position = 0.35
     ramp.color_ramp.elements[1].position = 0.65
 
-    mix = tree.nodes.new("ShaderNodeMix")
-    mix.data_type = "RGBA"
-    mix.inputs["Factor"].default_value = 1.0
-    dark = tuple(max(0.0, c - spread) for c in colour[:3]) + (1.0,)
-    light = tuple(min(1.0, c + spread) for c in colour[:3]) + (1.0,)
-    mix.inputs[6].default_value = dark
-    mix.inputs[7].default_value = light
-
     rough = tree.nodes.new("ShaderNodeMapRange")
     base_rough = bsdf.inputs["Roughness"].default_value
     rough.inputs["To Min"].default_value = max(0.0, base_rough - rough_spread)
     rough.inputs["To Max"].default_value = min(1.0, base_rough + rough_spread)
 
-    # Bump, so the grain catches light rather than only tinting.
+    # Bump, so the grain catches light rather than only tinting. A micro-finish
+    # is a hundredth of a millimetre of orange peel or tooling, not a wood
+    # grain you could feel, so it gets a tenth of the relief.
+    micro = spread == 0.0
     bump = tree.nodes.new("ShaderNodeBump")
-    bump.inputs["Strength"].default_value = 0.12
-    bump.inputs["Distance"].default_value = 0.004
+    bump.inputs["Strength"].default_value = 0.06 if micro else 0.12
+    bump.inputs["Distance"].default_value = 0.0004 if micro else 0.004
 
     links = tree.links
     links.new(coord.outputs["Object"], mapping.inputs["Vector"])
     links.new(mapping.outputs["Vector"], noise.inputs["Vector"])
     links.new(noise.outputs["Fac"], ramp.inputs["Fac"])
-    links.new(ramp.outputs["Color"], mix.inputs["Factor"])
-    links.new(mix.outputs[2], bsdf.inputs["Base Color"])
+
+    # A micro-finish never touches base colour — it says how the surface
+    # reflects, not what colour it is.
+    if not micro:
+        mix = tree.nodes.new("ShaderNodeMix")
+        mix.data_type = "RGBA"
+        mix.inputs["Factor"].default_value = 1.0
+        mix.inputs[6].default_value = tuple(max(0.0, c - spread) for c in colour[:3]) + (1.0,)
+        mix.inputs[7].default_value = tuple(min(1.0, c + spread) for c in colour[:3]) + (1.0,)
+        links.new(ramp.outputs["Color"], mix.inputs["Factor"])
+        links.new(mix.outputs[2], bsdf.inputs["Base Color"])
+
     links.new(ramp.outputs["Color"], rough.inputs["Value"])
     links.new(rough.outputs["Result"], bsdf.inputs["Roughness"])
     links.new(noise.outputs["Fac"], bump.inputs["Height"])
@@ -970,7 +1108,7 @@ def build_toronto() -> list[bpy.types.Object]:
     # line ever crosses the frame.
     GROUND = -16.0
 
-    tower_mat = material("sky_tower", "plastic", roughness=0.8, metallic=0.1)
+    tower_mat = material("sky_tower", "plastic", roughness=0.8)
     # A second, paler body for the far layer. Distance washes contrast out of a
     # night skyline long before it washes out the lights, and that difference is
     # most of what makes a city read as deep rather than as one flat cut-out.
@@ -1211,7 +1349,7 @@ def build_shell() -> list[bpy.types.Object]:
              material("rug_pile", "rug", roughness=1.0, grain="pile"), bevel=0.004),
         # Inset half a millimetre so it never shares a plane with the body's top
         # face, and a shade smaller so the body shows as the carpet's own edge.
-        plane("rug", (3.88, 3.48), (0.2, 0.8, 0.006 + RUG_THICKNESS + 0.0005),
+        plane("rug", RUG_SPAN, (0.2, 0.8, 0.006 + RUG_THICKNESS + 0.0005),
               material("rug", "paper", roughness=0.96, grain="persian")),
     ]
 
@@ -1251,7 +1389,7 @@ def build_desk() -> list[bpy.types.Object]:
     nothing standing on the desk had to move vertically.
     """
     top = material("desk", "desk", roughness=0.45, grain="wood")
-    frame = material("desk_frame", "desk_frame", roughness=0.4, metallic=0.5, grain="brushed")
+    frame = material("desk_frame", "desk_frame", roughness=0.42, metallic=1.0, grain="brushed")
 
     parts = [
         cube("desk_top", (DESK_W, DESK_D, 0.045), (0, DESK_Y, 0.7675), top),
@@ -1284,7 +1422,7 @@ def build_desk() -> list[bpy.types.Object]:
     reveal = 0.004
     face_h = 0.165
     box_mat = material("drawer_box", "desk_frame", roughness=0.7)
-    runner_mat = material("drawer_runner", "metal", roughness=0.3, metallic=0.8)
+    runner_mat = material("drawer_runner", "metal", roughness=0.3, metallic=1.0)
     for i in range(3):
         z = 0.155 + i * 0.20
         # One is left open a centimetre. Nobody closes all three, and a room
@@ -1306,7 +1444,7 @@ def build_desk() -> list[bpy.types.Object]:
                 f"drawer_pull_{i}",
                 (0.15, 0.018, 0.012),
                 (0.70, front + 0.015, z),
-                material("pull", "metal", roughness=0.3, metallic=0.8),
+                material("pull", "metal", roughness=0.3, metallic=1.0),
             )
         )
         # Handle fixings, which is where the pull bolts through the face.
@@ -1364,9 +1502,9 @@ def build_monitors() -> list[bpy.types.Object]:
     has ever been — which is most of why the desk read as furniture for a
     giant.
     """
-    shell = material("monitor_shell", "plastic", roughness=0.4, metallic=0.25)
+    shell = material("monitor_shell", "plastic", roughness=0.4, metallic=0.0)
     screen_mat = material("screen", "screen", roughness=0.18)
-    arm_mat = material("arm", "dark_metal", roughness=0.35, metallic=0.6)
+    arm_mat = material("arm", "dark_metal", roughness=0.38, metallic=1.0, grain="brushed")
 
     out: list[bpy.types.Object] = []
     panel_w, panel_h = 0.615, 0.375
@@ -1397,7 +1535,7 @@ def build_monitors() -> list[bpy.types.Object]:
         # into the surround; it does not have to be the frontmost surface.
         glass = cube(f"{name}_glass", (panel_w - 0.008, 0.003, panel_h - 0.008),
                      (x + math.sin(tilt) * 0.009, back + 0.0090, centre_z), 
-                     material("screen_glass", "screen", roughness=0.06, metallic=0.4),
+                     material("screen_glass", "screen", roughness=0.05),
                      rotation_z=tilt, bevel=0.001)
         parts.append(glass)
         # The mask around the panel, which is what the bezel lips over.
@@ -1417,7 +1555,7 @@ def build_monitors() -> list[bpy.types.Object]:
         parts.append(
             cube(f"{name}_brand", (0.038, 0.004, 0.007),
                  (x, back + 0.011, centre_z - panel_h / 2 + 0.011),
-                 material("brand_mark", "metal", roughness=0.3, metallic=0.7),
+                 material("brand_mark", "metal", roughness=0.3, metallic=1.0),
                  rotation_z=tilt, bevel=0)
         )
         # Ventilation slots across the back, and the VESA plate with its four
@@ -1438,7 +1576,7 @@ def build_monitors() -> list[bpy.types.Object]:
                 parts.append(
                     cylinder(f"{name}_vesa_screw_{sx}_{sz}", 0.0035, 0.004,
                              (x + sx + math.sin(tilt) * 0.05, back - 0.050, centre_z - 0.010 + sz),
-                             material("vesa_screw", "metal", roughness=0.3, metallic=0.9),
+                             material("vesa_screw", "metal", roughness=0.3, metallic=1.0),
                              vertices=6, rotation=(math.radians(90), 0, 0))
                 )
         parts.append(
@@ -1479,7 +1617,7 @@ def build_laptop() -> list[bpy.types.Object]:
     runtime can animate it shut. Origin sits on the hinge line, not the lid
     centre, or it swings through the desk.
     """
-    body = material("laptop_body", "metal", roughness=0.3, metallic=0.75)
+    body = material("laptop_body", "metal", roughness=0.3, metallic=1.0)
     screen_mat = material("laptop_screen", "screen", roughness=0.15)
 
     # The desk's surface is at z = 0.79. The base used to sit at 0.774 with a
@@ -1530,7 +1668,7 @@ def build_laptop() -> list[bpy.types.Object]:
     # side with a visible wall thickness, a seam where lid meets base. Without
     # them it is a box with keys on it.
 
-    chamfer_mat = material("laptop_chamfer", "metal", roughness=0.18, metallic=0.9)
+    chamfer_mat = material("laptop_chamfer", "metal", roughness=0.18, metallic=1.0)
     for side in (-1, 1):
         parts_base.append(
             cube(f"laptop_chamfer_x_{side}", (0.0022, 0.245, 0.0022),
@@ -1839,7 +1977,7 @@ def build_headphones(hx: float, hy: float, deck: float) -> bpy.types.Object:
     """
     shell = material("headphone_shell", "plastic", roughness=0.42)
     pad = material("headphone_pad", "dark_metal", roughness=0.95, grain="fabric")
-    metal = material("headphone_band", "metal", roughness=0.4, metallic=0.7, grain="brushed")
+    metal = material("headphone_band", "metal", roughness=0.4, metallic=1.0, grain="brushed")
 
     span = 0.075
     parts: list[bpy.types.Object] = []
@@ -1926,7 +2064,7 @@ def build_cv() -> list[bpy.types.Object]:
     # holder moves together.
     cx, cy, cz = 0.92, DESK_FRONT - 0.15, DESK_TOP + 0.156
 
-    holder = material("cv_holder", "dark_metal", roughness=0.35, metallic=0.6, grain="brushed")
+    holder = material("cv_holder", "dark_metal", roughness=0.38, metallic=1.0, grain="brushed")
     board = material("cv_board", "chair_dark", roughness=0.5)
 
     # The unit normal the page faces, used to seat everything behind it without
@@ -1962,7 +2100,7 @@ def build_cv() -> list[bpy.types.Object]:
 
 
 def build_lamp() -> list[bpy.types.Object]:
-    metal = material("lamp_metal", "metal", roughness=0.3, metallic=0.7)
+    metal = material("lamp_metal", "metal", roughness=0.3, metallic=1.0)
     bulb_mat = material("bulb", "warm", roughness=0.4, emission=6.0)
 
     # Every joint is a point, and every tube spans two of them, so the parts
@@ -2137,7 +2275,7 @@ def build_shelf_and_books() -> list[bpy.types.Object]:
 
 def build_whiteboard() -> list[bpy.types.Object]:
     board = cube("board_face", (0.04, 1.5, 1.05), (-3.12, -1.35, 1.72), material("board", "board", roughness=0.35))
-    frame = cube("board_frame", (0.05, 1.6, 1.15), (-3.14, -1.35, 1.72), material("board_frame", "metal", roughness=0.4, metallic=0.6))
+    frame = cube("board_frame", (0.05, 1.6, 1.15), (-3.14, -1.35, 1.72), material("board_frame", "metal", roughness=0.34, metallic=1.0, grain="brushed"))
 
     # The writing surface is its own quad named `ix_whiteboard_face`, so the
     # runtime can paint a real drawn diagram onto it. The previous version was
@@ -2289,7 +2427,7 @@ def build_server_rack() -> list[bpy.types.Object]:
     which is what actually clears the sill — a short rack under a window is the
     normal way to fit one there anyway.
     """
-    case = material("rack", "plastic", roughness=0.4, metallic=0.3, grain="brushed")
+    case = material("rack", "plastic", roughness=0.44, grain="brushed")
     rx, ry = 2.88, -2.14
     height = 0.98
     parts = [cube("rack_body", (0.5, 0.62, height), (rx, ry, height / 2), case)]
@@ -2341,7 +2479,7 @@ def build_window() -> list[bpy.types.Object]:
 
 
 def build_certificates() -> list[bpy.types.Object]:
-    frame_mat = material("cert_frame", "dark_metal", roughness=0.45, metallic=0.4)
+    frame_mat = material("cert_frame", "dark_metal", roughness=0.4, metallic=1.0)
     mat_mat = material("cert_paper", "paper", roughness=0.8)
     parts = []
     # Moved right along the wall to clear the doorway. They sit above the
@@ -2362,7 +2500,7 @@ def build_chair_and_plant() -> list[bpy.types.Object]:
     """
     fabric = material("chair_fabric", "chair_dark", roughness=0.92, grain="fabric")
     trim = material("chair_trim", "chair_light", roughness=0.85, grain="fabric")
-    metal = material("chair_metal", "metal", roughness=0.35, metallic=0.75, grain="brushed")
+    metal = material("chair_metal", "metal", roughness=0.35, metallic=1.0, grain="brushed")
 
     # On the keyboard's centreline, pushed back from the desk edge and turned a
     # little — a chair someone has just got up from. It used to sit 29 cm to the
@@ -2505,7 +2643,7 @@ def build_chair_and_plant() -> list[bpy.types.Object]:
         # The slide track the pad runs on, and the button that releases it.
         parts.append(
             cube(f"arm_track_{side}", (0.052, 0.20, 0.016), (cx + side * 0.3, cy + 0.0, 0.692),
-                 material("arm_track", "dark_metal", roughness=0.4, metallic=0.5), bevel=0.003)
+                 material("arm_track", "dark_metal", roughness=0.4, metallic=1.0), bevel=0.003)
         )
         parts.append(
             cylinder(f"arm_button_{side}", 0.009, 0.012,
@@ -2547,14 +2685,14 @@ def build_chair_and_plant() -> list[bpy.types.Object]:
         # and a bare cylinder there reads as a peg.
         parts.append(
             cube(f"castor_fork_{i}", (0.035, 0.05, 0.055), (cx + dx * 0.285, cy + dy * 0.285, 0.068),
-                 material("castor_fork", "dark_metal", roughness=0.4, metallic=0.5),
+                 material("castor_fork", "dark_metal", roughness=0.4, metallic=1.0),
                  rotation_z=angle + math.pi / 2, bevel=0.004)
         )
         # The axle the fork carries, visible between the two wheels.
         parts.append(
             cylinder(f"castor_axle_{i}", 0.006, 0.052,
                      (cx + dx * 0.29, cy + dy * 0.29, 0.030),
-                     material("castor_axle", "metal", roughness=0.3, metallic=0.9),
+                     material("castor_axle", "metal", roughness=0.3, metallic=1.0),
                      vertices=8, rotation=(0, math.radians(90), angle))
         )
         for offset in (-0.019, 0.019):
@@ -2569,7 +2707,7 @@ def build_chair_and_plant() -> list[bpy.types.Object]:
             parts.append(
                 cylinder(f"castor_hub_{i}_{offset}", 0.013, 0.017,
                          (cx + dx * 0.29 - dy * offset, cy + dy * 0.29 + dx * offset, 0.030),
-                         material("castor_hub", "metal", roughness=0.25, metallic=0.85),
+                         material("castor_hub", "metal", roughness=0.25, metallic=1.0),
                          vertices=10, rotation=(0, math.radians(90), angle))
             )
 
@@ -2620,7 +2758,7 @@ def build_chair_and_plant() -> list[bpy.types.Object]:
     # The hard shell on the back of the backrest. A task chair is upholstery on
     # the front and a moulded plastic shell behind, and the two never share a
     # material — without it the back reads as fabric all the way through.
-    shell_mat = material("chair_shell", "plastic", roughness=0.35, metallic=0.1)
+    shell_mat = material("chair_shell", "plastic", roughness=0.36)
     # Built from the shell's own cage rather than as a box guessed to fit.
     # A guessed box stands proud wherever the shell narrows — and this shell
     # narrows a lot, from 26 cm half-width at the shoulders to 13 cm at the top
@@ -2793,8 +2931,8 @@ def build_lounge() -> list[bpy.types.Object]:
     """
     fabric = material("sofa_fabric", "sofa", roughness=0.95, grain="fabric")
     wood = material("lounge_wood", "desk", roughness=0.55, grain="wood")
-    dark = material("lounge_dark", "bezel", roughness=0.4, metallic=0.2)
-    metal = material("lounge_metal", "metal", roughness=0.35, metallic=0.8, grain="brushed")
+    dark = material("lounge_dark", "bezel", roughness=0.42)
+    metal = material("lounge_metal", "metal", roughness=0.35, metallic=1.0, grain="brushed")
 
     # Nothing here shares a face with anything else. Two coplanar surfaces of
     # different objects z-fight, and upholstery is where that bites hardest,
@@ -2850,7 +2988,7 @@ def build_lounge() -> list[bpy.types.Object]:
                    material(f"magazine_{key}", key, roughness=0.5), bevel=0.004)
         mag.rotation_euler = (0, 0, 0.12 * (i - 1))
         table.append(mag)
-    table.append(cylinder("table_bowl", 0.11, 0.05, (0.62, 0.52, 0.42), material("bowl", "metal", roughness=0.25, metallic=0.9)))
+    table.append(cylinder("table_bowl", 0.11, 0.05, (0.62, 0.52, 0.42), material("bowl", "metal", roughness=0.25, metallic=1.0)))
 
     # A floor lamp behind the far arm of the sofa. It stands where the TV used
     # to: this room has two walls and both are spoken for, so a screen on the
@@ -2988,7 +3126,7 @@ def build_guitar(gx: float, gy: float, stand_mat: bpy.types.Material) -> list[bp
 
     # Tuning pegs, three a side. Tiny, but a bare headstock reads as a plank
     # and this is the one place the eye expects detail.
-    peg_mat = material("guitar_peg", "metal", roughness=0.35, metallic=0.85)
+    peg_mat = material("guitar_peg", "metal", roughness=0.35, metallic=1.0)
     for index in range(3):
         for side in (-1, 1):
             base = along(0.99 + index * 0.035)
@@ -3011,7 +3149,7 @@ def build_guitar(gx: float, gy: float, stand_mat: bpy.types.Material) -> list[bp
     saddle_at, nut_at = 0.165, 0.980
     scale_length = nut_at - saddle_at
 
-    fret_mat = material("guitar_fret", "metal", roughness=0.25, metallic=0.9)
+    fret_mat = material("guitar_fret", "metal", roughness=0.25, metallic=1.0)
     bone_mat = material("guitar_bone", "paper", roughness=0.4)
 
     for n in range(1, 19):
@@ -3071,7 +3209,7 @@ def build_guitar(gx: float, gy: float, stand_mat: bpy.types.Material) -> list[bp
     # as striped. They rise from the saddle to the nut, standing clear of the
     # fretboard the whole way — the gap under them is what says they are under
     # tension.
-    string_mat = material("guitar_string", "metal", roughness=0.2, metallic=0.95)
+    string_mat = material("guitar_string", "metal", roughness=0.2, metallic=1.0)
     for index in range(6):
         gauge = 0.00105 - index * 0.00014
         string_y = gy - 0.021 + index * 0.0084
@@ -3105,7 +3243,7 @@ def build_door() -> list[bpy.types.Object]:
     """
     wood = material("door", "desk", roughness=0.4, grain="wood")
     trim = material("door_trim", "paper", roughness=0.55)
-    metal = material("door_handle", "metal", roughness=0.25, metallic=0.9, grain="brushed")
+    metal = material("door_handle", "metal", roughness=0.25, metallic=1.0, grain="brushed")
 
     dx = -2.6
     width = 0.88
@@ -3155,7 +3293,7 @@ def build_fittings() -> list[bpy.types.Object]:
     BACK, LEFT = -2.53, -3.13
     plate = material("fitting_plate", "paper", roughness=0.35)
     dark = material("fitting_dark", "plastic", roughness=0.4)
-    metal = material("fitting_metal", "metal", roughness=0.3, metallic=0.8, grain="brushed")
+    metal = material("fitting_metal", "metal", roughness=0.3, metallic=1.0, grain="brushed")
     out: list[bpy.types.Object] = []
 
     # The light switch, beside the door at handle height rather than at the
@@ -3243,7 +3381,7 @@ def build_details() -> list[bpy.types.Object]:
     think to put in: cables, a pen pot, a clock, a phone left face-down.
     """
     dark = material("detail_dark", "plastic", roughness=0.55)
-    metal = material("detail_metal", "metal", roughness=0.3, metallic=0.85, grain="brushed")
+    metal = material("detail_metal", "metal", roughness=0.3, metallic=1.0, grain="brushed")
     paper_mat = material("detail_paper", "paper", roughness=0.85, grain="paper")
     rubber = material("cable", "dark_metal", roughness=0.85)
 
@@ -3337,7 +3475,7 @@ def build_details() -> list[bpy.types.Object]:
     award = bpy.context.object
     award.name = "award"
     award.data.name = "award"
-    top.append(shade(award, material("award", "warm", roughness=0.2, metallic=0.9)))
+    top.append(shade(award, material("award", "warm", roughness=0.2, metallic=1.0)))
     out.append(join("shelf_top", top))
     # Smaller, and further off the wall. At 0.42 its leaves spanned 29 cm on a
     # 22 cm capping board and reached 4 cm inside the wall itself.
@@ -3418,7 +3556,7 @@ def build_details() -> list[bpy.types.Object]:
 
     # A bin, with paper in it, and one piece that missed. Nothing says occupied
     # like a near miss on the floor.
-    bin_mat = material("bin", "dark_metal", roughness=0.55, metallic=0.3)
+    bin_mat = material("bin", "dark_metal", roughness=0.5, metallic=1.0, grain="brushed")
     bx, by = 1.34, -1.92
     out.append(
         cylinder("bin_body", 0.125, 0.30, (bx, by, 0.15), bin_mat, vertices=20)
@@ -3482,7 +3620,7 @@ def build_details() -> list[bpy.types.Object]:
     )
     out.append(
         cube("award_plate", (0.062, 0.014, 0.115), (-3.04, 0.62, 2.26),
-             material("award", "metal", roughness=0.22, metallic=0.85), bevel=0.006,
+             material("award", "metal", roughness=0.22, metallic=1.0), bevel=0.006,
              rotation_z=math.radians(4))
     )
 
@@ -3496,7 +3634,7 @@ def build_details() -> list[bpy.types.Object]:
         out.append(pick)
     out.append(
         cube("guitar_capo", (0.018, 0.062, 0.020), (-2.66, 2.34, 0.080),
-             material("capo", "metal", roughness=0.3, metallic=0.8), bevel=0.004,
+             material("capo", "metal", roughness=0.3, metallic=1.0), bevel=0.004,
              rotation_z=math.radians(24))
     )
 
@@ -3828,6 +3966,8 @@ def main() -> None:
                   export_room.check_buried, export_room.check_furniture,
                   export_room.check_swallowed, export_room.check_paired,
                   export_room.check_painted_uvs,
+                  export_room.check_uniform_materials,
+                  export_room.check_metalness,
                   export_room.check_dark_fixtures):
         for complaint in check():
             print(f"[build_room] {complaint}", file=sys.stderr)

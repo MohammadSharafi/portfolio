@@ -507,6 +507,76 @@ PAINTED_ORIENTATION = {
 }
 
 
+def check_metalness() -> list[str]:
+    """
+    Materials sitting between conductor and dielectric.
+
+    Metalness selects a physical model, it does not blend two looks: a metal has
+    no diffuse colour and tints its own reflection, a dielectric has diffuse
+    colour and reflects white at about 4%, and nothing is 30% of the way
+    between. An intermediate value only means something inside a texture, where
+    it marks where paint stops and bare metal begins.
+
+    The room had thirteen of these, and they are hard to spot by eye because
+    the result is not obviously broken — it is a plastic bin that looks dingy,
+    or a monitor shell that will not take a colour. See the note above
+    `build_room.default_grain`.
+    """
+    complaints = []
+    for mat in bpy.data.materials:
+        if not mat.use_nodes:
+            continue
+        bsdf = mat.node_tree.nodes.get("Principled BSDF")
+        if bsdf is None or bsdf.inputs["Metallic"].is_linked:
+            continue
+        value = bsdf.inputs["Metallic"].default_value
+        if 0.05 < value < 0.95:
+            complaints.append(f"{mat.name} is {value:.2f} metallic, which is neither a metal nor a dielectric")
+    return complaints
+
+
+def check_uniform_materials() -> list[str]:
+    """
+    Materials shipping a perfectly constant roughness.
+
+    Nothing real has one. A constant roughness returns a highlight of exactly
+    the same size and sharpness across a whole surface, and the eye reads that
+    as plastic — it is the reason untextured 3D looks untextured even when
+    every colour is correct.
+
+    `build_room.default_grain` means a material now has to opt *out* of surface
+    detail rather than remember to opt in, so this should stay quiet. It exists
+    for the case that rule cannot cover: a material built by hand in the .blend,
+    or one whose grain was wired and then trampled. Those are exactly the ones
+    nobody would think to look for.
+
+    Warned about, not fatal. A flat material is a missed opportunity, not a
+    broken room, and a check that blocks the export over one would get deleted.
+    """
+    import build_room
+
+    allowed = build_room.FLAT_BY_DESIGN
+    complaints = []
+    for mat in bpy.data.materials:
+        if mat.name in allowed or not mat.use_nodes:
+            continue
+        # Names collide across the room; `desk_top.001` is the same surface.
+        if mat.name.split(".")[0] in allowed:
+            continue
+        bsdf = mat.node_tree.nodes.get("Principled BSDF")
+        if bsdf is None:
+            continue
+        # An emissive panel's appearance is its emission, not its finish.
+        if bsdf.inputs["Emission Strength"].default_value > 0:
+            continue
+        if not bsdf.inputs["Roughness"].is_linked:
+            complaints.append(
+                f"{mat.name} has a flat roughness of "
+                f"{bsdf.inputs['Roughness'].default_value:.2f} and no surface detail"
+            )
+    return complaints
+
+
 def check_painted_uvs() -> list[str]:
     """
     Which way each painted quad's UVs actually run, against what the runtime

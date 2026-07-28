@@ -109,6 +109,36 @@ def _height(kind: str) -> np.ndarray:
     if kind == "paper":
         return np.clip(_noise(rng, 1.2, (1.0, 1.0)) * 0.5 + 0.25, 0, 1)
 
+    # --- micro-surfaces -----------------------------------------------------
+    #
+    # The four below are not textures anyone will look at. They exist because a
+    # perfectly uniform roughness does not occur in nature, and the eye is very
+    # good at spotting one: a constant-roughness surface returns a highlight of
+    # exactly the same size and sharpness everywhere on it, which is the single
+    # most reliable tell that something was rendered rather than photographed.
+    # Real moulded plastic has flow lines, real metal has micro-scratches, real
+    # lacquer has orange peel. None of it is visible as texture; all of it is
+    # visible as a highlight that breaks up.
+
+    if kind == "plastic":
+        # Injection moulding: very fine isotropic tooth, plus the faint
+        # low-frequency swirl left by the flow of the melt across the tool.
+        return np.clip(_noise(rng, 1.5, (1.0, 1.0)) * 0.7 + _noise(rng, 2.6, (1.0, 1.0)) * 0.3, 0, 1)
+
+    if kind == "metal":
+        # Machined and handled, rather than deliberately brushed. Mostly
+        # isotropic, with a slight bias along one axis from tooling.
+        return np.clip(_noise(rng, 0.95, (1.0, 6.0)) * 0.65 + _noise(rng, 1.6, (1.0, 1.0)) * 0.35, 0, 1)
+
+    if kind == "lacquer":
+        # Orange peel. A sprayed clear coat never levels perfectly flat, and the
+        # gentle undulation left behind is why a real gloss reflection wobbles
+        # slightly and a rendered one is a mirror.
+        return np.clip(_noise(rng, 2.7, (1.0, 1.0)), 0, 1)
+
+    if kind == "rubber":
+        return np.clip(_noise(rng, 1.15, (1.0, 1.0)) * 0.8 + 0.1, 0, 1)
+
     return np.full((SIZE, SIZE), 0.5)
 
 
@@ -125,7 +155,25 @@ _LOOK = {
     "plaster": (0.05, 0.05, 0.0004),
     "brushed": (0.16, 0.22, 0.0004),
     "paper": (0.09, 0.05, 0.0004),
+    # The micro-surfaces. Albedo spread is zero for all four by design — see
+    # `MICRO` — so only the roughness and depth columns are doing anything.
+    # Metal gets the widest roughness swing of anything in the room: a metal has
+    # no diffuse colour to look at, so its entire appearance *is* the shape of
+    # its highlight, and varying that is the only way to make one look used.
+    "plastic": (0.0, 0.06, 0.00010),
+    "metal": (0.0, 0.13, 0.00008),
+    "lacquer": (0.0, 0.04, 0.00022),
+    "rubber": (0.0, 0.10, 0.00030),
 }
+
+# Kinds that describe a finish rather than a substance.
+#
+# These carry roughness and normal but never touch base colour. The colours they
+# would modulate are chosen per object — a red mug, a mint keycap, a black
+# monitor shell — and a greyscale multiplier over the top would drag every one
+# of them toward grey to say something that roughness already says better. It
+# also keeps them cheap: four extra images in the GLB rather than twelve.
+MICRO = frozenset({"plastic", "metal", "lacquer", "rubber"})
 
 KINDS = tuple(_LOOK)
 
