@@ -2280,6 +2280,17 @@ def build_chair_and_plant() -> list[bpy.types.Object]:
         parts.append(post)
         pad = cube(f"arm_pad_{side}", (0.105, 0.32, 0.05), (cx + side * 0.3, cy + 0.0, 0.72), fabric, bevel=0)
         parts.append(smooth(pad, 2, crease=0.45))
+        # The slide track the pad runs on, and the button that releases it.
+        parts.append(
+            cube(f"arm_track_{side}", (0.052, 0.20, 0.016), (cx + side * 0.3, cy + 0.0, 0.692),
+                 material("arm_track", "dark_metal", roughness=0.4, metallic=0.5), bevel=0.003)
+        )
+        parts.append(
+            cylinder(f"arm_button_{side}", 0.009, 0.012,
+                     (cx + side * 0.334, cy - 0.05, 0.688),
+                     material("arm_button", "plastic", roughness=0.35), vertices=10,
+                     rotation=(0, math.radians(90), 0))
+        )
 
     # The mechanism under the pan. Every chair has one and it is always visible
     # from a low angle — without it the seat floats on the gas lift with a gap
@@ -2292,7 +2303,10 @@ def build_chair_and_plant() -> list[bpy.types.Object]:
     )
 
     # Gas lift and the five-star base with real castors.
-    parts.append(cylinder("gas_lift", 0.035, 0.34, (cx, cy, 0.24), metal, vertices=14))
+    # A gas lift is two visible sections and a shroud, not one cylinder — the
+    # step where the inner tube leaves the outer is what says it telescopes.
+    parts.append(cylinder("gas_lift_inner", 0.028, 0.20, (cx, cy, 0.33), metal, vertices=14))
+    parts.append(cylinder("gas_lift_outer", 0.038, 0.17, (cx, cy, 0.20), metal, vertices=14))
     parts.append(cylinder("lift_shroud", 0.055, 0.16, (cx, cy, 0.16), material("shroud", "plastic", roughness=0.5), vertices=14))
     castor_mat = material("castor", "plastic", roughness=0.45)
     for i in range(5):
@@ -2300,6 +2314,12 @@ def build_chair_and_plant() -> list[bpy.types.Object]:
         dx, dy = math.cos(angle), math.sin(angle)
         spoke = cube(f"spoke_{i}", (0.055, 0.3, 0.035), (cx + dx * 0.15, cy + dy * 0.15, 0.075), metal, rotation_z=angle + math.pi / 2)
         parts.append(spoke)
+        # A ridge down the spine of each spoke. A flat spoke reads as cardboard;
+        # every real base is ribbed, because that is what stops it flexing.
+        parts.append(
+            cube(f"spoke_rib_{i}", (0.016, 0.27, 0.014), (cx + dx * 0.155, cy + dy * 0.155, 0.094),
+                 metal, rotation_z=angle + math.pi / 2, bevel=0.003)
+        )
         # A fork and twin wheels, not a single disc on the end of the spoke. A
         # castor is the one part of a chair seen from close to its own height,
         # and a bare cylinder there reads as a peg.
@@ -2308,12 +2328,139 @@ def build_chair_and_plant() -> list[bpy.types.Object]:
                  material("castor_fork", "dark_metal", roughness=0.4, metallic=0.5),
                  rotation_z=angle + math.pi / 2, bevel=0.004)
         )
+        # The axle the fork carries, visible between the two wheels.
+        parts.append(
+            cylinder(f"castor_axle_{i}", 0.006, 0.052,
+                     (cx + dx * 0.29, cy + dy * 0.29, 0.030),
+                     material("castor_axle", "metal", roughness=0.3, metallic=0.9),
+                     vertices=8, rotation=(0, math.radians(90), angle))
+        )
         for offset in (-0.019, 0.019):
             parts.append(
                 cylinder(f"castor_{i}_{offset}", 0.030, 0.014,
                          (cx + dx * 0.29 - dy * offset, cy + dy * 0.29 + dx * offset, 0.030),
                          castor_mat, vertices=14, rotation=(0, math.radians(90), angle))
             )
+            # A hub cap in a harder, shinier material than the tyre. The two are
+            # never the same plastic on a real castor, and the difference is
+            # visible from exactly the height a castor is seen from.
+            parts.append(
+                cylinder(f"castor_hub_{i}_{offset}", 0.013, 0.017,
+                         (cx + dx * 0.29 - dy * offset, cy + dy * 0.29 + dx * offset, 0.030),
+                         material("castor_hub", "metal", roughness=0.25, metallic=0.85),
+                         vertices=10, rotation=(0, math.radians(90), angle))
+            )
+
+    # --- the hardware, and the sewing ------------------------------------
+    #
+    # Everything to here is the shape of the chair. What follows is what makes
+    # it a manufactured object rather than a moulded one: the parts that are
+    # assembled, adjusted and stitched. A chair is the thing in an office
+    # everybody has looked at closely, so these are the details that are
+    # actually checked.
+
+    # Topstitching, running beside the piping.
+    #
+    # The piping is the cord; the stitching is what holds it on, and they are
+    # not the same detail. A seam without stitching reads as a moulded ridge —
+    # which is what the previous version had, a continuous cord with nothing
+    # sewing it down. Real upholstery is double-needle: two dashed lines, one
+    # each side of the seam.
+    # Close to the trim colour, not a contrast thread. At full contrast and
+    # 5.5 mm long these read as a string of beads laid across the seat rather
+    # than as sewing — topstitching is visible because it dents the fabric, not
+    # because it is a different colour.
+    stitch_mat = material("chair_stitch", "chair_light", roughness=0.55)
+    for u in (-0.55, 0.55):
+        for path, name in (
+            ([(cx + u * half, cy + dy - wrap * (1 - u * u) + 0.048, z)
+              for z, dy, half, wrap in back_rows], "back"),
+            ([(cx + u * half, cy + dy, mid_z + (edge_z - mid_z) * u * u + 0.048)
+              for dy, mid_z, edge_z, half in seat_rows], "seat"),
+        ):
+            for step in range(len(path) - 1):
+                a, b = path[step], path[step + 1]
+                # Six stitches per span, each a short dash rather than a line.
+                for k in range(9):
+                    t = (k + 0.3) / 9.0
+                    here = tuple(a[axis] + (b[axis] - a[axis]) * t for axis in range(3))
+                    for side in (-0.009, 0.009):
+                        parts.append(
+                            cube(
+                                f"stitch_{name}_{u}_{step}_{k}_{side}",
+                                (0.0026, 0.0009, 0.0009),
+                                (here[0] + side, here[1], here[2]),
+                                stitch_mat,
+                                bevel=0,
+                            )
+                        )
+
+    # The hard shell on the back of the backrest. A task chair is upholstery on
+    # the front and a moulded plastic shell behind, and the two never share a
+    # material — without it the back reads as fabric all the way through.
+    shell_mat = material("chair_shell", "plastic", roughness=0.35, metallic=0.1)
+    # Built from the shell's own cage rather than as a box guessed to fit.
+    # A guessed box stands proud wherever the shell narrows — and this shell
+    # narrows a lot, from 26 cm half-width at the shoulders to 13 cm at the top
+    # — so the plate showed as a slab sticking out past the backrest's edge.
+    plate_verts: list[tuple[float, float, float]] = []
+    for z, dy, half, wrap in back_rows:
+        for u in columns:
+            # Inset from the upholstery all round, and set behind it.
+            plate_verts.append((u * half * 0.88, dy - wrap * (1 - u * u) - 0.055, z))
+    plate_faces = []
+    for row in range(len(back_rows) - 1):
+        for col in range(stride - 1):
+            a = row * stride + col
+            plate_faces.append((a, a + 1, a + stride + 1, a + stride))
+    shell = poly("back_plate", plate_verts, plate_faces, (cx, cy, 0), shell_mat)
+    shell.modifiers.new("Thickness", "SOLIDIFY").thickness = 0.022
+    parts.append(smooth(shell, 2, crease=0.4))
+
+    # The moulded logo recess every one of them has, on the plate at shoulder
+    # height where the cage puts it.
+    badge_row = back_rows[3]
+    parts.append(
+        cube("back_badge", (0.06, 0.016, 0.030),
+             (cx, cy + badge_row[1] - badge_row[3] - 0.070, badge_row[0]), metal, bevel=0.003)
+    )
+
+    # Elastic straps slinging the headrest and the lumbar cushion off the shell,
+    # with their buckles. These cushions are hung, not glued, and the straps are
+    # the reason they sit proud of the back instead of merging into it.
+    strap_mat = material("chair_strap", "bezel", roughness=0.8, grain="fabric")
+    for cushion_z, cushion_dy, span in ((1.31, -0.345, 0.075), (0.69, -0.155, 0.085)):
+        for side in (-1, 1):
+            parts.append(
+                cube(f"strap_{cushion_z}_{side}", (0.022, 0.055, span * 2.4),
+                     (cx + side * 0.085, cy + cushion_dy - 0.02, cushion_z), strap_mat, bevel=0.002)
+            )
+            parts.append(
+                cube(f"buckle_{cushion_z}_{side}", (0.026, 0.012, 0.018),
+                     (cx + side * 0.085, cy + cushion_dy - 0.05, cushion_z - span * 0.9),
+                     metal, bevel=0.002)
+            )
+
+    # A certification tag sewn into the seam. Every chair has one, and it is the
+    # kind of thing nobody notices until it is missing.
+    tag = cube("chair_tag", (0.05, 0.002, 0.032), (cx + 0.19, cy + 0.20, 0.455),
+               material("chair_tag", "paper", roughness=0.8), bevel=0)
+    tag.rotation_euler = (0, 0, 0.3)
+    parts.append(tag)
+
+    # The second lever. A chair has two — tilt on one side, height on the other
+    # — and one lever alone reads as a chair that cannot be raised.
+    parts.append(
+        cylinder("height_lever", 0.010, 0.11, (cx - 0.20, cy + 0.04, 0.378), metal, vertices=10,
+                 rotation=(0, math.radians(90), math.radians(-10)))
+    )
+    # The recline bracket and its tension knob, under the pan where the
+    # mechanism actually is.
+    parts.append(cube("recline_bracket", (0.16, 0.09, 0.05), (cx, cy - 0.12, 0.372), metal, bevel=0.006))
+    parts.append(
+        cylinder("tension_knob", 0.028, 0.045, (cx, cy - 0.13, 0.325),
+                 material("knob", "dark_metal", roughness=0.5), vertices=14)
+    )
 
     chair = join("ix_chair", parts)
     set_origin(chair, (cx, cy, 0.0))
