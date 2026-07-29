@@ -69,9 +69,28 @@ blender --background --python scripts/blender/bake_room.py -- --size 4096 --samp
 
 The bake produces `room-lightmap.jpg` (irradiance) and `room-aging.png` (dust,
 wear and occlusion). Both are indexed by a UV1 atlas generated during the bake,
-so they are produced in one run and are only valid together — the runtime gates
-both on a hash of the `room.glb` they came from and ignores a stale pair rather
-than showing an older room.
+so they are produced in one run and are only valid together.
+
+### When a bake goes stale
+
+The runtime discards a lightmap that no longer describes the room it is being
+applied to, rather than showing an older room and letting every change made
+since become invisible. What it compares is a fingerprint of **geometry, lights
+and emissive materials** — the things a bake actually depends on — written by
+`build_room.py` into `room-geometry.json` and recorded by `bake_room.py` in the
+bake's own stamp.
+
+Deliberately _not_ included: base colour, roughness and normal maps. Changing
+the wood grain does not move a surface or add a light, so it cannot change where
+the light lands, and an earlier version that hashed the whole `.glb` threw away
+an hour-long bake every time a texture was touched — which made material work
+and lighting work mutually exclusive. The known gap is colour bleed: repainting
+a wall changes the colour of the light bouncing off it, and that _is_ in the
+lightmap. It is second-order and gets picked up at the next bake.
+
+So: **edit textures freely, re-bake after moving anything or changing a light.**
+If the two fingerprints disagree the bake warns rather than leaving you to
+wonder why an hour of baking had no effect.
 
 ### What is automatic, and what is not
 
@@ -99,6 +118,25 @@ Three constraints are real and are not going to be solved by more code:
   canvases painted by the browser at runtime. `render_hero.py` reads what the
   dev server dumped rather than reimplementing them, so a hero render needs
   `npm run dev` to have been visited at least once.
+
+### Looking at the room up close
+
+In development the room, the camera and the renderer are on `window`:
+
+```js
+three.gl.toneMappingExposure; // what the frame is actually graded at
+where('drawer_pull'); // find things, with world positions
+look(0.7, 0.36, 1.7, 0.6, -1.15); // put the camera 60 cm from a point
+home(); // give it back to the camera rig
+```
+
+`look` takes the camera out of `CameraRig`'s control by clearing
+`matrixAutoUpdate` — the rig lerps toward its stop every frame, so writing to
+`position` alone is overwritten before it is ever drawn. This exists because
+almost every fault worth finding in this room is invisible from the one camera
+angle the site ships: the wood reading as corrugated cardboard, the seam down
+the lamp shade, edge wear drawn as an outline. All three were found this way and
+none was visible from the home stop.
 
 ## Design system
 
