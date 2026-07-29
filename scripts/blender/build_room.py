@@ -64,20 +64,22 @@ def argv_after_dashes() -> list[str]:
 # same values the runtime falls back to if the model ever fails to load.
 # --------------------------------------------------------------------------
 PALETTE = {
-    # About 9% reflectance before this — a wall that dark absorbs roughly
-    # nine tenths of everything that reaches it, so nothing bounces, there is no
-    # ambient, and the room falls to black however many lamps are added to it.
-    # That is the whole reason this room resisted every lighting fix: the light
-    # was arriving and the walls were eating it.
+    # Mid-tone, and that is a deliberate middle between two failures.
     #
-    # Light and near-neutral, so the colour in the room can come from the lamps
-    # rather than from the paint. That is how the reference works — its walls
-    # are pale and read pink or blue depending on what is pointed at them.
-    "wall": (0.465, 0.442, 0.425, 1),
-    # The accent wall, only a shade warmer than the other one. It reads as an
-    # accent because of the light thrown at it, not because it is painted a
-    # different colour — which is what keeps the two walls in one room.
-    "wall_accent": (0.505, 0.455, 0.432, 1),
+    # At 9% reflectance the walls ate nine tenths of every photon, nothing
+    # bounced, and the room fell to black however many lamps were pointed into
+    # it. At 47% it bounced so well that the room came out flat and bright, and
+    # a neon strip against a well-lit wall is a strip of tape.
+    #
+    # 28% is dark enough for the room to read as dark and pale enough to take a
+    # colour. That is what the reference photographs actually do: their walls
+    # are not black, they are ordinary walls in a dim room, and the LEDs
+    # painting them is the whole effect.
+    "wall": (0.285, 0.272, 0.268, 1),
+    # The accent wall, a shade warmer than the other. It reads as an accent
+    # because of the light thrown at it, not because it is painted a different
+    # colour — which is what keeps the two walls in one room.
+    "wall_accent": (0.300, 0.278, 0.268, 1),
     "floor": (0.192, 0.137, 0.094, 1),
     "rug": (0.114, 0.125, 0.176, 1),
     "desk": (0.361, 0.243, 0.157, 1),
@@ -148,6 +150,11 @@ PALETTE = {
     "warm": (1.0, 0.702, 0.353, 1),
     "cyan": (0.416, 0.749, 1.0, 1),
     "violet": (0.659, 0.482, 1.0, 1),
+    # Not pure magenta. An LED strip sold as pink drives its red channel hard
+    # and leaves a little blue, and the green it does not emit is what makes it
+    # read as a *light* rather than as paint — a fully saturated primary has no
+    # highlight left in it, so it flattens to a solid shape.
+    "magenta": (1.0, 0.290, 0.706, 1),
     "green": (0.353, 0.906, 0.612, 1),
     "red": (1.0, 0.372, 0.325, 1),
 }
@@ -2274,8 +2281,17 @@ def build_lamp() -> list[bpy.types.Object]:
     # The shade hangs off the head, opening down at the desk. A cone's wide end
     # is at its -Z, so aiming its axis straight down puts the opening beneath
     # the bulb where the light is wanted.
+    # `end_fill_type="NOTHING"`, and this is the whole lamp.
+    #
+    # `primitive_cone_add` caps both ends by default, which makes a shade that
+    # is a closed metal vessel with the bulb sealed inside it. That is not a
+    # subtle inaccuracy — it is the difference between a lamp and a paperweight,
+    # and it is why this room has never had a warm pool on the desk no matter
+    # what the light was set to. A shade is open at the wide end. That opening
+    # is the entire function of the object.
     bpy.ops.mesh.primitive_cone_add(
-        radius1=0.105, radius2=0.032, depth=0.15, location=(head[0], head[1], head[2] - 0.05)
+        radius1=0.105, radius2=0.032, depth=0.15, end_fill_type="NOTHING",
+        location=(head[0], head[1], head[2] - 0.05),
     )
     shade_obj = bpy.context.object
     shade_obj.name = "lamp_shade"
@@ -2309,6 +2325,18 @@ def build_lamp() -> list[bpy.types.Object]:
     # Down inside the cone's wide end, not flush with it — a shade seen from
     # below shows a ring of metal around the light, not a flat glowing lid.
     mouth.location = (head[0] - 0.018, head[1] - 0.025, head[2] - 0.098)
+    # And it must not block the lamp, which for two builds it did completely.
+    #
+    # This disc spans the full opening of the shade and sits *below* the point
+    # light inside it, so as an opaque object it was a lid: every photon the
+    # lamp emitted hit it and stopped. The desk had no warm pool, the room came
+    # out one flat blue, and raising the lamp from 190 W to 450 W changed
+    # nothing at all — which is the tell, because a light whose output does not
+    # respond to its own power is not dim, it is enclosed.
+    #
+    # It is an aperture, not a surface. What it represents is the light leaving,
+    # so light passing through it is the entire point.
+    mouth.visible_shadow = False
 
     # The beam itself, as a translucent cone from the shade down to the desk.
     #
@@ -3372,6 +3400,17 @@ def build_lounge() -> list[bpy.types.Object]:
             ),
         )
     )
+    # And it must not cast, for the same reason the desk lamp's mouth must not:
+    # `primitive_cone_add` caps both ends, so this shade is a closed vessel with
+    # the bulb sealed inside it, and every photon the floor lamp emitted was
+    # stopped by the paper it was supposed to be shining through. The lounge end
+    # of the room has been lit by nothing but a distant window for as long as
+    # this lamp has existed.
+    #
+    # A paper shade transmits — that is the whole reason it is made of paper —
+    # so passing light is what the object does, and the emission above is that
+    # transmitted light seen from outside.
+    shade_obj.visible_shadow = False
 
     # A side table by the near arm of the sofa, with a speaker on it.
     tx, ty = 1.62, 0.55
@@ -4007,6 +4046,65 @@ def build_details() -> list[bpy.types.Object]:
     return out
 
 
+def build_led_strips() -> list[bpy.types.Object]:
+    """
+    Cove strips along both walls, and the reason the room can be dark.
+
+    In every reference for this room the light source is *in the frame*. Not a
+    lamp lighting a wall — a line of emitter running along the wall itself, with
+    its own colour, bright enough to be the brightest thing in the shot. That is
+    what lets the rest of the room fall away to almost nothing and still read:
+    the eye has something to hold, so the darkness becomes mood instead of
+    underexposure.
+
+    Two runs, meeting at the corner: cyan down the shelf wall, magenta along the
+    window wall. Opposed colours rather than one, because a single colour is a
+    filter over the whole room and two are a room with two sides to it — and the
+    corner where they meet is the most interesting thing in the frame.
+
+    Each strip is geometry *and* a light. Emission alone makes a bright line
+    that illuminates nothing, which reads instantly as a sticker; the wall
+    behind it has to carry the falloff or the strip is not really there.
+    """
+    strips: list[bpy.types.Object] = []
+    height = 2.34
+
+    # (name, palette, size, location, light colour, light size, light rotation)
+    runs = (
+        (
+            "led_cove_shelf", "cyan",
+            (0.022, 4.9, 0.016), (-3.122, 0.0, height),
+            (0.28, 0.86, 1.0), (0.10, 4.6), (0.0, math.radians(-88), 0.0),
+        ),
+        (
+            "led_cove_window", "magenta",
+            (6.2, 0.022, 0.016), (0.0, -2.522, height),
+            (1.0, 0.22, 0.72), (5.9, 0.10), (math.radians(88), 0.0, 0.0),
+        ),
+    )
+
+    for name, colour, size, location, light_rgb, light_size, rotation in runs:
+        strips.append(
+            cube(
+                name,
+                size,
+                location,
+                material(name, colour, roughness=0.35, emission=14.0),
+                bevel=0.003,
+            )
+        )
+        bpy.ops.object.light_add(type="AREA", location=location)
+        light = bpy.context.object
+        light.name = f"{name}_light"
+        light.data.shape = "RECTANGLE"
+        light.data.size, light.data.size_y = light_size
+        light.data.energy = 85
+        light.data.color = light_rgb
+        light.rotation_euler = rotation
+
+    return strips
+
+
 def build_water_glass() -> list[bpy.types.Object]:
     """
     A glass of water on the side table, and the room's only real transparent
@@ -4249,37 +4347,41 @@ def add_lighting() -> None:
     The rig the bake resolves. The runtime does not import these — it rigs its
     own — but keeping them here means both start from the same intent.
 
-    Three ideas, and the third is the one that took longest to see.
+    This is a dark room, and every number here follows from that one decision.
 
-    The walls do the work. They are pale (see `PALETTE`), so light bounces
-    around the room several times instead of dying on the first surface it
-    meets. At 9% reflectance nothing bounced and the room fell to black however
-    many lamps were pointed into it.
+    There is no overhead light. That is the whole difference between this rig
+    and the two before it — not that the lamps are dimmer, but that the thing
+    which was lighting the room has been switched off, and what remains is a
+    handful of practicals: two LED coves, a desk lamp, a floor lamp, two
+    monitors and a window. Each of them is *visible in the frame*, and that is
+    what makes the darkness read as evening rather than as underexposure. Dim a
+    fully-lit room and it looks like a fault; light a dark one from four small
+    sources and it looks like somewhere at eleven at night.
 
-    The colour comes from the lamps, not the paint. Violet down the shelf wall,
-    amber along the door wall, warm at the desk, cold from the window and the
-    monitors — pale walls take whichever is thrown at them, so the room has a
-    warm half and a cool half. Coloured walls under a neutral key give one flat
-    wash; neutral walls under coloured light give a room with somewhere to look.
+    Contrast is the whole effect. Most of this room is nearly black and a few
+    small areas are very bright, which is a range no even light can produce at
+    any brightness. An earlier pass raised the world until nothing anywhere was
+    dark and got a room that was bright and had no shape in it at all.
 
-    And contrast is the point, not brightness. A bright evenly-lit room is still
-    a flat one — the reason a room reads as *lit* is that some of it is not. The
-    ambient is deliberately low and the sources are strong, so the light falls
-    off across the floor and the corners go down. An earlier pass raised the
-    world until nothing anywhere was dark, which produced a room that was bright
-    and had no shape at all.
+    The colour still comes from the lamps rather than the paint — cyan down the
+    shelf wall, magenta along the window wall, warm at the desk — but now it
+    comes from strips that are *in shot* rather than from area lights hidden
+    outside the frame pretending to be them. That is what the previous rig was
+    missing and no amount of retuning it would have found: the light was
+    arriving with nothing to have come from.
 
-    No fixture for the overhead, and none needed: the camera looks down into an
-    open box and the ceiling is never in frame. A pendant was tried on the
-    theory that a strong overhead wants a visible source, and it solved a
-    problem the composition does not have.
+    The world is very low but not zero. Zero means every surface facing away
+    from all six sources is exactly black, and black has no material in it — no
+    grain, no dust, no wear, none of the work in the rest of this file. 0.08 is
+    about a stop below the darkest thing the tone curve will separate, so it
+    reads as black and still carries a surface.
     """
     world = bpy.data.worlds.get("room_world") or bpy.data.worlds.new("room_world")
     bpy.context.scene.world = world
     world.use_nodes = True
     background = world.node_tree.nodes["Background"]
-    background.inputs["Color"].default_value = (0.10, 0.11, 0.16, 1.0)
-    background.inputs["Strength"].default_value = 0.55
+    background.inputs["Color"].default_value = (0.09, 0.10, 0.16, 1.0)
+    background.inputs["Strength"].default_value = 0.08
 
     def area(name, energy, size, location, colour, rotation=(0, 0, 0)):
         bpy.ops.object.light_add(type="AREA", location=location)
@@ -4291,51 +4393,67 @@ def add_lighting() -> None:
         light.rotation_euler = rotation
         return light
 
-    # The overhead. Warm, and tighter than before — a 2.6 m source lit the whole
-    # floor evenly, which is exactly the flatness this rig is trying to avoid.
-    area("key", 560, 1.7, (0.15, -0.35, 2.6), (1.0, 0.88, 0.74))
+    # The overhead is *off*. What is left is the small amount of light a ceiling
+    # returns after the practicals have thrown their share up at it — enough to
+    # keep the far corners of the room from being a hole in the image, and about
+    # a twentieth of what the key used to put out. Cool, because the coves and
+    # the monitors are what is feeding it.
+    #
+    # It sits high and wide on purpose: a soft, near-flat term is what bounce
+    # actually is, and giving it any shape would put a second set of shadows in
+    # a room whose shadows are meant to come from four lamps.
+    area("ceiling_bounce", 20, 3.2, (0.15, -0.35, 2.58), (0.74, 0.76, 0.95))
 
-    # Violet down the shelf wall. The room's one saturated colour, and strong
-    # enough to be a colour rather than a tint — the previous value read as grey
-    # with a suggestion of mauve, which is worse than not doing it.
-    area("wash_shelf", 420, 2.2, (-2.62, 0.5, 1.9), (0.72, 0.22, 1.0),
-         rotation=(0, math.radians(-66), 0))
-
-    # Amber back along the door wall, so the corner between the two walls is a
-    # place where two colours meet rather than a fold in one.
-    area("wash_back", 260, 2.2, (0.2, 2.3, 1.95), (1.0, 0.62, 0.30),
-         rotation=(math.radians(66), 0, 0))
-
-    # The desk lamp. Strong and tight — this is the pool the desk sits in, and
-    # the brightest small thing in the room.
+    # The desk lamp, and it has to win.
+    #
+    # This is the one warm source in a room otherwise lit by two LED coves, two
+    # monitors and a city — all of them cold. At 190 W it lost that fight and
+    # the whole room came out one flat blue, which is the failure mode of every
+    # neon interior: pick a colour, light everything with it, and you have put a
+    # filter over a photograph rather than lit a room.
+    #
+    # The reference images all work the same way, and it is worth being precise
+    # about how. They are not blue pictures. They are pictures with a *warm
+    # centre* — a lamp, a monitor's white document, a bulb — sitting in cold
+    # surroundings, and the eye reads the cold as atmosphere only because it has
+    # something warm to measure it against. Take the warm out and the cold stops
+    # being a mood and becomes a colour cast.
+    #
+    # So 450 W, more than twice everything cold in the room put together at the
+    # desk, and tight: a small emitter throws a hard-edged pool with a fast
+    # falloff, which is what makes it read as one lamp rather than as the room
+    # being warmer over there.
     bpy.ops.object.light_add(type="POINT", location=(0.80, DESK_BACK + 0.28, 1.10))
     warm = bpy.context.object
     warm.name = "lamp_light"
-    warm.data.energy = 190
-    warm.data.color = (1.0, 0.62, 0.26)
-    warm.data.shadow_soft_size = 0.05
+    warm.data.energy = 450
+    warm.data.color = (1.0, 0.60, 0.24)
+    warm.data.shadow_soft_size = 0.035
 
+    # The second warm, across the room, so the lounge end is not simply the part
+    # of the picture the lamp did not reach. Softer and broader — it is a shade
+    # at head height rather than a head over a desk.
     bpy.ops.object.light_add(type="POINT", location=(-1.22, 1.85, 1.44))
     floor_lamp = bpy.context.object
     floor_lamp.name = "floor_lamp_light"
-    floor_lamp.data.energy = 130
-    floor_lamp.data.color = (1.0, 0.70, 0.40)
+    floor_lamp.data.energy = 240
+    floor_lamp.data.color = (1.0, 0.68, 0.38)
     floor_lamp.data.shadow_soft_size = 0.09
 
     # The monitors, cold and close, throwing forward onto the desk and the
     # chair. Raised until it is visibly a source rather than an inference.
-    area("screen_bounce", 190, 1.2, (0.0, DESK_BACK + 0.26, 1.10), (0.34, 0.58, 1.0),
+    area("screen_bounce", 105, 1.2, (0.0, DESK_BACK + 0.26, 1.10), (0.34, 0.58, 1.0),
          rotation=(math.radians(90), 0, 0))
 
     # The LED strip behind the desk, which now emits at 9.0 and so needs a light
     # to match it — a strip that glows without lighting the wall behind it is a
     # sticker.
-    area("strip_glow", 70, 1.4, (0.0, DESK_BACK - 0.06, 1.26), (0.62, 0.34, 1.0),
+    area("strip_glow", 55, 1.4, (0.0, DESK_BACK - 0.06, 1.26), (0.62, 0.34, 1.0),
          rotation=(math.radians(-90), 0, 0))
 
     # City glow through the window: the coldest thing in the room, and the one
     # cold source with somewhere real to come from.
-    area("window_glow", 170, 1.3, (2.05, -2.42, 1.72), (0.42, 0.60, 1.0),
+    area("window_glow", 90, 1.3, (2.05, -2.42, 1.72), (0.42, 0.60, 1.0),
          rotation=(math.radians(90), 0, 0))
 
 
@@ -4540,6 +4658,7 @@ def build_all() -> None:
     build_fittings()
     build_details()
     build_desk_detail()
+    build_led_strips()
     build_water_glass()
     build_steam()
     add_lighting()
