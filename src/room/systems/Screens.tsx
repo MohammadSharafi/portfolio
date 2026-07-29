@@ -3,6 +3,7 @@ import { useFrame } from '@react-three/fiber';
 import { Mesh, MeshBasicMaterial, type Object3D, type Texture } from 'three';
 import {
   bookSpineTexture,
+  certificateTexture,
   clinicalScreen,
   codeScreen,
   cvTexture,
@@ -46,10 +47,20 @@ function baseName(name: string) {
   // must survive; everything else only picks up a suffix from glTF splitting a
   // multi-material mesh.
   if (/^ix_book_spine_\d+$/.test(name)) return name;
+  if (/^ix_certificates_\d+$/.test(name)) return name;
   return name.replace(/_\d+$/, '');
 }
 
 const SPINE = /^ix_book_spine_(\d+)$/;
+/**
+ * The three framed awards, each printed with its own.
+ *
+ * Indexed like the spines and for the same reason: `baseName` strips a `_N`
+ * suffix because glTF adds one when it splits a multi-material mesh, and here
+ * the number is meaning rather than noise. Stripping it would print the same
+ * award on all three frames.
+ */
+const CERTIFICATE = /^ix_certificates_(\d+)$/;
 
 /**
  * Repaints one screen's live regions.
@@ -101,6 +112,19 @@ export function Screens({ root }: { root: Object3D }) {
     return made;
   }, []);
 
+  const certificateTextures = useMemo(() => {
+    const made = new Map<number, Texture>();
+    for (let index = 0; index < 3; index += 1) {
+      try {
+        made.set(index, certificateTexture(index));
+      } catch {
+        // A frame that fails to print should cost one blank certificate, not
+        // the wall it hangs on.
+      }
+    }
+    return made;
+  }, []);
+
   const spineTextures = useMemo(() => {
     const made = new Map<number, Texture>();
     for (let index = 0; index < 6; index += 1) {
@@ -120,7 +144,12 @@ export function Screens({ root }: { root: Object3D }) {
       if (!(node instanceof Mesh)) return;
       const key = baseName(node.name);
       const spine = SPINE.exec(key);
-      const texture = spine ? spineTextures.get(Number(spine[1])) : textures.get(key);
+      const certificate = CERTIFICATE.exec(key);
+      const texture = spine
+        ? spineTextures.get(Number(spine[1]))
+        : certificate
+          ? certificateTextures.get(Number(certificate[1]))
+          : textures.get(key);
       if (!texture) return;
 
       const previous = node.material;
@@ -141,7 +170,7 @@ export function Screens({ root }: { root: Object3D }) {
       for (const texture of textures.values()) texture.dispose();
       for (const texture of spineTextures.values()) texture.dispose();
     };
-  }, [root, textures, spineTextures]);
+  }, [root, textures, spineTextures, certificateTextures]);
 
   const live = useMemo(
     () =>

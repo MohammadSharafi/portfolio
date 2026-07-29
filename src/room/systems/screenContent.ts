@@ -4,7 +4,7 @@ import { stats } from '@/data/stats';
 import { experience } from '@/data/experience';
 import { profile } from '@/data/profile';
 import { skillGroups } from '@/data/skills';
-import { education } from '@/data/credentials';
+import { awards, education } from '@/data/credentials';
 
 /**
  * Everything with writing on it in the room.
@@ -530,6 +530,98 @@ export function stickyTexture() {
  * A4 proportion, 1:√2. The page is modelled at 210 × 297 mm, and a canvas of
  * any other shape would stretch the type across it.
  */
+/**
+ * A framed award, printed on the certificate that carries it.
+ *
+ * The three frames on the wall were blank coloured rectangles: modelled, lit
+ * and baked, saying nothing. They are the one place in the room where the work
+ * has actually been recognised by somebody else, and they were the only surface
+ * with nothing written on it.
+ *
+ * Set like a certificate rather than a poster. A rule, the issuer above the
+ * title, the year set small, and a good deal of empty paper — the restraint is
+ * the point. An award shouts by being on the wall at all; the printing does not
+ * need to shout as well, and `scope` is stated plainly because a company award
+ * won by a team is a different thing from one earned alone and it would be
+ * cheap to blur them.
+ */
+export function certificateTexture(index: number) {
+  const award = awards[index];
+  const landscape = index > 0;
+  const W = landscape ? 1024 : 800;
+  const H = landscape ? 820 : 1024;
+  const { canvas, ctx } = surface(W, H, '#f7f5f0');
+
+  // A faint warm wash toward the edges, so the paper is not a flat fill.
+  const wash = ctx.createRadialGradient(W / 2, H / 2, W * 0.1, W / 2, H / 2, W * 0.78);
+  wash.addColorStop(0, 'rgba(255,255,255,0.9)');
+  wash.addColorStop(1, 'rgba(226,216,198,0.55)');
+  ctx.fillStyle = wash;
+  ctx.fillRect(0, 0, W, H);
+
+  if (!award) return finish(canvas, 'flip-v');
+
+  const M = Math.round(W * 0.13);
+  const INK = '#1b2028';
+  const MUTED = '#6d6459';
+  const GOLD = '#9a7b3f';
+
+  // A double rule inset from the edge, the way a certificate is bordered.
+  ctx.strokeStyle = GOLD;
+  ctx.lineWidth = Math.max(2, W / 340);
+  ctx.strokeRect(M * 0.62, M * 0.62, W - M * 1.24, H - M * 1.24);
+  ctx.lineWidth = 1;
+  ctx.strokeRect(M * 0.62 + 9, M * 0.62 + 9, W - M * 1.24 - 18, H - M * 1.24 - 18);
+
+  ctx.textAlign = 'center';
+  const mid = W / 2;
+  let y = Math.round(H * (landscape ? 0.26 : 0.24));
+
+  ctx.fillStyle = MUTED;
+  ctx.font = `600 ${Math.round(W * 0.026)}px ${FONT_UI}`;
+  ctx.fillText(award.issuer.toUpperCase(), mid, y);
+
+  y += Math.round(H * (landscape ? 0.115 : 0.1));
+  ctx.fillStyle = INK;
+  // Long titles wrap rather than shrink to nothing; two lines is the limit a
+  // frame this size can hold at a readable weight.
+  const size = award.title.length > 34 ? W * 0.052 : W * 0.064;
+  ctx.font = `700 ${Math.round(size)}px ${FONT_UI}`;
+  const words = award.title.split(' ');
+  const lines: string[] = [];
+  let line = '';
+  for (const word of words) {
+    const next = line ? `${line} ${word}` : word;
+    if (ctx.measureText(next).width > W - M * 2 && line) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = next;
+    }
+  }
+  lines.push(line);
+  for (const text of lines.slice(0, 2)) {
+    ctx.fillText(text, mid, y);
+    y += Math.round(size * 1.24);
+  }
+
+  y += Math.round(H * 0.03);
+  ctx.strokeStyle = GOLD;
+  ctx.lineWidth = Math.max(2, W / 420);
+  ctx.beginPath();
+  ctx.moveTo(mid - W * 0.11, y);
+  ctx.lineTo(mid + W * 0.11, y);
+  ctx.stroke();
+
+  y += Math.round(H * 0.075);
+  ctx.fillStyle = MUTED;
+  ctx.font = `400 ${Math.round(W * 0.028)}px ${FONT_UI}`;
+  ctx.fillText(award.scope === 'team' ? `${award.year}  ·  team award` : award.year, mid, y);
+
+  ctx.textAlign = 'left';
+  return finish(canvas, 'flip-v');
+}
+
 export function cvTexture() {
   const W = 1024;
   const H = 1448;

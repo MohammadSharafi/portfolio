@@ -35,12 +35,21 @@ export function Animations({ root }: { root: Object3D }) {
     // tilt, the screen at that tilt plus the rotation that stands it upright.
     const lid: Array<{ node: Object3D; base: number }> = [];
     const bulbs: MeshStandardMaterial[] = [];
+    // The steam wisps, each with the pose it was modelled in, so the drift is
+    // applied *around* that rather than replacing it.
+    const steam: Array<{ node: Object3D; y: number; scale: number; phase: number }> = [];
 
     root.traverse((node) => {
       // The lid body and its screen are separate objects sharing the hinge as
       // their origin, so both turn.
       if (node.name.startsWith('ix_laptop_lid') || node.name.startsWith('ix_laptop_display')) {
         lid.push({ node, base: node.rotation.x });
+      }
+      if (node.name.startsWith('steam_')) {
+        // The phase is derived from the wisp's index rather than random, so the
+        // three never rise in step and the room rebuilds identically every time.
+        const index = Number(node.name.split('_')[1] ?? 0);
+        steam.push({ node, y: node.position.y, scale: node.scale.y, phase: index * 2.1 });
       }
       if (node.name.startsWith('ix_lamp') && node instanceof Mesh) {
         const material = node.material;
@@ -50,7 +59,7 @@ export function Animations({ root }: { root: Object3D }) {
       }
     });
 
-    return { lid, bulbs };
+    return { lid, bulbs, steam };
   }, [root]);
 
   // The lid rests open, which is how the model is authored.
@@ -62,6 +71,7 @@ export function Animations({ root }: { root: Object3D }) {
   // its laptop open.
   const lidProgress = useRef(0);
   const glow = useRef(1);
+  const clock = useRef(0);
 
   // The bulb should be lit on arrival if the lamp is on, not fade up from dark.
   useEffect(() => {
@@ -78,6 +88,26 @@ export function Animations({ root }: { root: Object3D }) {
     lidProgress.current += (target - lidProgress.current) * (1 - Math.exp(-4.5 * dt));
     for (const part of parts.lid) {
       part.node.rotation.x = part.base + lidProgress.current * LID_CLOSED;
+    }
+
+    // Steam, which has to move or it is a sculpture of steam.
+    //
+    // Three things at once, because any one of them alone reads as a trick: it
+    // rises and fades as it goes, it sways, and each wisp is on its own clock.
+    // The rise is a sawtooth — a wisp climbs, thins out and is replaced from
+    // the cup — which is the cycle real steam has and the reason a smooth loop
+    // never convinces.
+    clock.current += dt;
+    for (const wisp of parts.steam) {
+      const t = (clock.current * 0.34 + wisp.phase) % 1;
+      wisp.node.position.y = wisp.y + t * 0.055;
+      // Thin as it climbs, and gone before it restarts, so the loop point is
+      // never a moment where a shape blinks out.
+      wisp.node.scale.setScalar(1);
+      wisp.node.scale.y = wisp.scale * (0.55 + t * 0.9);
+      const fade = Math.sin(Math.PI * Math.min(1, t * 1.05));
+      wisp.node.scale.x = wisp.node.scale.z = 0.4 + fade * 0.85;
+      wisp.node.rotation.y = Math.sin(clock.current * 0.6 + wisp.phase) * 0.22;
     }
 
     const lampTarget = lampOn ? 1 : 0;

@@ -63,19 +63,32 @@ function Scene({
 
       {/* The rest of the rig is the lit room's business. A baked room carries
         its own direct and bounced light, so re-lighting it would double every
-        shadow it already has. */}
+        shadow it already has.
+
+        This is the fallback, and it has to *look like* the bake rather than
+        merely stand in for it. It is what a visitor sees whenever the lightmap
+        does not match the model — which, during any stretch of modelling work,
+        is most of the time. It used to be a single cold key with a cold fill,
+        which against the pale walls blew the room out to one flat blue-white
+        and looked nothing like the room the bake produces.
+
+        So it mirrors `add_lighting` in build_room.py: a warm key from where the
+        ceiling source is, violet down the shelf wall, amber along the door
+        wall, and the practicals as accents. Two rigs, one art direction. */}
       {baked ? null : (
         <>
-          {/* Ambient is deliberately low. A high uniform term lights the inside
-            of every corner as brightly as the middle of every wall, which is
-            the single thing that makes a real-time room read as flat — the
-            environment and the ambient-occlusion pass below carry the fill
-            instead, and they both know where the corners are. */}
-          <ambientLight color="#46536f" intensity={0.22} />
+          {/* Low and warm. Ambient is what fills the shadows, and shadows
+            filled to the same level as everything else are not shadows — the
+            pale walls do the filling now, by bouncing the key around. */}
+          <ambientLight color="#4a4038" intensity={0.55} />
+
+          {/* The key, from where the ceiling source sits in the bake. Warm, and
+            the only light here casting a shadow map: a second shadow-caster in
+            a room this size reads as two suns. */}
           <directionalLight
-            color="#a8c2f0"
-            intensity={2.6}
-            position={[5, 7, -5]}
+            color="#ffd9b0"
+            intensity={2.2}
+            position={[0.6, 6.2, 1.4]}
             castShadow
             shadow-mapSize={[2048, 2048]}
             shadow-bias={-0.0006}
@@ -83,24 +96,44 @@ function Scene({
           >
             <orthographicCamera attach="shadow-camera" args={[-6, 6, 6, -6, 0.1, 30]} />
           </directionalLight>
-          {/* A dim warm bounce off the floor, opposite the key. Nothing in a
-            room is lit from one side only. */}
-          <directionalLight color="#ffb98a" intensity={0.5} position={[-4, 1.5, 4]} />
-          {/* The desk lamp is a real light: switching it changes what the room
-            is lit by, not just what one bulb looks like. */}
+
+          {/* Violet down the shelf wall and amber along the door wall — the two
+            colours the room is built around, from the sides they come from. */}
+          <directionalLight color="#b25cff" intensity={0.85} position={[-6.5, 2.4, 0.8]} />
+          <directionalLight color="#ff9a4d" intensity={0.7} position={[1.2, 2.0, 6.0]} />
+
+          {/* The desk lamp: the warmest, tightest thing in the room, and a real
+            switch — turning it off changes what the room is lit by. */}
           <pointLight
-            color="#ffb367"
-            intensity={lampOn ? 9 : 0}
-            distance={5}
+            color="#ff9a42"
+            intensity={lampOn ? 12 : 0}
+            distance={3.4}
             decay={2}
-            position={[-1.02, 1.15, 2]}
+            position={[0.8, 1.1, 2.22]}
           />
+          {/* The floor lamp, by the shelf. */}
           <pointLight
-            color="#6aa6ff"
-            intensity={6}
-            distance={5}
+            color="#ffb877"
+            intensity={9}
+            distance={3.8}
             decay={2}
-            position={[0, 1.25, 1.9]}
+            position={[-1.22, 1.44, -1.85]}
+          />
+          {/* The monitors, cold and close. */}
+          <pointLight
+            color="#5a93ff"
+            intensity={7}
+            distance={2.6}
+            decay={2}
+            position={[0, 1.1, 2.24]}
+          />
+          {/* City glow at the window: the coldest thing in the room. */}
+          <pointLight
+            color="#6f93e0"
+            intensity={6}
+            distance={4.2}
+            decay={2}
+            position={[2.05, 1.7, 2.42]}
           />
         </>
       )}
@@ -212,7 +245,7 @@ export function RoomExperience() {
           // exactly the same reason. Matching the reference render's exposure
           // was a mistake dressed up as rigour: the reference is a physically
           // correct picture of a dim room, and the site needs a *legible* one.
-          gl.toneMappingExposure = 3.2;
+          gl.toneMappingExposure = 1.25;
         }}
       >
         <Suspense fallback={null}>

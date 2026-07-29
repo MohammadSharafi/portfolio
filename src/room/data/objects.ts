@@ -302,7 +302,7 @@ export const roomObjects: readonly RoomObject[] = [
     id: 'headphones',
     label: 'Headphones',
     hint: 'Sound on',
-    stop: { position: [-0.71, 1.03, 1.46], target: [-0.95, 0.85, 1.84], duration: 0.9 },
+    stop: { position: [0.92, 1.03, 1.42], target: [0.66, 0.85, 1.85], duration: 0.9 },
     panel: {
       kicker: 'Audio',
       title: 'Room tone',

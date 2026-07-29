@@ -163,7 +163,8 @@ TEXTURED = True
 # Meshes the web app paints a canvas onto. Their UVs are the contract for where
 # that image lands, so nothing here may be unwrapped or rescaled.
 PAINTED = re.compile(
-    r"^(ix_\w+_display|ix_whiteboard_face|ix_sticky_notes|ix_cv_face|ix_book_spine_\d+)$"
+    r"^(ix_\w+_display|ix_whiteboard_face|ix_sticky_notes|ix_cv_face"
+    r"|ix_book_spine_\d+|ix_certificates_\d+)$"
 )
 
 # Objects whose texture is one design covering the whole surface exactly once,
@@ -1664,7 +1665,18 @@ def build_laptop() -> list[bpy.types.Object]:
     # body was buried inside the desk, and the screen stood on the desktop with
     # nothing under it. Everything here is lifted to rest on the surface rather
     # than inside it.
-    lx, ly = -0.79, DESK_FRONT - 0.30
+    # Forward and turned, because the chair sits between it and the camera.
+    #
+    # The two do not collide — the laptop runs x -0.97..-0.61 and the chair
+    # -0.43..0.33 — but the chair is nearer the viewer with a tall back, so from
+    # the one angle the site actually opens on, the laptop was behind it. Two
+    # objects can be clear of each other in the room and on top of each other in
+    # the frame, and only the frame is ever seen.
+    #
+    # Angled as well as moved: a laptop set down beside a monitor is turned
+    # toward whoever is sitting there, and the turn also puts its lid across the
+    # sightline rather than edge-on to it.
+    lx, ly = -0.82, DESK_FRONT - 0.22
     deck_top = DESK_TOP + 0.022
 
     base = cube("laptop_base", (0.35, 0.245, 0.012), (lx, ly, DESK_TOP + 0.006), body)
@@ -2028,7 +2040,11 @@ def build_keyboard_and_props() -> list[bpy.types.Object]:
     )
 
     return [mat_pad, keyboard, wrist, kb_cable, mouse, mug, pencil, notebook,
-            build_headphones(-0.95, DESK_FRONT - 0.09, DESK_TOP)]
+            # Right of the mug rather than left of the laptop. Moving the laptop
+            # forward to clear the chair put it straight through where these
+            # were resting — `check_clearance` measured the overlap at 19 cm —
+            # and the desk's right front is the one pocket nothing else wants.
+            build_headphones(0.66, DESK_FRONT - 0.10, DESK_TOP)]
 
 
 def build_headphones(hx: float, hy: float, deck: float) -> bpy.types.Object:
@@ -2206,7 +2222,31 @@ def build_lamp() -> list[bpy.types.Object]:
     parts.append(shade_obj)
 
     bulb = cylinder("ix_lamp", 0.03, 0.03, (head[0] - 0.012, head[1] - 0.016, head[2] - 0.042), bulb_mat, vertices=12)
-    return [join("lamp", parts), bulb]
+
+    # The lit inside of the shade, and the reason the lamp reads as switched on.
+    #
+    # The shade is opaque metal and the bulb is up inside it, so from anywhere
+    # in the room the lamp was a grey cone with a bright patch of desk beneath
+    # it and no visible connection between the two. What sells a task lamp is
+    # the glowing mouth — the cone's open end is the brightest thing on it, and
+    # it is the part every camera can see.
+    #
+    # A disc across the opening rather than a brighter bulb: the bulb is
+    # occluded by the shade from every angle that matters, so turning it up lit
+    # nothing except the desk.
+    mouth = cylinder(
+        "lamp_mouth",
+        0.098,
+        0.004,
+        (head[0], head[1], head[2] - 0.05),
+        material("lamp_mouth", "warm", roughness=0.55, emission=3.2),
+        vertices=24,
+    )
+    mouth.rotation_euler = aim((-0.3, -0.42, 1.0))
+    # Down inside the cone's wide end, not flush with it — a shade seen from
+    # below shows a ring of metal around the light, not a flat glowing lid.
+    mouth.location = (head[0] - 0.018, head[1] - 0.025, head[2] - 0.098)
+    return [join("lamp", parts), bulb, mouth]
 
 
 # How a book is built, and why a box is not one.
@@ -2609,15 +2649,40 @@ def build_window() -> list[bpy.types.Object]:
 
 
 def build_certificates() -> list[bpy.types.Object]:
+    """
+    Three framed awards, each with its own face for the runtime to print on.
+
+    The papers used to be joined into the frames as one `ix_certificates` mesh,
+    which made them unpaintable — so the room hung three blank coloured
+    rectangles on the wall where the awards should be. They were modelled, lit
+    and baked, and said nothing.
+
+    Frames stay joined, because they are furniture. Each paper is now its own
+    quad named `ix_certificates_N`, which keeps two things working at once: the
+    runtime strips the `_N` to find `certificates` in the registry, so clicking
+    any of the three still opens the panel, and `Screens.tsx` reads the index
+    off the same name to print the right award on the right frame.
+    """
     frame_mat = material("cert_frame", "dark_metal", roughness=0.4, metallic=1.0)
     mat_mat = material("cert_paper", "paper", roughness=0.8)
-    parts = []
-    # Moved right along the wall to clear the doorway. They sit above the
-    # monitors, which top out at z = 1.52.
+    frames = []
+    faces = []
+    # Above the monitors, which top out at z = 1.52, and right along the wall
+    # to clear the doorway.
     for i, (x, z, w, h) in enumerate([(-1.55, 2.02, 0.42, 0.54), (-1.0, 2.17, 0.3, 0.24), (-1.0, 1.85, 0.3, 0.24)]):
-        parts.append(cube(f"cert_frame_{i}", (w, 0.04, h), (x, -2.52, z), frame_mat))
-        parts.append(cube(f"cert_paper_{i}", (w - 0.06, 0.01, h - 0.06), (x, -2.49, z), mat_mat, bevel=0))
-    return [join("ix_certificates", parts)]
+        frames.append(cube(f"cert_frame_{i}", (w, 0.04, h), (x, -2.52, z), frame_mat))
+        frames.append(cube(f"cert_mount_{i}", (w - 0.06, 0.012, h - 0.06), (x, -2.492, z), mat_mat, bevel=0))
+        # The printed face, a shade proud of its mount so it never z-fights.
+        faces.append(
+            plane(
+                f"ix_certificates_{i}",
+                (w - 0.075, h - 0.075),
+                (x, -2.484, z),
+                material(f"cert_face_{i}", "paper", roughness=0.82),
+                rotation=(math.radians(90), 0, 0),
+            )
+        )
+    return [join("certificate_frames", frames), *faces]
 
 
 def build_chair_and_plant() -> list[bpy.types.Object]:
