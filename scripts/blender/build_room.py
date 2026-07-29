@@ -164,7 +164,7 @@ TEXTURED = True
 # that image lands, so nothing here may be unwrapped or rescaled.
 PAINTED = re.compile(
     r"^(ix_\w+_display|ix_whiteboard_face|ix_sticky_notes|ix_cv_face"
-    r"|ix_book_spine_\d+|ix_certificates_\d+)$"
+    r"|ix_book_spine_\d+|ix_certificates_\d+|ix_keycap_legends)$"
 )
 
 # Objects whose texture is one design covering the whole surface exactly once,
@@ -1822,6 +1822,38 @@ def build_laptop() -> list[bpy.types.Object]:
     return [lid, lid_screen, join("laptop_base", parts_base)]
 
 
+def _cell_uvs(obj: bpy.types.Object, column: int, row: int, columns: int, rows: int) -> None:
+    """
+    Point a quad's UVs at one cell of a grid atlas.
+
+    Derived from each vertex's own position in the quad rather than from loop
+    order, because loop order is an implementation detail of whatever built the
+    mesh and silently differs between a primitive and a hand-assembled cage.
+    Reading the geometry cannot be wrong about which corner is which.
+
+    V is inverted: row 0 is meant to be the *top* row of the image, and UV space
+    counts up from the bottom. Getting this backwards prints the function row
+    where the space bar should be — which is exactly how the sticky notes came
+    out upside down.
+    """
+    mesh = obj.data
+    layer = mesh.uv_layers.active or mesh.uv_layers.new(name="UVMap")
+    xs = [v.co.x for v in mesh.vertices]
+    ys = [v.co.y for v in mesh.vertices]
+    span_x = (max(xs) - min(xs)) or 1.0
+    span_y = (max(ys) - min(ys)) or 1.0
+
+    for polygon in mesh.polygons:
+        for loop in polygon.loop_indices:
+            co = mesh.vertices[mesh.loops[loop].vertex_index].co
+            u = (co.x - min(xs)) / span_x
+            v = (co.y - min(ys)) / span_y
+            layer.data[loop].uv = (
+                (column + u) / columns,
+                ((rows - 1 - row) + v) / rows,
+            )
+
+
 def build_keyboard_and_props() -> list[bpy.types.Object]:
     """
     A tenkeyless keyboard at real size, and the loose things around it.
@@ -1862,6 +1894,16 @@ def build_keyboard_and_props() -> list[bpy.types.Object]:
     cluster_gap = U * 0.42
 
     keys = []
+    # One quad per keycap, addressing its own cell of a 15x6 legend atlas the
+    # runtime paints. Six rows, and fifteen because that is the widest row —
+    # every row sums to 15u, and the row with the most keys has fifteen of them.
+    #
+    # Quads rather than lettering the cap tops directly: the caps are boxes that
+    # get smart-unwrapped with everything else, so their UVs are packed wherever
+    # the atlas had room. A quad is a surface whose UVs can mean something.
+    legends = []
+    LEGEND_COLS, LEGEND_ROWS = 15, 6
+    legend_mat = material("keycap_legend", "keycap", roughness=0.62)
     stems = []
     stem_mat = material("kb_stem", "book_b", roughness=0.5)
     for row_index, widths in enumerate(rows):
@@ -1892,6 +1934,25 @@ def build_keyboard_and_props() -> list[bpy.types.Object]:
             )
             cap.rotation_euler = (tilt, 0, 0)
             keys.append(cap)
+
+            # The legend, on the cap's top face rather than above its centre.
+            # The cap turns about its own middle, so its top corner travels —
+            # placing the quad at the untilted height leaves it hanging off the
+            # back edge of every key in the two steepest rows.
+            lift_h = 0.0040
+            legend = plane(
+                f"legend_{row_index}_{col}",
+                (min(span, U) * 0.58, U * 0.50),
+                (
+                    x + span / 2,
+                    y - lift_h * math.sin(tilt),
+                    deck + lift + lift_h * math.cos(tilt),
+                ),
+                legend_mat,
+            )
+            legend.rotation_euler = (tilt, 0, 0)
+            _cell_uvs(legend, col, row_index, LEGEND_COLS, LEGEND_ROWS)
+            legends.append(legend)
             # The switch stem under each cap, visible in the gaps from a low
             # angle — which is exactly the angle anything standing on the desk
             # would see the keyboard from.
@@ -1905,6 +1966,8 @@ def build_keyboard_and_props() -> list[bpy.types.Object]:
                 )
             )
             x += span
+
+    join("ix_keycap_legends", legends)
 
     depth = len(rows) * U + 0.014 + cluster_gap
     body = cube("kb_body", (15 * U + 0.016, depth, 0.016),
@@ -2246,7 +2309,38 @@ def build_lamp() -> list[bpy.types.Object]:
     # Down inside the cone's wide end, not flush with it — a shade seen from
     # below shows a ring of metal around the light, not a flat glowing lid.
     mouth.location = (head[0] - 0.018, head[1] - 0.025, head[2] - 0.098)
-    return [join("lamp", parts), bulb, mouth]
+
+    # The beam itself, as a translucent cone from the shade down to the desk.
+    #
+    # In every photograph of a lamp like this the light is *visible in the air*
+    # between the shade and the surface — that soft widening wedge is what makes
+    # the lamp read as switched on, and it is the thing the room has never had.
+    # A point light produces a bright patch on the desk and nothing in between,
+    # which is physically what happens in clean air and not at all what a camera
+    # records in a room with dust in it.
+    #
+    # Very low alpha, and no shadow: it is a stand-in for scattering, and
+    # anything that dark casting a shadow would put a grey smear on the desk
+    # under the light it is supposed to be adding.
+    beam_mat = material("lamp_beam", "lampglow", roughness=1.0)
+    beam_bsdf = beam_mat.node_tree.nodes["Principled BSDF"]
+    beam_bsdf.inputs["Alpha"].default_value = 0.045
+    beam_bsdf.inputs["Emission Color"].default_value = PALETTE["lampglow"]
+    beam_bsdf.inputs["Emission Strength"].default_value = 1.4
+    beam_mat.blend_method = "BLEND"
+
+    bpy.ops.mesh.primitive_cone_add(
+        radius1=0.30, radius2=0.085, depth=0.30, vertices=28,
+        location=(head[0] - 0.055, head[1] - 0.075, head[2] - 0.245),
+    )
+    beam = bpy.context.object
+    beam.name = "lamp_beam"
+    beam.data.name = "lamp_beam"
+    beam.rotation_euler = aim((-0.3, -0.42, 1.0))
+    shade(beam, beam_mat)
+    beam.visible_shadow = False
+
+    return [join("lamp", parts), bulb, mouth, beam]
 
 
 # How a book is built, and why a box is not one.
@@ -3982,7 +4076,10 @@ def build_steam() -> list[bpy.types.Object]:
     """
     vapour = material("steam", "paper", roughness=1.0)
     bsdf = vapour.node_tree.nodes["Principled BSDF"]
-    bsdf.inputs["Alpha"].default_value = 0.085
+    # 0.04, not 0.085. Steam photographs as a suggestion that the air is moving,
+    # and the moment it has a definite edge it stops being steam and becomes
+    # smoke, or worse, a ribbon.
+    bsdf.inputs["Alpha"].default_value = 0.04
     # Blender needs telling, and so does the glTF exporter, which reads this to
     # decide between OPAQUE and BLEND.
     vapour.blend_method = "BLEND"
@@ -3990,22 +4087,37 @@ def build_steam() -> list[bpy.types.Object]:
     mug_x, mug_y = 0.40, DESK_FRONT - 0.14
     base = DESK_TOP + 0.082
 
+    # Five thin wisps, not three thick ones.
+    #
+    # The first version used radius 5-7 mm against a 43 mm mug — a sixth of the
+    # cup's width per strand, which is not steam but three pipes. Real vapour
+    # off a cup is a couple of millimetres across, several strands at once, and
+    # it wanders much further sideways than it climbs. Thin and many reads as
+    # air; thick and few reads as geometry, at any opacity.
     wisps = []
     for index, (drift_x, drift_y, height, radius) in enumerate((
-        (0.020, 0.012, 0.135, 0.0075),
-        (-0.014, 0.018, 0.108, 0.0060),
-        (0.006, -0.016, 0.156, 0.0052),
+        (0.030, 0.020, 0.150, 0.0030),
+        (-0.024, 0.028, 0.118, 0.0024),
+        (0.012, -0.026, 0.172, 0.0022),
+        (-0.016, -0.020, 0.134, 0.0026),
+        (0.026, -0.010, 0.192, 0.0019),
     )):
         # Rising and curling: a wisp that goes straight up is a rod, and the
         # curl is the whole of what makes it read as air moving.
         wisps.append(
             cable(
                 f"steam_{index}",
+                # Five points rather than four, and the sideways travel grows
+                # faster than the height does. A column that rises straight and
+                # leans at the top is a rod with a bend in it; vapour is
+                # unstable from the moment it leaves the surface and wanders
+                # more the further it gets from the heat driving it.
                 [
-                    (mug_x + drift_x * 0.1, mug_y + drift_y * 0.1, base),
-                    (mug_x + drift_x * 0.6, mug_y + drift_y * 0.4, base + height * 0.38),
-                    (mug_x - drift_x * 0.3, mug_y + drift_y * 1.0, base + height * 0.72),
-                    (mug_x + drift_x * 1.4, mug_y + drift_y * 1.6, base + height),
+                    (mug_x + drift_x * 0.08, mug_y + drift_y * 0.08, base),
+                    (mug_x - drift_x * 0.45, mug_y + drift_y * 0.55, base + height * 0.26),
+                    (mug_x + drift_x * 1.05, mug_y - drift_y * 0.35, base + height * 0.52),
+                    (mug_x - drift_x * 0.85, mug_y + drift_y * 1.30, base + height * 0.78),
+                    (mug_x + drift_x * 2.10, mug_y + drift_y * 2.20, base + height),
                 ],
                 radius,
                 vapour,
