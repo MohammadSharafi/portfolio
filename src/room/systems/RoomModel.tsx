@@ -78,7 +78,25 @@ export function RoomModel({
       const first = !dressed.has(material.uuid);
       dressed.add(material.uuid);
 
-      if (baked && first) {
+      // A surface that emits does not take a lightmap.
+      //
+      // The lamp shade is one layer of paper with the bulb *inside* it, so the
+      // faces seen from the room are the same faces the bulb shines on from
+      // behind — and Cycles lights a diffuse surface from both sides. The bake
+      // therefore recorded the bulb's direct irradiance, at point-blank range,
+      // on the outside of the shade: it clipped to flat white and lost the cone
+      // entirely, and where the UV island split, one half took that value and
+      // the other took the dim outer one, which is the seam that ran down the
+      // middle of it.
+      //
+      // Giving the shade thickness would fix the bake. Not baking it at all is
+      // better, because for anything that emits, the emission *is* the
+      // appearance — the same reason a monitor is not lit by the room it lights.
+      const emits =
+        material.emissiveIntensity > 0 &&
+        (material.emissive.r > 0.02 || material.emissive.g > 0.02 || material.emissive.b > 0.02);
+
+      if (baked && first && !emits) {
         // The lighting goes *onto* the material rather than replacing it.
         //
         // This used to swap every material for an unlit `MeshBasicMaterial`
