@@ -77,6 +77,8 @@ PALETTE = {
     "screen": (0.020, 0.031, 0.055, 1),
     "bezel": (0.035, 0.039, 0.051, 1),
     "paper": (0.827, 0.855, 0.910, 1),
+    # What a tungsten bulb looks like through paper.
+    "lampglow": (1.0, 0.76, 0.46, 1),
     # Ceiling white. High albedo on purpose — it is there to bounce, and every
     # point of reflectance is light the room gets back.
     "ceiling": (0.855, 0.845, 0.820, 1),
@@ -331,6 +333,7 @@ def material(
     roughness: float = 0.75,
     metallic: float = 0.0,
     emission: float = 0.0,
+    emission_key: str | None = None,
     grain: str | None = None,
 ) -> bpy.types.Material:
     """
@@ -358,7 +361,12 @@ def material(
     bsdf.inputs["Roughness"].default_value = roughness
     bsdf.inputs["Metallic"].default_value = metallic
     if emission > 0:
-        bsdf.inputs["Emission Color"].default_value = colour
+        # Emission colour defaults to the base colour, which is right for a
+        # screen or an LED — the thing glowing *is* the thing you see. It is
+        # wrong for anything lit from inside by something else: a paper lamp
+        # shade is near-white, and the light coming through it is the colour of
+        # the bulb behind it, not the colour of the paper.
+        bsdf.inputs["Emission Color"].default_value = PALETTE[emission_key] if emission_key else colour
         bsdf.inputs["Emission Strength"].default_value = emission
     if grain:
         # Recorded either way, so the bake still knows what a surface is even
@@ -3024,7 +3032,14 @@ def build_lounge() -> list[bpy.types.Object]:
     lamp.append(
         shade(
             shade_obj,
-            material("lamp_shade", "paper", roughness=0.85, emission=2.4, grain="paper"),
+            material(
+                "lamp_shade",
+                "paper",
+                roughness=0.85,
+                emission=1.05,
+                emission_key="lampglow",
+                grain="paper",
+            ),
         )
     )
 
@@ -4026,6 +4041,12 @@ def main() -> None:
     except Exception as exc:  # pragma: no cover - unwrap is best-effort
         print(f"[build_room] unwrap skipped: {exc}", file=sys.stderr)
 
+    # Before dropping anything. A bake-only object still shades and occludes the
+    # room, so it is part of what the bake depends on — and taking the
+    # fingerprint after `drop_export_only` produced a value the bake could never
+    # reproduce, so every bake looked stale the moment it finished.
+    fingerprint = export_room.write_geometry_stamp(OUT_GEOMETRY)
+
     hidden = drop_export_only()
     if hidden:
         print(f"[build_room] {hidden} bake-only object(s) kept out of the GLB")
@@ -4044,7 +4065,6 @@ def main() -> None:
     print(f"[build_room] objects={len(meshes)} materials={len(bpy.data.materials)}")
     print(f"[build_room] wrote {OUT_GLB} ({os.path.getsize(OUT_GLB) / 1024:.0f} KB)")
 
-    fingerprint = export_room.write_geometry_stamp(OUT_GEOMETRY)
     print(f"[build_room] geometry fingerprint {fingerprint[:12]}…")
 
 

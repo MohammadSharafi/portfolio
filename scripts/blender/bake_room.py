@@ -486,6 +486,27 @@ def stamp_source(scale: float = 1.0) -> None:
         #   turning up" and send you off adjusting wattages that were right.
         "intensity": math.pi * scale,
     }
+    # The build writes its own copy of this fingerprint for Vite to inline, and
+    # if the two disagree the runtime throws the bake away as stale — silently,
+    # and every single time, which looks exactly like a bake that will not take.
+    #
+    # They disagreed once already: `build_room` was computing it after
+    # `drop_export_only`, so the value it published was for a room missing an
+    # object the bake had rendered with. Cheap to check here, and the
+    # alternative is discovering it by wondering why an hour of baking had no
+    # effect.
+    published = os.path.join(OUT_DIR, "room-geometry.json")
+    if os.path.exists(published):
+        with open(published, encoding="utf-8") as handle:
+            theirs = json.load(handle).get("geometry", "")
+        if theirs and theirs != stamp["geometry"]:
+            print(
+                "[bake_room] WARNING: this bake's fingerprint does not match the one\n"
+                f"  build_room published ({theirs[:12]}… vs {stamp['geometry'][:12]}…).\n"
+                "  The runtime will ignore this lightmap. Re-run build_room.py.",
+                file=sys.stderr,
+            )
+
     with open(OUT_STAMP, "w", encoding="utf-8") as handle:
         json.dump(stamp, handle, indent=2)
         handle.write("\n")
