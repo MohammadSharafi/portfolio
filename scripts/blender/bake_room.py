@@ -459,9 +459,18 @@ def stamp_source(scale: float = 1.0) -> None:
     # The fix is not to remember to re-bake. It is for the baked model to carry
     # the fingerprint of the room it came from, so the runtime can notice and
     # fall back on its own.
+    import export_room
+
     source = os.path.join(OUT_DIR, "room.glb")
     stamp = {
+        # Kept for the record, and no longer what the runtime gates on. See
+        # `geometry` below.
         "source": hashlib.sha256(open(source, "rb").read()).hexdigest() if os.path.exists(source) else "",
+        # What actually decides whether this bake still applies. Hashing the
+        # whole GLB threw away a valid hour-long bake every time a texture
+        # changed, which made material work and lighting work mutually
+        # exclusive. See `export_room.geometry_fingerprint`.
+        "geometry": export_room.geometry_fingerprint(),
         "baked": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         # What `lightMapIntensity` has to be for the room to be lit as it was
         # rendered. Two factors, and both are easy to lose:

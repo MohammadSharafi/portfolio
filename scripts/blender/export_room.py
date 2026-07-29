@@ -18,6 +18,8 @@ So the export refuses to run against a scene missing a name the runtime needs.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import math
 import os
 import re
@@ -75,6 +77,84 @@ SYSTEM_MESHES = {
 # Book spines are numbered, one per project, and Screens.tsx paints a title onto
 # each. The count has to match the number of titled books the shelf carries.
 SPINE_COUNT = 6
+
+
+def geometry_fingerprint() -> str:
+    """
+    A hash of everything a bake depends on: shape, lights and emission.
+
+    The stamp used to record a hash of `room.glb` itself, and the runtime
+    ignored the lightmap unless the served model matched it byte for byte. That
+    is correct but far too strict, because the file also contains every texture:
+    softening the wood grain, or changing a base colour, produced a different
+    GLB and threw away an hour-long bake that was still perfectly valid.
+
+    What the bake depends on is where the surfaces are. The UV1 atlas it is
+    indexed by is generated from the geometry at bake time, so identical
+    geometry gives an identical atlas, and irradiance landing on a surface does
+    not care what colour that surface is going to be painted.
+
+    The one thing this deliberately does not catch is colour bleed. A wall
+    repainted from cream to red changes the colour of the light bouncing off
+    it, and that *is* in the lightmap. It is a second-order effect and worth
+    trading for the ability to iterate on materials at all — a re-bake will pick
+    it up whenever one next happens.
+
+    Geometry is not quite the whole story, so this also covers the lights and
+    every emissive material. Those are inputs to the bake in exactly the way a
+    base colour is not: making a lamp shade glow adds a light source to the
+    room, and the irradiance on every surface near it changes. Leaving them out
+    would have let a genuinely stale bake pass as current, which is a worse
+    failure than the over-strict rule this replaces — a stale lightmap looks
+    plausible and is wrong.
+
+    Positions are world-space and rounded to 0.01 mm so that a float that
+    reassociated differently between two runs cannot invalidate a bake.
+    """
+    digest = hashlib.sha256()
+    for obj in sorted(bpy.context.scene.objects, key=lambda o: o.name):
+        if obj.type == "MESH":
+            digest.update(obj.name.encode())
+            matrix = obj.matrix_world
+            for vertex in obj.data.vertices:
+                x, y, z = matrix @ vertex.co
+                digest.update(f"{x:.5f},{y:.5f},{z:.5f};".encode())
+            for polygon in obj.data.polygons:
+                digest.update(",".join(str(i) for i in polygon.vertices).encode())
+        elif obj.type == "LIGHT":
+            light = obj.data
+            x, y, z = obj.matrix_world.translation
+            size = getattr(light, "size", 0.0)
+            digest.update(
+                f"light:{obj.name}:{light.type}:{light.energy:.4f}:"
+                f"{tuple(round(c, 5) for c in light.color)}:{size:.4f}:"
+                f"{x:.5f},{y:.5f},{z:.5f};".encode()
+            )
+
+    # Emissive materials are light sources, whatever else they are.
+    for mat in sorted(bpy.data.materials, key=lambda m: m.name):
+        if not mat.use_nodes:
+            continue
+        bsdf = mat.node_tree.nodes.get("Principled BSDF")
+        if bsdf is None:
+            continue
+        strength = bsdf.inputs["Emission Strength"].default_value
+        if strength <= 0:
+            continue
+        colour = tuple(round(c, 5) for c in bsdf.inputs["Emission Color"].default_value)
+        digest.update(f"emit:{mat.name}:{strength:.4f}:{colour};".encode())
+
+    return digest.hexdigest()
+
+
+def write_geometry_stamp(path: str) -> str:
+    """Records the fingerprint next to the model, for the build to inline."""
+    fingerprint = geometry_fingerprint()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump({"geometry": fingerprint}, handle, indent=2)
+        handle.write("\n")
+    return fingerprint
 
 
 def scene_mesh_names() -> set[str]:

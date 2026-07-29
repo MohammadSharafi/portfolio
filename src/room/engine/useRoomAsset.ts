@@ -7,6 +7,8 @@ const STAMP = '/models/room-lightmap.json';
 
 /** SHA-256 of the `room.glb` this bundle was built against, inlined by Vite. */
 declare const __ROOM_HASH__: string;
+/** Fingerprint of that room's *geometry*, which is what a bake depends on. */
+declare const __ROOM_GEOMETRY__: string;
 
 export interface RoomAsset {
   url: string;
@@ -95,15 +97,22 @@ export function useRoomAsset(): RoomAsset {
         // unlit room is a smaller loss than confidently showing the wrong one.
         if (!isRealFile(stamp)) return settle(false);
 
-        const { source, intensity } = (await stamp.json()) as {
+        const { source, geometry, intensity } = (await stamp.json()) as {
           source?: string;
+          geometry?: string;
           intensity?: number;
         };
         // A bake from before the stamp carried an intensity would be scaled by
         // its own unknown divisor, so 1 is the only safe reading of a missing
         // field — and it is wrong, which is the point: it looks wrong rather
         // than looking plausible and being wrong.
-        const matches = Boolean(source) && source === __ROOM_HASH__;
+        // Geometry, not the file. A bake is stale when the room changed shape,
+        // not when a texture in it changed — see `roomGeometry` in
+        // vite.config.ts. Bakes made before the fingerprint existed carry only
+        // `source`, and fall back to the strict test rather than being trusted.
+        const matches = geometry
+          ? geometry === __ROOM_GEOMETRY__
+          : Boolean(source) && source === __ROOM_HASH__;
         // Older bakes predate the aging pass, and `--skip-aging` omits it, so
         // its absence is normal rather than an error.
         const aged = matches && isRealFile(await fetch(AGING, { method: 'HEAD' }));

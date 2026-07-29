@@ -76,12 +76,35 @@ def _height(kind: str) -> np.ndarray:
     rng = np.random.default_rng(abs(hash(kind)) % (2**32))
 
     if kind == "wood":
-        # Growth rings: smooth noise pushed through a sine, so the bands are
-        # sharp where they crowd together and soft where they spread.
-        base = _noise(rng, 2.2, (1.0, 26.0))
-        rings = np.sin(base * 26.0) * 0.5 + 0.5
-        fibre = _noise(rng, 1.1, (1.0, 60.0))
-        return np.clip(rings * 0.62 + fibre * 0.38, 0, 1)
+        # Growth rings.
+        #
+        # The previous version was a sine of stretched noise, and it produced
+        # evenly spaced hard-edged bands — corrugated cardboard rather than
+        # timber. Two things were wrong with it, and both matter more than the
+        # noise underneath.
+        #
+        # Ring *spacing* has to wander. A tree does not put on the same amount
+        # of wood every year, and perfectly even stripes are the single loudest
+        # tell in procedural wood. So the phase is advanced by a low-frequency
+        # warp as well as by position, which crowds the rings in some places and
+        # opens them out in others.
+        #
+        # And the ring *profile* is asymmetric. Earlywood is a broad pale band
+        # that darkens gradually; latewood is a narrow hard line. A sine is
+        # symmetric and gives every band the same soft shoulder on both sides,
+        # which is why it reads as a pattern instead of as growth.
+        across = np.linspace(0.0, 1.0, SIZE, endpoint=False)[None, :] * np.ones((SIZE, 1))
+        # Periodic, so the wandering does not break the tile.
+        wander = _noise(rng, 2.5, (1.0, 1.0)) - 0.5
+        phase = (across * 11.0 + wander * 3.2) % 1.0
+        rings = np.power(phase, 0.42)
+
+        # Fibre along the length of the board, far finer than the rings.
+        fibre = _noise(rng, 1.0, (1.0, 85.0))
+        # Open pores: short dark flecks lying along the grain. Small, and the
+        # thing that stops a board looking like a painted gradient.
+        pores = np.where(_noise(rng, 0.7, (1.0, 24.0)) < 0.2, -0.14, 0.0)
+        return np.clip(rings * 0.7 + fibre * 0.3 + pores, 0, 1)
 
     if kind == "fabric":
         # 64 threads to the tile is about 8 mm each, which is as fine as a
@@ -146,7 +169,10 @@ def _height(kind: str) -> np.ndarray:
 # far the roughness swings, and how deep the bump reads in metres. A single flat
 # albedo is the thing that most reliably makes a rendered room look rendered.
 _LOOK = {
-    "wood": (0.30, 0.16, 0.0016),
+    # Dropped from 0.30. A third of the base colour swinging either way is far
+    # more contrast than any finished board has, and it turned the rings into
+    # stripes you read as a pattern rather than as wood.
+    "wood": (0.15, 0.13, 0.0014),
     "fabric": (0.18, 0.12, 0.0009),
     "pile": (0.22, 0.10, 0.0028),
     # Kept faint on purpose. Painted plaster barely varies, and a wall is the

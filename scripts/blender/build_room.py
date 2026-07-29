@@ -38,6 +38,11 @@ ROOT = os.path.normpath(os.path.join(HERE, "..", ".."))
 sys.path.insert(0, HERE)
 OUT_DIR = os.path.join(ROOT, "public", "models")
 OUT_GLB = os.path.normpath(os.path.join(OUT_DIR, "room.glb"))
+# The shape of the room, hashed. The bake records the same value, and the build
+# inlines it, so a lightmap is kept or discarded on whether the *geometry* still
+# matches rather than on whether the whole file does. See
+# `export_room.geometry_fingerprint`.
+OUT_GEOMETRY = os.path.normpath(os.path.join(OUT_DIR, "room-geometry.json"))
 BLEND = os.path.join(ROOT, "assets", "room.blend")
 
 
@@ -3005,7 +3010,23 @@ def build_lounge() -> list[bpy.types.Object]:
     shade_obj = bpy.context.object
     shade_obj.name = "floor_lamp_shade"
     shade_obj.data.name = "floor_lamp_shade"
-    lamp.append(shade(shade_obj, material("lamp_shade", "paper", roughness=0.85, grain="paper")))
+    # The shade emits, because a lit shade does. It is paper with a bulb inside
+    # it, so most of what reaches the eye is light coming *through* the material
+    # rather than bouncing off it — and treating it as an ordinary diffuse
+    # surface gave the worst artefact in the room. The bake could only light its
+    # outside, which faces away from the bulb, so it landed hard against a UV
+    # island boundary: one half of the cone blew out to white, the other stayed
+    # grey and blocky, with a seam straight down the middle where they met.
+    #
+    # Emission fixes the cause rather than the symptom. It is uniform across the
+    # cone, so the seam has nothing left to reveal, and it is what the surface
+    # is actually doing.
+    lamp.append(
+        shade(
+            shade_obj,
+            material("lamp_shade", "paper", roughness=0.85, emission=2.4, grain="paper"),
+        )
+    )
 
     # A side table by the near arm of the sofa, with a speaker on it.
     tx, ty = 1.62, 0.55
@@ -4022,6 +4043,9 @@ def main() -> None:
     meshes = [o for o in bpy.context.scene.objects if o.type == "MESH"]
     print(f"[build_room] objects={len(meshes)} materials={len(bpy.data.materials)}")
     print(f"[build_room] wrote {OUT_GLB} ({os.path.getsize(OUT_GLB) / 1024:.0f} KB)")
+
+    fingerprint = export_room.write_geometry_stamp(OUT_GEOMETRY)
+    print(f"[build_room] geometry fingerprint {fingerprint[:12]}…")
 
 
 if __name__ == "__main__":

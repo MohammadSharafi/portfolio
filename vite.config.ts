@@ -31,6 +31,29 @@ function roomHash(): string {
 }
 
 /**
+ * The fingerprint of the room's *shape*, written by `build_room.py`.
+ *
+ * This is what decides whether a bake still applies, and `roomHash` above is
+ * not, because a hash of the whole GLB also covers every texture in it. Under
+ * that rule, softening the wood grain discarded an hour-long bake that was
+ * still perfectly valid — which made material work and lighting work mutually
+ * exclusive, since doing either meant redoing the other.
+ *
+ * Irradiance depends on where the surfaces are, not what colour they will be
+ * painted. See `export_room.geometry_fingerprint` for what this covers and the
+ * one thing (colour bleed) it deliberately does not.
+ */
+function roomGeometry(): string {
+  const stamp = path.join(rootDir, 'public', 'models', 'room-geometry.json');
+  if (!existsSync(stamp)) return '';
+  try {
+    return (JSON.parse(readFileSync(stamp, 'utf8')) as { geometry?: string }).geometry ?? '';
+  } catch {
+    return '';
+  }
+}
+
+/**
  * Keeps the deployed origin in exactly one place: substitutes `%SITE_URL%` in
  * index.html and generates robots.txt and sitemap.xml from the same constant,
  * so a domain change cannot leave stale canonical or Open Graph URLs behind.
@@ -117,6 +140,7 @@ export default defineConfig({
   plugins: [react(), tailwindcss(), siteUrl(), screenDump()],
   define: {
     __ROOM_HASH__: JSON.stringify(roomHash()),
+    __ROOM_GEOMETRY__: JSON.stringify(roomGeometry()),
   },
   resolve: {
     alias: {

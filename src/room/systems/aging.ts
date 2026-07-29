@@ -42,13 +42,44 @@ const DUST_COLOUR = 'vec3( 0.60, 0.575, 0.535 )';
  * peak, since the peak is the only place there is an edge to wear.
  */
 export const DUST_AMOUNT = 0.4;
-export const WEAR_AMOUNT = 0.85;
+export const WEAR_AMOUNT = 0.8;
 
 /** The GLSL spliced in after the material has resolved its own maps. */
 const AGING_FRAGMENT = /* glsl */ `
   vec3 agingMask = texture2D( agingMap, vAoMapUv ).rgb;
   float dust = agingMask.g * dustAmount;
   float wear = agingMask.b * wearAmount;
+
+  // Break the wear up along the edge it runs down.
+  //
+  // The mask is geometric — bevel angle times exposure times reach — so it is
+  // perfectly even for the whole length of any given edge, and an even band of
+  // lightening down every edge in the room reads as an outline drawn around
+  // the furniture rather than as wear. Real wear is patchy: a sleeve rests in
+  // one place more than another, a corner catches and a span beside it does
+  // not.
+  //
+  // Two octaves of cheap value noise on the atlas UV, which is unique per
+  // point, so the patchiness is stable in world space and does not swim when
+  // the camera moves. Kept above zero at its lowest so heavily worn spots stay
+  // continuous instead of dissolving into speckle.
+  vec2 wearCell = vAoMapUv * 220.0;
+  vec2 wearId = floor( wearCell );
+  vec2 wearFrac = smoothstep( 0.0, 1.0, fract( wearCell ) );
+  vec4 wearCorners = fract(
+    sin( vec4(
+      dot( wearId + vec2( 0.0, 0.0 ), vec2( 127.1, 311.7 ) ),
+      dot( wearId + vec2( 1.0, 0.0 ), vec2( 127.1, 311.7 ) ),
+      dot( wearId + vec2( 0.0, 1.0 ), vec2( 127.1, 311.7 ) ),
+      dot( wearId + vec2( 1.0, 1.0 ), vec2( 127.1, 311.7 ) )
+    ) ) * 43758.5453
+  );
+  float wearPatch = mix(
+    mix( wearCorners.x, wearCorners.y, wearFrac.x ),
+    mix( wearCorners.z, wearCorners.w, wearFrac.x ),
+    wearFrac.y
+  );
+  wear *= 0.45 + 0.55 * wearPatch;
 
   // Wear first: it describes the surface under the dust, and dust settles on
   // whatever the wear left behind.
