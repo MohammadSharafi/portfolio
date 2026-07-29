@@ -60,13 +60,25 @@ export function RoomModel({
   const prepared = useMemo(() => {
     const root = scene.clone(true);
 
+    // `Object3D.clone` shares materials rather than copying them, and the room
+    // has around 250 meshes over 190 materials — so walking meshes means
+    // meeting most materials several times. Every visit was reassigning the
+    // same maps and setting `needsUpdate`, which asks three.js to throw away
+    // the compiled program and build it again. Doing the work once per
+    // material turns a few hundred redundant shader compiles into none.
+    const dressed = new Set<string>();
+
     root.traverse((node: Object3D) => {
       if (!(node instanceof Mesh)) return;
 
       node.castShadow = !baked;
       node.receiveShadow = !baked;
 
-      if (baked) {
+      const material = node.material as MeshStandardMaterial;
+      const first = !dressed.has(material.uuid);
+      dressed.add(material.uuid);
+
+      if (baked && first) {
         // The lighting goes *onto* the material rather than replacing it.
         //
         // This used to swap every material for an unlit `MeshBasicMaterial`
@@ -80,7 +92,6 @@ export function RoomModel({
         // colour, roughness, metalness and normal maps and three.js multiplies
         // the light in through the `lightMap` slot. Same resolved-once lighting,
         // same runtime cost to speak of, but a glossy surface can be glossy.
-        const material = node.material as MeshStandardMaterial;
         material.lightMap = lit;
         // Not 1.0, and not a number anyone should tune by eye. The bake divided
         // irradiance down to fit a JPEG and three.js applies a 1/π the bake has
@@ -90,11 +101,11 @@ export function RoomModel({
         material.lightMapIntensity = intensity;
       }
 
-      if (aged) {
+      if (aged && first) {
         // Occlusion at zero when the room is baked: the lightmap is path-traced
         // irradiance and has that occlusion in it already, so applying the mask
         // as well would darken every corner in the room twice.
-        applyAging(node.material as MeshStandardMaterial, wear, { occlusion: baked ? 0 : 1 });
+        applyAging(material, wear, { occlusion: baked ? 0 : 1 });
       }
 
       const id = toObjectId(node.name);
