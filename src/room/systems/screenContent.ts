@@ -706,6 +706,33 @@ export function cvTexture() {
     ctx.fillStyle = MUTED;
     ctx.font = `400 19px ${FONT_UI}`;
     ctx.fillText(`${degree.institution} · ${degree.period} · ${degree.detail}`, M, y);
+    y += 44;
+  }
+
+  // Recognition, in the third of the page that was empty.
+  //
+  // Set as plain lines rather than a feature: the year, the award, the issuer,
+  // and nothing else. A CV that argues for itself is doing the reader's job for
+  // them, and these are facts that hold up without help. Team awards say so —
+  // borrowing a company's recognition is the fastest way to lose the benefit of
+  // the ones earned alone.
+  y = heading('Recognition', y);
+  for (const award of awards) {
+    ctx.fillStyle = INK;
+    ctx.font = `600 21px ${FONT_UI}`;
+    ctx.fillText(award.title, M, y);
+
+    ctx.fillStyle = MUTED;
+    ctx.font = `400 19px ${FONT_UI}`;
+    ctx.textAlign = 'right';
+    ctx.fillText(award.scope === 'team' ? `${award.year} · team` : award.year, W - M, y);
+    ctx.textAlign = 'left';
+
+    y += 26;
+    ctx.fillStyle = '#7a8694';
+    ctx.font = `400 18px ${FONT_UI}`;
+    ctx.fillText(award.issuer, M + 22, y);
+    y += 32;
   }
 
   // Footer rule and the fold line a printed sheet would show. Small, but the
