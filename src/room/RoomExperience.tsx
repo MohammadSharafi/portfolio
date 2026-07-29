@@ -1,7 +1,8 @@
 import { Suspense, useState } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { AdaptiveDpr, Preload } from '@react-three/drei';
-import { EffectComposer, Bloom, N8AO, Vignette } from '@react-three/postprocessing';
+import { EffectComposer, Bloom, N8AO, ToneMapping, Vignette } from '@react-three/postprocessing';
+import { ToneMappingMode } from 'postprocessing';
 import { ACESFilmicToneMapping, type Object3D } from 'three';
 import { Physics } from '@react-three/rapier';
 import { RoomModel } from './systems/RoomModel';
@@ -151,6 +152,22 @@ function Scene({
         {/* High threshold on purpose: the room has a lot of small bright
           sources, and a lower one turns their combined bloom into fog. */}
         <Bloom intensity={0.5} luminanceThreshold={0.88} luminanceSmoothing={0.3} mipmapBlur />
+        {/* The room had no tone mapping at all, and it took a long time to see.
+          `EffectComposer` sets `gl.toneMapping` to `NoToneMapping` on mount,
+          because postprocessing expects to own the view transform itself — so
+          the `ACESFilmicToneMapping` set on the renderer below was overwritten
+          before it ever drew a frame, and `toneMappingExposure` moved nothing.
+          The scene was rendering linear and being written out with only the
+          sRGB transfer over it.
+          That is most of why the room read as flat and lifeless no matter what
+          the lighting did. There was no shoulder, so anything above 1.0 clipped
+          instead of rolling off, and no toe, so the shadows had no separation
+          left in them. It also invalidated the whole argument for matching the
+          browser's exposure to `tonemap.py` — the two could not have agreed,
+          because one end was not applying a curve. */}
+        <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
+        {/* After the curve, deliberately. A vignette is a lens artefact, and a
+          lens darkens the image it forms rather than the light entering it. */}
         <Vignette eskil={false} offset={0.28} darkness={0.72} />
       </EffectComposer>
 
@@ -181,13 +198,21 @@ export function RoomExperience() {
         }}
         onCreated={({ gl }) => {
           gl.toneMapping = ACESFilmicToneMapping;
-          // 1.15, not higher. three.js's ACES divides by 0.6 before the curve, which
-          // makes it land close to `tonemap.py`'s Narkowicz fit at zero stops —
-          // so this is very nearly the exposure the bake and the Cycles previews
-          // are judged at, and the browser and the reference render can be
-          // compared directly. Raising it to hide a dark room hides the contrast
-          // along with it.
-          gl.toneMappingExposure = 1.15;
+          // Grading, and it has to be a large number.
+          //
+          // This is the exposure of the *composer's* tone mapping, not the
+          // renderer's — see the ToneMapping effect above, which is what
+          // actually applies the curve. The room is a night scene lit by
+          // practicals, so the light physically arriving at most surfaces is a
+          // small fraction of a stop; graded at 1.0 it is technically faithful
+          // to the Cycles reference and reads on a screen as a dark rectangle
+          // with some furniture implied in it.
+          //
+          // A photograph of this room would be taken at a long exposure for
+          // exactly the same reason. Matching the reference render's exposure
+          // was a mistake dressed up as rigour: the reference is a physically
+          // correct picture of a dim room, and the site needs a *legible* one.
+          gl.toneMappingExposure = 3.2;
         }}
       >
         <Suspense fallback={null}>

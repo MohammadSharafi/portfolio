@@ -40,9 +40,16 @@ const DUST_COLOUR = 'vec3( 0.60, 0.575, 0.535 )';
  * show, which is why the first pass was invisible in the browser and the
  * effect looked like it had not shipped. What matters is the value at the
  * peak, since the peak is the only place there is an edge to wear.
+ *
+ * These were then raised again, because "subtle" was being judged from 30 cm
+ * away with a debug camera. The room is seen from three metres, where a desk
+ * edge is a few pixels wide and dust on a shelf is a soft gradient a dozen
+ * pixels across — and at that size an effect tuned to be barely perceptible
+ * up close is not subtle, it is absent. Tuned at the distance the room is
+ * actually viewed from.
  */
-export const DUST_AMOUNT = 0.4;
-export const WEAR_AMOUNT = 0.8;
+export const DUST_AMOUNT = 0.72;
+export const WEAR_AMOUNT = 1.0;
 
 /** The GLSL spliced in after the material has resolved its own maps. */
 const AGING_FRAGMENT = /* glsl */ `
