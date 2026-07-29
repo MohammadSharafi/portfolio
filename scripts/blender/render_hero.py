@@ -54,6 +54,8 @@ VIEWS: dict[str, tuple[tuple[float, float, float], tuple[float, float, float], f
     "shelf": ((2.30, 1.05, 1.45), (-3.00, 1.05, 1.20), 50.0, 2.5),
     "lounge": ((2.55, -0.35, 1.30), (0.10, 1.70, 0.55), 35.0, 2.8),
     "window": ((2.05, -0.75, 1.68), (2.05, -2.62, 1.62), 50.0, 4.0),
+    # Straight on to the whiteboard, for reading what is printed on it.
+    "board": ((-1.55, -1.35, 1.62), (-3.10, -1.35, 1.62), 50.0, 8.0),
     # 1200x630 crops out of this one.
     "og": ((3.35, 2.05, 1.55), (-0.45, -1.95, 0.92), 28.0, 3.5),
 }
@@ -140,13 +142,25 @@ def photoreal_overrides() -> int:
 # these are the same surfaces: the browser paints them at runtime and this
 # paints them for the render. A screen is a light source in the room and a
 # whiteboard is paper, which is the whole difference between the two columns.
-SCREENS: dict[str, tuple[str, float]] = {
-    "ix_monitor_health_display": ("clinical", 2.6),
-    "ix_monitor_code_display": ("code", 2.6),
-    "ix_laptop_display": ("terminal", 2.2),
-    "ix_whiteboard_face": ("whiteboard", 0.0),
-    "ix_sticky_notes": ("sticky", 0.0),
-    "ix_cv_face": ("cv", 0.0),
+# (dumped image, emission, the orientation `screenContent.ts` baked into it).
+#
+# That last column is not decoration. The PNGs are the browser's own canvases,
+# and `screenContent.finish` has already turned each one to suit three.js —
+# differently per surface, because the quads face different ways. Blender needs
+# that same turn applied *again* to undo it, plus one constant V flip for its
+# own UV convention. Which collapses to: a `mirror-u` surface needs 180 degrees
+# here, a `flip-v` surface needs nothing.
+#
+# A single blanket 180 was tried across all six. It reads correctly on the
+# monitors and stands the whiteboard on its head — the diagram at the bottom,
+# upside down, with the sticky notes inverted alongside it.
+SCREENS: dict[str, tuple[str, float, str]] = {
+    "ix_monitor_health_display": ("clinical", 2.6, "mirror-u"),
+    "ix_monitor_code_display": ("code", 2.6, "mirror-u"),
+    "ix_laptop_display": ("terminal", 2.2, "mirror-u"),
+    "ix_whiteboard_face": ("whiteboard", 0.0, "flip-v"),
+    "ix_sticky_notes": ("sticky", 0.0, "flip-v"),
+    "ix_cv_face": ("cv", 0.0, "mirror-u"),
 }
 
 
@@ -178,7 +192,7 @@ def paint_screens() -> int:
         entry = SCREENS.get(obj.name) or SCREENS.get(base)
         if entry is None:
             continue
-        name, emission = entry
+        name, emission, orientation = entry
         path = os.path.join(SCREEN_DIR, f"{name}.png")
         if not os.path.exists(path):
             print(f"[render_hero] {obj.name} wants {name}.png, which is not there")
@@ -191,6 +205,17 @@ def paint_screens() -> int:
         tex.image = bpy.data.images.load(path, check_existing=True)
         tex.interpolation = "Cubic"
         tex.location = (-400, 200)
+
+        # Undo the turn the browser baked in. See `SCREENS`.
+        if orientation == "mirror-u":
+            flip = mat.node_tree.nodes.new("ShaderNodeMapping")
+            flip.location = (-760, 200)
+            flip.inputs["Location"].default_value = (1.0, 1.0, 0.0)
+            flip.inputs["Scale"].default_value = (-1.0, -1.0, 1.0)
+            coords = mat.node_tree.nodes.new("ShaderNodeTexCoord")
+            coords.location = (-960, 200)
+            mat.node_tree.links.new(coords.outputs["UV"], flip.inputs["Vector"])
+            mat.node_tree.links.new(flip.outputs["Vector"], tex.inputs["Vector"])
 
         if emission > 0:
             # An emitting panel, so the picture goes to emission and the base

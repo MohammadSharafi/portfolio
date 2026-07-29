@@ -64,13 +64,20 @@ def argv_after_dashes() -> list[str]:
 # same values the runtime falls back to if the model ever fails to load.
 # --------------------------------------------------------------------------
 PALETTE = {
-    "wall": (0.086, 0.098, 0.129, 1),
-    # Warm clay rather than the mauve this used to be. The old value was chosen
-    # against a room so dark that only its lightness mattered; lit properly it
-    # read as a strong purple, which fought both the wood and the rug's reds.
-    # Still an accent wall — just one that belongs to the same room as the
-    # floor.
-    "wall_accent": (0.142, 0.117, 0.107, 1),
+    # About 9% reflectance before this — a wall that dark absorbs roughly
+    # nine tenths of everything that reaches it, so nothing bounces, there is no
+    # ambient, and the room falls to black however many lamps are added to it.
+    # That is the whole reason this room resisted every lighting fix: the light
+    # was arriving and the walls were eating it.
+    #
+    # Light and near-neutral, so the colour in the room can come from the lamps
+    # rather than from the paint. That is how the reference works — its walls
+    # are pale and read pink or blue depending on what is pointed at them.
+    "wall": (0.465, 0.442, 0.425, 1),
+    # The accent wall, only a shade warmer than the other one. It reads as an
+    # accent because of the light thrown at it, not because it is painted a
+    # different colour — which is what keeps the two walls in one room.
+    "wall_accent": (0.505, 0.455, 0.432, 1),
     "floor": (0.192, 0.137, 0.094, 1),
     "rug": (0.114, 0.125, 0.176, 1),
     "desk": (0.361, 0.243, 0.157, 1),
@@ -82,6 +89,12 @@ PALETTE = {
     "screen": (0.020, 0.031, 0.055, 1),
     "bezel": (0.035, 0.039, 0.051, 1),
     "paper": (0.827, 0.855, 0.910, 1),
+    # The cut edge of a page block: warm, and never as bright as it looks —
+    # stacked paper seen edge-on is mostly shadow between the leaves.
+    "pages": (0.700, 0.648, 0.560, 1),
+    # Coffee, seen from above and lit from above: almost black, and warm rather
+    # than neutral. Coffee painted brown reads as gravy.
+    "brew": (0.055, 0.028, 0.016, 1),
     # What a tungsten bulb looks like through paper.
     "lampglow": (1.0, 0.76, 0.46, 1),
     # Ceiling white. High albedo on purpose — it is there to bounce, and every
@@ -216,7 +229,11 @@ KEY_X = -0.16
 # open floor rather than pushed back from the desk. The plan asks for a chair
 # that is never square to the desk and never centred; it does not ask for one in
 # a different postcode.
-CHAIR_X = KEY_X - 0.10
+# On the keyboard's centreline, and it has to be exactly that. This carried a
+# -0.10 offset with a comment above it claiming the centreline, which put the
+# chair 10 cm to the left of the working position — far enough to read as
+# slightly wrong from across the room and never far enough to look deliberate.
+CHAIR_X = KEY_X
 
 # How high the walls run.
 #
@@ -1946,9 +1963,25 @@ def build_keyboard_and_props() -> list[bpy.types.Object]:
 
     # A mouse is a dome, not a disc. Subdividing a short box rounds the top and
     # keeps the base flat on the desk, which a scaled cylinder cannot do.
-    mouse = cube("ix_mouse", (0.062, 0.105, 0.032), (0.15, DESK_FRONT - 0.13, DESK_TOP + 0.013),
-                 body_mat, bevel=0)
-    smooth(mouse, 2, crease=0.12)
+    # A mouse is a dome, not a disc. Subdividing a short box rounds the top and
+    # keeps the base flat on the desk, which a scaled cylinder cannot do.
+    mx, my = 0.15, DESK_FRONT - 0.13
+    shell = cube("ix_mouse", (0.062, 0.105, 0.032), (mx, my, DESK_TOP + 0.013), body_mat, bevel=0)
+    smooth(shell, 2, crease=0.12)
+
+    # The split between the buttons, and the wheel in it.
+    #
+    # Without them a mouse is an anonymous lozenge — those two features are the
+    # whole of what makes the shape readable, and they sit on the face that is
+    # always pointing at the camera. The split is a groove rather than a drawn
+    # line, so it catches its own shadow.
+    split = cube("mouse_split", (0.0016, 0.052, 0.004),
+                 (mx, my - 0.024, DESK_TOP + 0.0285),
+                 material("mouse_seam", "void", roughness=0.9), bevel=0)
+    wheel = cylinder("mouse_wheel", 0.0075, 0.0055, (mx, my - 0.030, DESK_TOP + 0.0295),
+                     material("mouse_wheel", "chair_dark", roughness=0.45),
+                     vertices=14, rotation=(0, math.radians(90), 0))
+    mouse = join("ix_mouse", [shell, split, wheel])
 
     mug_mat = material("mug", "mug", roughness=0.35)
     mug_x, mug_y = 0.40, DESK_FRONT - 0.14
@@ -1964,7 +1997,17 @@ def build_keyboard_and_props() -> list[bpy.types.Object]:
     # handle stood edge-on to the mug like a wheel rather than a loop.
     handle.rotation_euler = (math.radians(90), 0, 0)
     shade(handle, mug_mat)
-    mug = join("ix_mug", [mug_body, handle])
+
+    # A mug that is solid to the brim is a peg with a handle. The well is what
+    # makes it a vessel, and it costs one cylinder — the shelf mug beside it has
+    # had one all along, which is why that one reads and this one did not.
+    well = cylinder("mug_well", 0.036, 0.082, (mug_x, mug_y, DESK_TOP + 0.062),
+                    material("mug_void", "void", roughness=0.95))
+    # And coffee in it, a centimetre down from the rim. An empty mug on a desk
+    # at night is a detail nobody puts there on purpose.
+    brew = cylinder("mug_brew", 0.0355, 0.002, (mug_x, mug_y, DESK_TOP + 0.078),
+                    material("brew", "brew", roughness=0.18))
+    mug = join("ix_mug", [mug_body, handle, well, brew])
 
     # A5 rather than the 34 x 46 cm slab it was — no notebook is that size.
     notebook = cube(
@@ -2166,6 +2209,45 @@ def build_lamp() -> list[bpy.types.Object]:
     return [join("lamp", parts), bulb]
 
 
+# How a book is built, and why a box is not one.
+#
+# `square` is the overhang of the covers past the page block at the head, tail
+# and fore-edge; `cover` is the board thickness at each side. Both are real
+# millimetre figures off a hardback, and together they are most of what a
+# bookshelf looks like: a row of coloured spines with a cream stripe of paper
+# recessed behind each one. Solid boxes give a row of coloured rectangles, which
+# is what a shelf of books looks like to somebody who has not looked at one.
+BOOK_SQUARE = 0.004
+BOOK_COVER = 0.0025
+
+
+def book_pages(name: str, size: tuple[float, float, float], location: tuple[float, float, float]):
+    """The page block for a book whose covers occupy `size` at `location`."""
+    depth, width, height = size
+    x, y, z = location
+    # Inset on all four sides, and the spine side matters most.
+    #
+    # A first attempt made the page block flush with the spine, on the reasoning
+    # that pages meet the spine — they do, but the *cover board* is between them
+    # and the outside. Flush put two faces in exactly the same plane, and a
+    # shelf of z-fighting books renders as a shelf of black rectangles with
+    # coloured edges.
+    #
+    # So: back off the spine by a board thickness, and off the head, tail and
+    # fore-edge by the square.
+    return cube(
+        name,
+        (
+            depth - BOOK_SQUARE - BOOK_COVER,
+            max(width - 2 * BOOK_COVER, 0.004),
+            height - 2 * BOOK_SQUARE,
+        ),
+        (x + (BOOK_SQUARE - BOOK_COVER) / 2, y, z),
+        material("book_pages", "pages", roughness=0.92, grain="paper"),
+        bevel=0.0008,
+    )
+
+
 def build_shelf_and_books() -> list[bpy.types.Object]:
     """The bookshelf on the left wall. Each book is a project."""
     wood = material("shelf_wood", "desk", roughness=0.6, grain="wood")
@@ -2203,14 +2285,17 @@ def build_shelf_and_books() -> list[bpy.types.Object]:
                 h = 0.27 + (index % 3) * 0.014
                 z = 0.32 + level * 0.5 + h / 2
                 colour = colours[index % 4]
-                books.append(
-                    cube(
-                        f"book_titled_{index}",
-                        (0.2, TITLED_WIDTH, h),
-                        (-3.05, y + TITLED_WIDTH / 2, z),
-                        material(f"book_{colour}", colour, roughness=0.8),
-                    )
+                cover = cube(
+                    f"book_titled_{index}",
+                    (0.2, TITLED_WIDTH, h),
+                    (-3.05, y + TITLED_WIDTH / 2, z),
+                    material(f"book_{colour}", colour, roughness=0.8),
                 )
+                pages = book_pages(
+                    f"book_titled_pages_{index}", (0.2, TITLED_WIDTH, h),
+                    (-3.05, y + TITLED_WIDTH / 2, z),
+                )
+                books.append(join(f"book_titled_{index}", [cover, pages]))
                 # Proud of the spine face by 2mm so it never z-fights the book.
                 spines.append(
                     plane(
@@ -2258,11 +2343,16 @@ def build_shelf_and_books() -> list[bpy.types.Object]:
                 # way books do when the row is not full.
                 lean = math.radians(5.5 if (noise >> 12) % 2 else -4.5)
 
-            book = cube(
+            centre = (x, y, 0.32 + level * 0.5 + h / 2)
+            cover = cube(
                 f"book_{level}_{slot}",
                 (depth, w, h),
-                (x, y, 0.32 + level * 0.5 + h / 2),
+                centre,
                 material(f"book_{colour}", colour, roughness=0.8),
+            )
+            book = join(
+                f"book_{level}_{slot}",
+                [cover, book_pages(f"book_pages_{level}_{slot}", (depth, w, h), centre)],
             )
             if lean:
                 # Pivot about the foot, not the middle. A box rotated about its
@@ -2403,7 +2493,18 @@ def build_sticky_notes() -> bpy.types.Object:
         for r in range(span - 1):
             for c in range(span - 1):
                 a = base + r * span + c
-                faces.append((a, a + 1, a + span + 1, a + span))
+                # Wound so the normal comes out along +x, into the room.
+                #
+                # It was the other way round, and the notes have therefore never
+                # once been drawn: their faces pointed into the wall, so every
+                # camera in the room saw only their back, and a back face is
+                # culled. Nothing reported it — the objects existed, they were
+                # visible, they had materials and correct UVs, they were in the
+                # GLB, they were in the atlas, and `check_painted_uvs` measured
+                # their UV directions happily against a face nobody could see.
+                # They were also, on this evidence, being asked about repeatedly
+                # and answered for three times.
+                faces.append((a, a + span, a + span + 1, a + 1))
 
     notes = poly("ix_sticky_notes", verts, faces, (0, 0, 0),
                  material("note_yellow", "note_yellow", roughness=0.85))
@@ -2429,7 +2530,14 @@ def build_sticky_notes() -> bpy.types.Object:
         for loop in polygon.loop_indices:
             local = notes.data.loops[loop].vertex_index - index * span * span
             u = (local % span) / (span - 1)
-            v = (local // span) / (span - 1)
+            # `1 -`, because the vertex grid runs top-to-bottom and UV space
+            # runs bottom-to-top. The grid is built with `local_z = (0.5 - v)`,
+            # so row 0 is the note's *top* edge — and mapping that to V=0 puts
+            # the top of the note at the bottom of its cell, printing every note
+            # upside down. The whiteboard behind them is an ordinary quad whose
+            # UVs come out the right way round, which is why it reads correctly
+            # while the notes stuck to it do not.
+            v = 1.0 - (local // span) / (span - 1)
             layer.data[loop].uv = ((column + u) / columns, (row + v) / rows)
     return notes
 
@@ -2537,7 +2645,16 @@ def build_chair_and_plant() -> list[bpy.types.Object]:
     # the desk with a 20 degree turn on it, which reads as a chair abandoned in
     # the middle of the floor rather than one somebody pushed back and stood up
     # from.
-    cx, cy = CHAIR_X, DESK_FRONT + 0.46
+    # +0.40, not +0.46. At +0.46 the chair's back edge landed exactly on the
+    # desk's front edge — touching it and tucked under it by nothing at all,
+    # which is a chair parked in front of a desk rather than pulled up to one.
+    #
+    # 0.40 puts 6 cm of seat under the top. 0.30 was tried first and is too far:
+    # `check_furniture` measured 16 cm of overlap and `check_swallowed` found
+    # the keyboard's wrist rest entirely inside the chair. The armrest pads top
+    # out at 0.745 against a 0.75 underside, so they pass beneath with 5 mm to
+    # spare either way — it is the seat, not the arms, that sets the limit.
+    cx, cy = CHAIR_X + 0.11, DESK_FRONT + 0.50
     parts = []
 
     # Seat: a control cage dished in the middle and turned up at the sides, then
@@ -2846,7 +2963,15 @@ def build_chair_and_plant() -> list[bpy.types.Object]:
 
     chair = join("ix_chair", parts)
     set_origin(chair, (cx, cy, 0.0))
-    chair.rotation_euler = (0, 0, math.radians(-11))
+    # -31 degrees, not -11. Eleven is the worst angle a chair can have: too
+    # much to read as pushed in, too little to read as pushed back, so it just
+    # looks slightly crooked. And squared up in front of the desk its backrest
+    # stands directly between the home camera and the monitors — the desk is the
+    # most detailed thing in this room and the chair was hiding it.
+    #
+    # Out, across and turned: the desk opens up, and the chair reads as one
+    # somebody has just got up from rather than one nobody has ever sat in.
+    chair.rotation_euler = (0, 0, math.radians(-31))
 
     return [chair, build_plant(2.78, 0.35)]
 
@@ -3469,7 +3594,7 @@ def build_details() -> list[bpy.types.Object]:
     # plaster reads as a fluorescent tube instead.
     out.append(
         cube("led_strip", (1.5, 0.016, 0.012), (0.0, DESK_BACK - 0.035, 1.26),
-             material("led_strip", "violet", roughness=0.4, emission=1.0), bevel=0)
+             material("led_strip", "violet", roughness=0.4, emission=9.0), bevel=0)
     )
 
     # Desk clutter.
@@ -3686,59 +3811,122 @@ def build_details() -> list[bpy.types.Object]:
     return out
 
 
-def build_ceiling_lamp() -> list[bpy.types.Object]:
+def build_desk_detail() -> list[bpy.types.Object]:
     """
-    A pendant over the middle of the room, and the reason the room can be bright.
+    The things that make a desk look worked at rather than furnished.
 
-    Every previous attempt to lift the general light level ran into the same
-    wall: the strongest source in the room came from a point just under the
-    ceiling with nothing there to produce it. That reads as wrong immediately,
-    even to someone who could not say why — so the overhead kept getting turned
-    back down, and the room kept being too dark to show any of the detail in it.
+    Everything here sits in a gap the existing layout actually leaves — the
+    monitors run x -0.63..0.63 along the back, the mat and keyboard hold the
+    middle, the lamp owns the right rear corner and the CV stand the right
+    front. What was left was two pockets: x 0.55..0.75 between the mug and the
+    lamp, and the strip in front of the laptop on the left.
 
-    The ceiling itself is bake-only (`EXPORT_EXCLUDE`), so a fixture could not
-    hang off it and reach the browser. This one is separate geometry, which does
-    export, and it is what finally motivates a bright room.
-
-    A wide shallow shade rather than a bare bulb: it puts most of its light
-    down onto the desk and the rug, throws a little up so the ceiling bounce has
-    something to work with, and hides the emitter from the camera at the angles
-    the site actually uses.
+    Chosen for what a desk *has* rather than for what would fill space. A pen
+    cup, a phone put down face-up, a plant small enough to live on a desk, and
+    the cables that have to exist between three screens and a wall. Adding more
+    would be clutter, and clutter reads as set dressing.
     """
-    lamp: list[bpy.types.Object] = []
-    lx, ly, lz = 0.05, -0.35, 2.28
+    props: list[bpy.types.Object] = []
+    deck = DESK_TOP
 
-    metal = material("fitting_metal", "dark_metal", roughness=0.35, metallic=1.0, grain="brushed")
+    plastic = material("desk_plastic", "bezel", roughness=0.42)
+    dark = material("detail_dark", "chair_dark", roughness=0.55)
+    metal = material("desk_metal", "dark_metal", roughness=0.38, metallic=1.0, grain="brushed")
 
-    # Cord and canopy, so it is attached to something.
-    lamp.append(cylinder("pendant_canopy", 0.07, 0.02, (lx, ly, CEILING_HEIGHT - 0.01), metal))
-    lamp.append(
-        cylinder("pendant_cord", 0.006, CEILING_HEIGHT - lz - 0.1, (lx, ly, (CEILING_HEIGHT + lz + 0.1) / 2), metal, vertices=8)
+    # --- pen cup ------------------------------------------------------------
+    cup_x, cup_y = 0.62, -2.10
+    props.append(cylinder("pen_cup", 0.042, 0.105, (cup_x, cup_y, deck + 0.052), metal, vertices=16))
+    props.append(
+        cylinder("pen_cup_well", 0.036, 0.09, (cup_x, cup_y, deck + 0.068), dark, vertices=16)
     )
 
-    # The shade. Warm on the outside, and the emitter is a separate disc tucked
-    # up inside its mouth so the shade reads as lit rather than as glowing.
-    bpy.ops.mesh.primitive_cone_add(radius1=0.30, radius2=0.13, depth=0.16, vertices=28, location=(lx, ly, lz))
-    shade_obj = bpy.context.object
-    shade_obj.name = "pendant_shade"
-    shade_obj.data.name = "pendant_shade"
-    lamp.append(
-        shade(
-            shade_obj,
-            material("pendant_shade", "paper", roughness=0.8, emission=0.7, emission_key="lampglow", grain="paper"),
+    # Pens leaning at different angles, because a cup of parallel pens looks
+    # like a diagram of a cup of pens.
+    for index, (dx, dy, tilt_x, tilt_y, colour, length) in enumerate((
+        (-0.012, 0.006, 0.10, -0.06, "note_blue", 0.155),
+        (0.010, -0.004, -0.07, 0.09, "chair_dark", 0.145),
+        (0.002, 0.014, 0.05, 0.12, "note_pink", 0.150),
+        (0.014, 0.010, -0.11, -0.04, "note_mint", 0.138),
+    )):
+        pen = cylinder(
+            f"pen_{index}",
+            0.0042,
+            length,
+            (cup_x + dx, cup_y + dy, deck + 0.085 + length * 0.34),
+            material(f"pen_{colour}", colour, roughness=0.45),
+            vertices=8,
         )
-    )
+        pen.rotation_euler = (tilt_x, tilt_y, 0.0)
+        props.append(pen)
 
-    # The bulb, seen only from below.
-    disc = cylinder(
-        "pendant_bulb",
-        0.11,
-        0.012,
-        (lx, ly, lz - 0.075),
-        material("pendant_bulb", "lampglow", roughness=0.4, emission=7.0, emission_key="lampglow"),
+    # --- phone, face up and slightly askew ----------------------------------
+    phone = cube("desk_phone", (0.072, 0.148, 0.009), (-0.86, -1.90, deck + 0.005), dark, bevel=0.004)
+    phone.rotation_euler = (0.0, 0.0, math.radians(-14.0))
+    props.append(phone)
+    screen = cube(
+        "desk_phone_screen",
+        (0.064, 0.138, 0.001),
+        (-0.86, -1.90, deck + 0.0102),
+        material("phone_screen", "screen", roughness=0.16),
+        bevel=0,
     )
-    lamp.append(disc)
-    return lamp
+    screen.rotation_euler = phone.rotation_euler
+    props.append(screen)
+
+    # The camera island. It is the one feature that identifies a black rectangle
+    # as a phone rather than a coaster, and it is on the face pointing up.
+    island = cube("desk_phone_camera", (0.026, 0.026, 0.0022),
+                  (-0.886, -1.848, deck + 0.0102),
+                  material("phone_island", "bezel", roughness=0.3), bevel=0.003)
+    island.rotation_euler = phone.rotation_euler
+    props.append(island)
+    for index, (ox, oy) in enumerate(((-0.0055, 0.0055), (0.0055, -0.0055))):
+        lens = cylinder(
+            f"desk_phone_lens_{index}", 0.0048, 0.0016,
+            (-0.886 + ox, -1.848 + oy, deck + 0.0118),
+            material("phone_lens", "void", roughness=0.12), vertices=12,
+        )
+        props.append(lens)
+
+    # --- a plant that could live on a desk ----------------------------------
+    # `build_plant` is a floor plant; at desk scale it would be a tree. This is
+    # a pot with a few short blades, which is all a desk plant ever is.
+    pot_x, pot_y = 0.60, -2.36
+    props.append(
+        cylinder("desk_pot", 0.052, 0.072, (pot_x, pot_y, deck + 0.036),
+                 material("desk_pot", "pot", roughness=0.85, grain="plaster"), vertices=16)
+    )
+    leaf_mat = material("leaf", "leaf", roughness=0.62)
+    for index, (angle, lean, length) in enumerate((
+        (0.4, 0.28, 0.115), (1.9, 0.20, 0.098), (3.1, 0.32, 0.124),
+        (4.4, 0.18, 0.088), (5.6, 0.26, 0.106),
+    )):
+        blade = cube(
+            f"desk_leaf_{index}",
+            (0.013, 0.006, length),
+            (pot_x + math.cos(angle) * 0.016, pot_y + math.sin(angle) * 0.016, deck + 0.07 + length / 2),
+            leaf_mat,
+            bevel=0.004,
+        )
+        blade.rotation_euler = (math.sin(angle) * lean, -math.cos(angle) * lean, angle)
+        props.append(blade)
+
+    # --- cables -------------------------------------------------------------
+    # Three screens and a lamp on one desk means cables, and their absence is
+    # felt long before it is noticed. They drop behind the desk to the wall,
+    # which is where they go.
+    cable_mat = material("kb_cable", "chair_dark", roughness=0.6)
+    props.append(cable("cable_monitor_l", [
+        (-0.34, DESK_BACK + 0.14, deck + 0.03),
+        (-0.40, DESK_BACK + 0.05, deck - 0.02),
+        (-0.44, DESK_BACK + 0.01, deck - 0.18),
+    ], 0.0055, cable_mat))
+    props.append(cable("cable_monitor_r", [
+        (0.31, DESK_BACK + 0.14, deck + 0.03),
+        (0.38, DESK_BACK + 0.06, deck - 0.03),
+        (0.42, DESK_BACK + 0.01, deck - 0.22),
+    ], 0.0055, cable_mat))
+    return props
 
 
 def add_lighting() -> None:
@@ -3746,35 +3934,37 @@ def add_lighting() -> None:
     The rig the bake resolves. The runtime does not import these — it rigs its
     own — but keeping them here means both start from the same intent.
 
-    A bright, warm interior. It used to be a night scene lit by practicals
-    alone, which was defensible and was quietly costing everything else: with
-    most surfaces sitting at a fraction of a stop, wood grain, dust, edge wear
-    and the whole material pass had nowhere to show. Every one of those got
-    built, and none of them could be seen. Grading could not rescue it either,
-    because there was nothing in the shadows to lift — you cannot expose your
-    way out of a room that was never lit.
+    Three ideas, and the third is the one that took longest to see.
 
-    So the light level comes up several stops and the *sources* stay honest.
-    The pendant added in `build_ceiling_lamp` does most of the work and can be
-    seen doing it, which is what the old overhead never had. The practicals are
-    still here and still matter — they are accents on a lit room now rather than
-    the only things holding the dark back.
+    The walls do the work. They are pale (see `PALETTE`), so light bounces
+    around the room several times instead of dying on the first surface it
+    meets. At 9% reflectance nothing bounced and the room fell to black however
+    many lamps were pointed into it.
+
+    The colour comes from the lamps, not the paint. Violet down the shelf wall,
+    amber along the door wall, warm at the desk, cold from the window and the
+    monitors — pale walls take whichever is thrown at them, so the room has a
+    warm half and a cool half. Coloured walls under a neutral key give one flat
+    wash; neutral walls under coloured light give a room with somewhere to look.
+
+    And contrast is the point, not brightness. A bright evenly-lit room is still
+    a flat one — the reason a room reads as *lit* is that some of it is not. The
+    ambient is deliberately low and the sources are strong, so the light falls
+    off across the floor and the corners go down. An earlier pass raised the
+    world until nothing anywhere was dark, which produced a room that was bright
+    and had no shape at all.
+
+    No fixture for the overhead, and none needed: the camera looks down into an
+    open box and the ceiling is never in frame. A pendant was tried on the
+    theory that a strong overhead wants a visible source, and it solved a
+    problem the composition does not have.
     """
-    # A world, first. `read_factory_settings(use_empty=True)` leaves the scene
-    # without one, and Cycles gathers ambient light from the world — with none,
-    # every surface the lamps do not reach directly bakes to black. That is why
-    # the first baked room came out a dark cave with three bright screens
-    # floating in it.
-    #
-    # Warmer and considerably stronger than the night rig's. This is the light
-    # that reaches into the places no lamp points at, and in a bright room those
-    # places are dim rather than black.
     world = bpy.data.worlds.get("room_world") or bpy.data.worlds.new("room_world")
     bpy.context.scene.world = world
     world.use_nodes = True
     background = world.node_tree.nodes["Background"]
-    background.inputs["Color"].default_value = (0.14, 0.15, 0.19, 1.0)
-    background.inputs["Strength"].default_value = 1.6
+    background.inputs["Color"].default_value = (0.10, 0.11, 0.16, 1.0)
+    background.inputs["Strength"].default_value = 0.55
 
     def area(name, energy, size, location, colour, rotation=(0, 0, 0)):
         bpy.ops.object.light_add(type="AREA", location=location)
@@ -3786,64 +3976,51 @@ def add_lighting() -> None:
         light.rotation_euler = rotation
         return light
 
-    # The pendant, and the room's key. It sits inside the shade built by
-    # `build_ceiling_lamp`, so this is the one strong source in the room that
-    # has something visible making it.
-    #
-    # Tungsten-warm rather than white. A warm key against the cold window and
-    # colder monitors is what gives the room two temperatures to play against
-    # each other; a neutral key flattens that into one wash.
-    bpy.ops.object.light_add(type="POINT", location=(0.05, -0.35, 2.20))
-    pendant = bpy.context.object
-    pendant.name = "pendant_light"
-    pendant.data.energy = 900
-    pendant.data.color = (1.0, 0.83, 0.62)
-    pendant.data.shadow_soft_size = 0.22
+    # The overhead. Warm, and tighter than before — a 2.6 m source lit the whole
+    # floor evenly, which is exactly the flatness this rig is trying to avoid.
+    area("key", 560, 1.7, (0.15, -0.35, 2.6), (1.0, 0.88, 0.74))
 
-    # A broad soft top-up under the ceiling, well below the pendant. Not a
-    # second key — it exists so the pendant's falloff lands on something instead
-    # of running to black at the edges of the room.
-    area("ceiling_bounce", 210, 3.2, (0.1, 0.1, 2.62), (1.0, 0.93, 0.84))
+    # Violet down the shelf wall. The room's one saturated colour, and strong
+    # enough to be a colour rather than a tint — the previous value read as grey
+    # with a suggestion of mauve, which is worse than not doing it.
+    area("wash_shelf", 420, 2.2, (-2.62, 0.5, 1.9), (0.72, 0.22, 1.0),
+         rotation=(0, math.radians(-66), 0))
 
-    # Wall washes, one per wall, aimed *at* the wall rather than into the room.
-    # A room this size reads as a box unless its walls carry a gradient, and a
-    # gradient on a wall has to come from a source beside it.
-    area("wash_left", 130, 2.2, (-2.72, 0.6, 1.95), (1.0, 0.9, 0.8),
-         rotation=(0, math.radians(-62), 0))
-    area("wash_back", 120, 2.4, (0.2, 2.35, 1.95), (0.98, 0.92, 0.86),
-         rotation=(math.radians(62), 0, 0))
+    # Amber back along the door wall, so the corner between the two walls is a
+    # place where two colours meet rather than a fold in one.
+    area("wash_back", 260, 2.2, (0.2, 2.3, 1.95), (1.0, 0.62, 0.30),
+         rotation=(math.radians(66), 0, 0))
 
-    # The desk lamp. Positioned from the lamp's actual head — it used to sit at
-    # (-1.02, -2.0), which is where the lamp stood before it was moved to the
-    # back-right corner, so the room's warmest light came from a bare patch of
-    # desk two and a half metres away from the lamp casting it.
+    # The desk lamp. Strong and tight — this is the pool the desk sits in, and
+    # the brightest small thing in the room.
     bpy.ops.object.light_add(type="POINT", location=(0.80, DESK_BACK + 0.28, 1.10))
     warm = bpy.context.object
     warm.name = "lamp_light"
-    warm.data.energy = 120
-    warm.data.color = (1.0, 0.68, 0.36)
-    warm.data.shadow_soft_size = 0.06
+    warm.data.energy = 190
+    warm.data.color = (1.0, 0.62, 0.26)
+    warm.data.shadow_soft_size = 0.05
 
-    # The floor lamp, which until now was a lamp-shaped object that did nothing.
-    # `check_lights` could not see that: it walks a curated list of
-    # light-and-fixture pairs, so it catches a light that has drifted from its
-    # lamp and is blind to a lamp that never had a light.
     bpy.ops.object.light_add(type="POINT", location=(-1.22, 1.85, 1.44))
     floor_lamp = bpy.context.object
     floor_lamp.name = "floor_lamp_light"
-    floor_lamp.data.energy = 95
-    floor_lamp.data.color = (1.0, 0.74, 0.46)
+    floor_lamp.data.energy = 130
+    floor_lamp.data.color = (1.0, 0.70, 0.40)
     floor_lamp.data.shadow_soft_size = 0.09
 
-    # The monitors, throwing cold light forward onto the desk and the chair.
-    # Kept cold and kept modest: against a warm key its job is to tint the desk,
-    # not to light it.
-    area("screen_bounce", 85, 1.2, (0.0, DESK_BACK + 0.26, 1.10), (0.42, 0.66, 1.0),
+    # The monitors, cold and close, throwing forward onto the desk and the
+    # chair. Raised until it is visibly a source rather than an inference.
+    area("screen_bounce", 190, 1.2, (0.0, DESK_BACK + 0.26, 1.10), (0.34, 0.58, 1.0),
          rotation=(math.radians(90), 0, 0))
 
-    # City glow through the window — the one cold source with somewhere real to
-    # come from, and the reason the near wall does not match the far one.
-    area("window_glow", 110, 1.3, (2.05, -2.42, 1.72), (0.55, 0.68, 1.0),
+    # The LED strip behind the desk, which now emits at 9.0 and so needs a light
+    # to match it — a strip that glows without lighting the wall behind it is a
+    # sticker.
+    area("strip_glow", 70, 1.4, (0.0, DESK_BACK - 0.06, 1.26), (0.62, 0.34, 1.0),
+         rotation=(math.radians(-90), 0, 0))
+
+    # City glow through the window: the coldest thing in the room, and the one
+    # cold source with somewhere real to come from.
+    area("window_glow", 170, 1.3, (2.05, -2.42, 1.72), (0.42, 0.60, 1.0),
          rotation=(math.radians(90), 0, 0))
 
 
@@ -4047,7 +4224,7 @@ def build_all() -> None:
     build_door()
     build_fittings()
     build_details()
-    build_ceiling_lamp()
+    build_desk_detail()
     add_lighting()
 
 
