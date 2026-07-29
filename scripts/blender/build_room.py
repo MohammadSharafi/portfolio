@@ -38,6 +38,11 @@ ROOT = os.path.normpath(os.path.join(HERE, "..", ".."))
 sys.path.insert(0, HERE)
 OUT_DIR = os.path.join(ROOT, "public", "models")
 OUT_GLB = os.path.normpath(os.path.join(OUT_DIR, "room.glb"))
+# The shape of the room, hashed. The bake records the same value, and the build
+# inlines it, so a lightmap is kept or discarded on whether the *geometry* still
+# matches rather than on whether the whole file does. See
+# `export_room.geometry_fingerprint`.
+OUT_GEOMETRY = os.path.normpath(os.path.join(OUT_DIR, "room-geometry.json"))
 BLEND = os.path.join(ROOT, "assets", "room.blend")
 
 
@@ -72,6 +77,11 @@ PALETTE = {
     "screen": (0.020, 0.031, 0.055, 1),
     "bezel": (0.035, 0.039, 0.051, 1),
     "paper": (0.827, 0.855, 0.910, 1),
+    # What a tungsten bulb looks like through paper.
+    "lampglow": (1.0, 0.76, 0.46, 1),
+    # Ceiling white. High albedo on purpose — it is there to bounce, and every
+    # point of reflectance is light the room gets back.
+    "ceiling": (0.855, 0.845, 0.820, 1),
     "board": (0.882, 0.898, 0.929, 1),
     "leaf": (0.208, 0.427, 0.267, 1),
     "leaf_dark": (0.129, 0.290, 0.180, 1),
@@ -83,10 +93,40 @@ PALETTE = {
     "mug": (0.847, 0.353, 0.290, 1),
     "sticky": (0.988, 0.804, 0.294, 1),
     "sticky_alt": (0.541, 0.831, 0.925, 1),
-    "book_a": (0.192, 0.376, 0.769, 1),
-    "book_b": (0.541, 0.259, 0.788, 1),
-    "book_c": (0.153, 0.475, 0.373, 1),
-    "book_d": (0.867, 0.478, 0.243, 1),
+    # The six pads, matching the colours `stickyTexture` draws. The runtime
+    # repaints these faces with its own canvas, so strictly these only show in a
+    # Cycles render — but a preview where all six are the same yellow is a
+    # preview you cannot judge the arrangement from, and the arrangement is the
+    # whole point of them.
+    "note_yellow": (0.982, 0.792, 0.255, 1),
+    "note_mint": (0.383, 0.898, 0.635, 1),
+    "note_blue": (0.523, 0.714, 0.991, 1),
+    "note_pink": (0.991, 0.601, 0.601, 1),
+    "note_violet": (0.723, 0.673, 0.991, 1),
+    "note_peach": (0.991, 0.680, 0.407, 1),
+    # Eight, mostly muted, spanning a real range of *value*. A cream spine next
+    # to a charcoal one is what makes a shelf read as a collection; four
+    # saturated mid-tones cycled in a fixed order read as a pattern, and under
+    # one coloured wash they all resolve to the same brightness anyway.
+    "book_a": (0.152, 0.208, 0.392, 1),
+    "book_b": (0.298, 0.157, 0.278, 1),
+    "book_c": (0.125, 0.271, 0.204, 1),
+    "book_d": (0.545, 0.298, 0.137, 1),
+    "book_e": (0.776, 0.714, 0.596, 1),
+    "book_f": (0.416, 0.137, 0.137, 1),
+    "book_g": (0.125, 0.129, 0.149, 1),
+    "book_h": (0.196, 0.353, 0.376, 1),
+    # The night outside. `night_sky` is the deep blue overhead, `sky_glow` the
+    # warm bloom a city throws onto the air just above its rooftops — which is
+    # what a skyline's silhouette is actually read against — and `sky_haze` the
+    # washed-out body of the far towers, because aerial perspective takes the
+    # contrast out of a night skyline long before it takes the lights.
+    # The colour of nothing. The occluder behind the room is not a surface, it
+    # is the absence of one, and it has to match the background exactly.
+    "void": (0.004, 0.005, 0.008, 1),
+    "night_sky": (0.055, 0.085, 0.190, 1),
+    "sky_glow": (0.300, 0.210, 0.185, 1),
+    "sky_haze": (0.115, 0.120, 0.165, 1),
     "warm": (1.0, 0.702, 0.353, 1),
     "cyan": (0.416, 0.749, 1.0, 1),
     "violet": (0.659, 0.482, 1.0, 1),
@@ -113,6 +153,10 @@ PAINTED = re.compile(
 # is a carpet nobody would recognise.
 WHOLE_SURFACE = re.compile(r"^rug(\.\d+)?$")
 
+# The rug's footprint in metres. Named because two places need to agree about
+# it: the plane that carries the design, and the pile maps that tile across it.
+RUG_SPAN = (3.88, 3.48)
+
 # Meshes that get no share of the lightmap.
 #
 # The Toronto skyline is 7,541 m² of building faces — more surface than
@@ -125,7 +169,7 @@ WHOLE_SURFACE = re.compile(r"^rug(\.\d+)?$")
 # and sky are emissive already, and its towers are dark night silhouettes that
 # read correctly as flat colour. Baked lighting on a distant night skyline is
 # spend with no return.
-BAKE_EXCLUDE = re.compile(r"^(ix_window|cn_tower|sky|lake)(\.\d+)?$")
+BAKE_EXCLUDE = re.compile(r"^(ix_window|cn_tower|sky|lake|sky_occluder\w*)(\.\d+)?$")
 
 # The smallest share of the atlas any object may claim, as a fraction of the
 # linear size the largest object gets. Packing strictly by surface area is right
@@ -159,7 +203,15 @@ KEY_X = -0.16
 #
 # Left of all three lines it is clear, and it lands in front of the laptop —
 # which is a place a chair genuinely lives, not a compromise dressed up as one.
-CHAIR_X = KEY_X - 0.55
+# Ten centimetres off the working position, not fifty-five.
+#
+# The comment on the chair said "on the keyboard's centreline" while this put it
+# more than half a metre to the left of it — far enough that nobody sitting in
+# it could reach the keys, and far enough that the chair read as abandoned in
+# open floor rather than pushed back from the desk. The plan asks for a chair
+# that is never square to the desk and never centred; it does not ask for one in
+# a different postcode.
+CHAIR_X = KEY_X - 0.10
 
 # How high the walls run.
 #
@@ -170,6 +222,12 @@ CHAIR_X = KEY_X - 0.55
 # only one of them is obvious, which is exactly the sort of thing that gets
 # broken by a change that looks safe.
 WALL_TOP = 5.4
+
+# Where the ceiling sits. The walls run to 5.4 m so the room reads as an open
+# box from outside, but a room a person lives in is 2.7 m — and the difference
+# matters enormously to the light, because everything above the ceiling is
+# hidden anyway and everything below it gets a huge soft reflector.
+CEILING_HEIGHT = 2.72
 
 # How thick the carpet is. A hand-knotted wool Isfahan runs 10-14 mm including
 # the pile, and having it as a real dimension rather than a fudge factor is what
@@ -200,6 +258,74 @@ def reset_scene() -> None:
     scene.unit_settings.scale_length = 1.0
 
 
+# Materials that are allowed to be perfectly uniform, and why.
+#
+# Backdrop: the skyline, the lake and the occluder are painted scenery seen
+# through a window at fifteen metres. They have no surface to describe.
+# Panels: a screen's appearance is its emission and the canvas the runtime
+# paints onto it, not the finish of the glass in front.
+FLAT_BY_DESIGN = frozenset(
+    {
+        "occluder",
+        "sky_lit",
+        "sky_lit_cool",
+        "sky_tower",
+        "sky_tower_far",
+        "lake",
+        "screen",
+        "laptop_screen",
+        "board_face_mat",
+        "cv_board",
+        "screen_mask",
+        "beacon",
+        "bulb",
+        "led_red",
+        "led_strip",
+        "kb_led",
+        "monitor_led",
+    }
+)
+
+
+# A note on `metallic`, because the room used to get this wrong in thirteen
+# places and it is the sort of wrong that looks like a style choice.
+#
+# Metalness is not a slider. In the metal/rough workflow it selects between two
+# different physical models: a conductor, which has no diffuse colour and tints
+# its own reflection, and a dielectric, which has diffuse colour and reflects
+# white at about 4%. There is no substance that is 30% of the way between them.
+# An intermediate value is only meaningful inside a *texture*, where it marks
+# the boundary between bare metal and the paint on top of it.
+#
+# A plastic bin at 0.3 gets 30% of its diffuse colour deleted and 30% of a
+# metallic reflection it should not have, which reads as dingy grey — and the
+# instinct is then to brighten its colour, which makes it worse. Anything that
+# is metal is 1.0 and carries its look in roughness; anything else is 0.0.
+
+
+def default_grain(roughness: float, metallic: float) -> str:
+    """
+    The finish a material gets when it does not ask for one.
+
+    Nothing in a real room has a constant roughness. A uniform value returns a
+    highlight of identical size and sharpness across a whole surface, and that
+    single property is the most reliable giveaway that an image was rendered —
+    it is why untextured 3D reads as plastic even when the colours are right.
+
+    Rather than tag a hundred and sixteen materials by hand and rely on whoever
+    adds the hundred and seventeenth remembering to, the fallback is derived
+    from what the material already says about itself. Metal is metal, anything
+    polished has been lacquered or moulded glossy, and everything else is some
+    kind of moulded plastic — which, for a desk, a bin, a keyboard and a
+    monitor shell, is simply true.
+    """
+    if metallic > 0.3:
+        return "metal"
+    if roughness < 0.32:
+        return "lacquer"
+    return "plastic"
+
+
 def material(
     name: str,
     colour_key: str,
@@ -207,6 +333,7 @@ def material(
     roughness: float = 0.75,
     metallic: float = 0.0,
     emission: float = 0.0,
+    emission_key: str | None = None,
     grain: str | None = None,
 ) -> bpy.types.Material:
     """
@@ -215,9 +342,16 @@ def material(
     `grain` names a procedural surface break-up. It is recorded as a custom
     property on the material rather than wired in here — see `apply_grain`,
     which the bake calls and the plain export does not.
+
+    Omitting it does not mean "no surface detail"; it means "choose one" — see
+    `default_grain`. Genuine exceptions go in `FLAT_BY_DESIGN`, which is a short
+    and deliberately awkward list to be added to.
     """
     if name in _materials:
         return _materials[name]
+
+    if grain is None and name not in FLAT_BY_DESIGN and emission <= 0:
+        grain = default_grain(roughness, metallic)
 
     mat = bpy.data.materials.new(name)
     mat.use_nodes = True
@@ -227,7 +361,12 @@ def material(
     bsdf.inputs["Roughness"].default_value = roughness
     bsdf.inputs["Metallic"].default_value = metallic
     if emission > 0:
-        bsdf.inputs["Emission Color"].default_value = colour
+        # Emission colour defaults to the base colour, which is right for a
+        # screen or an LED — the thing glowing *is* the thing you see. It is
+        # wrong for anything lit from inside by something else: a paper lamp
+        # shade is near-white, and the light coming through it is the colour of
+        # the bulb behind it, not the colour of the paper.
+        bsdf.inputs["Emission Color"].default_value = PALETTE[emission_key] if emission_key else colour
         bsdf.inputs["Emission Strength"].default_value = emission
     if grain:
         # Recorded either way, so the bake still knows what a surface is even
@@ -339,17 +478,57 @@ def _add_maps(mat: bpy.types.Material, kind: str, colour, base_rough: float) -> 
         )
         tree.links.new(weave.outputs["Color"], bsdf.inputs["Base Color"])
         bsdf.inputs["Roughness"].default_value = 0.96
+        # The design is one image spanning the rug once; the *pile* is a
+        # separate thing that repeats every half metre, and it is what stops a
+        # carpet reading as a printed sheet of paper lying on the floor. Wool
+        # catches light along the lie of the tuft, so this is the one surface in
+        # the room where the normal map matters more than the colour.
+        #
+        # The rug is the one object that keeps the 0..1 UVs it was born with, so
+        # that the design lands on it exactly once (`WHOLE_SURFACE`). That is
+        # right for the pattern and wrong for the pile: sharing those UVs would
+        # stretch a half-metre tile of wool across all 3.9 m of it, which is not
+        # pile but a smear. So the pile gets its own mapping, tiled at the same
+        # physical scale `texture_uvs` gives every other surface in the room.
+        tiles = tree.nodes.new("ShaderNodeMapping")
+        tiles.location = (-1080, -120)
+        tiles.inputs["Scale"].default_value = (
+            RUG_SPAN[0] / grain_maps.TILE_METRES,
+            RUG_SPAN[1] / grain_maps.TILE_METRES,
+            1.0,
+        )
+        uv = tree.nodes.new("ShaderNodeUVMap")
+        uv.location = (-1280, -120)
+        tree.links.new(uv.outputs["UV"], tiles.inputs["Vector"])
+
+        rough = _texture_node(
+            tree,
+            _image("grain_pile_rough_10", grain_maps.roughness("pile", 0.96), data=True),
+            (-520, 20),
+        )
+        tree.links.new(tiles.outputs["Vector"], rough.inputs["Vector"])
+        tree.links.new(rough.outputs["Color"], bsdf.inputs["Roughness"])
+
+        pile = _texture_node(tree, _image("grain_pile_normal", grain_maps.normal("pile"), data=True), (-520, -260))
+        tree.links.new(tiles.outputs["Vector"], pile.inputs["Vector"])
+        pile_normal = tree.nodes.new("ShaderNodeNormalMap")
+        pile_normal.location = (-240, -260)
+        tree.links.new(pile.outputs["Color"], pile_normal.inputs["Color"])
+        tree.links.new(pile_normal.outputs["Normal"], bsdf.inputs["Normal"])
         return
 
-    albedo = _texture_node(tree, _image(f"grain_{kind}_albedo", grain_maps.albedo(kind), data=False), (-820, 300))
-    tint = tree.nodes.new("ShaderNodeMix")
-    tint.data_type = "RGBA"
-    tint.blend_type = "MULTIPLY"
-    tint.inputs["Factor"].default_value = 1.0
-    tint.inputs[7].default_value = tuple(colour[:3]) + (1.0,)
-    tint.location = (-520, 300)
-    tree.links.new(albedo.outputs["Color"], tint.inputs[6])
-    tree.links.new(tint.outputs[2], bsdf.inputs["Base Color"])
+    # A micro-finish describes how a surface reflects, not what colour it is, so
+    # it leaves base colour alone and contributes roughness and normal only.
+    if kind not in grain_maps.MICRO:
+        albedo = _texture_node(tree, _image(f"grain_{kind}_albedo", grain_maps.albedo(kind), data=False), (-820, 300))
+        tint = tree.nodes.new("ShaderNodeMix")
+        tint.data_type = "RGBA"
+        tint.blend_type = "MULTIPLY"
+        tint.inputs["Factor"].default_value = 1.0
+        tint.inputs[7].default_value = tuple(colour[:3]) + (1.0,)
+        tint.location = (-520, 300)
+        tree.links.new(albedo.outputs["Color"], tint.inputs[6])
+        tree.links.new(tint.outputs[2], bsdf.inputs["Base Color"])
 
     # Roughness is baked per material rather than shared, because it is keyed to
     # the material's own base roughness — a rough fabric and a polished lacquer
@@ -398,7 +577,15 @@ def apply_grain() -> int:
             continue
         bsdf = mat.node_tree.nodes.get("Principled BSDF")
         # Already wired, or hand-authored into something this would trample.
-        if bsdf is None or bsdf.inputs["Base Color"].is_linked:
+        #
+        # Roughness is checked as well as base colour. A micro-finish never
+        # links base colour, so testing that alone declared the image-mapped
+        # micro materials untouched and wired the procedural version straight
+        # over their roughness and normal — quietly discarding the maps the GLB
+        # had just been given.
+        if bsdf is None:
+            continue
+        if bsdf.inputs["Base Color"].is_linked or bsdf.inputs["Roughness"].is_linked:
             continue
         _add_grain(mat, tuple(bsdf.inputs["Base Color"].default_value), str(kind))
         applied += 1
@@ -429,6 +616,12 @@ _GRAIN = {
     "brushed": ((150.0, 5.0, 150.0), 0.0, 0.03, 0.14),
     # Paper tooth, barely there.
     "paper": ((110.0, 110.0, 110.0), 0.0, 0.018, 0.04),
+    # The micro-finishes. Colour spread is 0.0 for all four: they vary how a
+    # surface reflects, never what colour it is. See `grain_maps.MICRO`.
+    "plastic": ((95.0, 95.0, 95.0), 0.2, 0.0, 0.06),
+    "metal": ((100.0, 26.0, 100.0), 0.0, 0.0, 0.13),
+    "lacquer": ((14.0, 14.0, 14.0), 0.3, 0.0, 0.04),
+    "rubber": ((80.0, 80.0, 80.0), 0.0, 0.0, 0.10),
 }
 
 
@@ -456,30 +649,35 @@ def _add_grain(mat: bpy.types.Material, colour: tuple[float, ...], kind: str) ->
     ramp.color_ramp.elements[0].position = 0.35
     ramp.color_ramp.elements[1].position = 0.65
 
-    mix = tree.nodes.new("ShaderNodeMix")
-    mix.data_type = "RGBA"
-    mix.inputs["Factor"].default_value = 1.0
-    dark = tuple(max(0.0, c - spread) for c in colour[:3]) + (1.0,)
-    light = tuple(min(1.0, c + spread) for c in colour[:3]) + (1.0,)
-    mix.inputs[6].default_value = dark
-    mix.inputs[7].default_value = light
-
     rough = tree.nodes.new("ShaderNodeMapRange")
     base_rough = bsdf.inputs["Roughness"].default_value
     rough.inputs["To Min"].default_value = max(0.0, base_rough - rough_spread)
     rough.inputs["To Max"].default_value = min(1.0, base_rough + rough_spread)
 
-    # Bump, so the grain catches light rather than only tinting.
+    # Bump, so the grain catches light rather than only tinting. A micro-finish
+    # is a hundredth of a millimetre of orange peel or tooling, not a wood
+    # grain you could feel, so it gets a tenth of the relief.
+    micro = spread == 0.0
     bump = tree.nodes.new("ShaderNodeBump")
-    bump.inputs["Strength"].default_value = 0.12
-    bump.inputs["Distance"].default_value = 0.004
+    bump.inputs["Strength"].default_value = 0.06 if micro else 0.12
+    bump.inputs["Distance"].default_value = 0.0004 if micro else 0.004
 
     links = tree.links
     links.new(coord.outputs["Object"], mapping.inputs["Vector"])
     links.new(mapping.outputs["Vector"], noise.inputs["Vector"])
     links.new(noise.outputs["Fac"], ramp.inputs["Fac"])
-    links.new(ramp.outputs["Color"], mix.inputs["Factor"])
-    links.new(mix.outputs[2], bsdf.inputs["Base Color"])
+
+    # A micro-finish never touches base colour — it says how the surface
+    # reflects, not what colour it is.
+    if not micro:
+        mix = tree.nodes.new("ShaderNodeMix")
+        mix.data_type = "RGBA"
+        mix.inputs["Factor"].default_value = 1.0
+        mix.inputs[6].default_value = tuple(max(0.0, c - spread) for c in colour[:3]) + (1.0,)
+        mix.inputs[7].default_value = tuple(min(1.0, c + spread) for c in colour[:3]) + (1.0,)
+        links.new(ramp.outputs["Color"], mix.inputs["Factor"])
+        links.new(mix.outputs[2], bsdf.inputs["Base Color"])
+
     links.new(ramp.outputs["Color"], rough.inputs["Value"])
     links.new(rough.outputs["Result"], bsdf.inputs["Roughness"])
     links.new(noise.outputs["Fac"], bump.inputs["Height"])
@@ -860,6 +1058,19 @@ def _wall_with_opening(wall_mat: bpy.types.Material) -> bpy.types.Object:
     parallax between the frame and the skyline as the camera moves is the whole
     reason the window reads as an opening and not as a poster.
     """
+    # Wider and taller than the room needs, because it is also the occluder that
+    # keeps the night sky where it belongs.
+    #
+    # The skyline has to be big enough to fill the window from the window's own
+    # camera stop — about 24 m across at 34 m out — but the establishing camera
+    # sits high on the +X side and can see past this wall's edge, so anything
+    # that wide shows up floating in the void beside the room. It went unnoticed
+    # for as long as the sky was near-black: an unlit slab against an unlit
+    # background is not visible. The moment the sky had a gradient worth looking
+    # at, it was.
+    #
+    # Everything added here is outside the room and lit by nothing, so it reads
+    # as the same black the background already is.
     wall = cube("wall_back", (11.0, 0.12, WALL_TOP), (0, -2.6, WALL_TOP / 2), wall_mat, bevel=0)
 
     bpy.ops.mesh.primitive_cube_add(size=1, location=(2.05, -2.6, 1.7))
@@ -881,12 +1092,24 @@ def _wall_with_opening(wall_mat: bpy.types.Material) -> bpy.types.Object:
 
 def build_toronto() -> list[bpy.types.Object]:
     """
-    The view through the window: Toronto at night, seen from high up.
+    The view through the window: Toronto at night, from high up.
 
-    Built at real distance rather than as a backdrop card so it parallaxes
-    correctly. The whole thing sits inside the window's view cone, which is the
-    only reason a few dozen boxes can stand in for a skyline — everything
-    outside that cone is never on screen and is not modelled.
+    Built at real distance rather than as a backdrop card, so it parallaxes as
+    the camera moves. The whole thing sits inside the window's view cone, which
+    is the only reason a few dozen boxes can stand in for a skyline.
+
+    **The geometry has to be laid out against that cone**, and getting it wrong
+    is what made the first version read as an upside-down skyline. The window
+    aperture spans z 1.08 to 2.32, so a viewer inside the room sees, at depth
+    `d` behind it, a vertical band roughly `1.7 ± 0.62 · (d + 0.5) / 2.1` —
+    about 17 m tall at 30 m out. The towers used to stand on bases at z = -1.2
+    with tops as high as 14.8, which put their *bases* inside that band and
+    their tops far above it. You saw the bottom of the city, the tops were cut
+    off by the frame, and the stepped edge along the bottom was bases at
+    different distances. Every cue was inverted.
+
+    So the bases go well below the band and the tops land inside it. You see
+    what a skyline is actually recognised by: a varied silhouette against sky.
     """
     random_state = [20240726]
 
@@ -894,81 +1117,200 @@ def build_toronto() -> list[bpy.types.Object]:
         random_state[0] = (random_state[0] * 1103515245 + 12345) & 0x7FFFFFFF
         return random_state[0] / 0x7FFFFFFF
 
-    tower_mat = material("sky_tower", "plastic", roughness=0.8, metallic=0.1)
-    lit_mat = material("sky_lit", "warm", roughness=0.4, emission=2.2)
-    cool_lit = material("sky_lit_cool", "cyan", roughness=0.4, emission=1.8)
+    # Everything stands on this, far below the window's view cone, so no ground
+    # line ever crosses the frame.
+    GROUND = -16.0
+
+    tower_mat = material("sky_tower", "plastic", roughness=0.8)
+    # A second, paler body for the far layer. Distance washes contrast out of a
+    # night skyline long before it washes out the lights, and that difference is
+    # most of what makes a city read as deep rather than as one flat cut-out.
+    far_mat = material("sky_tower_far", "sky_haze", roughness=0.85, metallic=0.0)
+    lit_mat = material("sky_lit", "warm", roughness=0.4, emission=2.4)
+    cool_lit = material("sky_lit_cool", "cyan", roughness=0.4, emission=2.0)
 
     parts: list[bpy.types.Object] = []
 
-    # The sky. A single emissive plane far enough back to sit behind everything.
-    parts_sky = cube(
-        "sky", (60, 0.2, 34), (2.05, -34, 8), material("sky", "screen", roughness=1.0, emission=0.35), bevel=0
-    )
+    # The sky, as a stack of bands rather than one flat plane.
+    #
+    # It was a single emissive slab at 0.35 on a near-black colour, which is
+    # indistinguishable from no sky at all — and with nothing behind the towers,
+    # a skyline has no silhouette to be read against. A night sky over a city is
+    # not uniform: it is bright and warm just above the rooftops, where the
+    # city's own light bounces off the air, and falls to deep blue overhead.
+    # Seven bands is enough to read as a gradient at this distance.
+    sky_bands = []
+    for i in range(7):
+        t = i / 6.0
+        z0 = GROUND + t * 46.0
+        glow = (1.0 - t) ** 2.2
+        sky_bands.append(
+            cube(
+                f"sky_band_{i}",
+                (110, 0.2, 46.0 / 6.0 + 0.4),
+                (2.05, -70, z0),
+                material(
+                    f"sky_{i}",
+                    "sky_glow" if glow > 0.5 else "night_sky",
+                    roughness=1.0,
+                    emission=0.22 + glow * 1.5,
+                ),
+                bevel=0,
+            )
+        )
 
-    # Lake Ontario. Flat and almost black, with a trace of its own glow so it
-    # reads as water carrying the city's light rather than as a pale slab —
-    # an upward-facing plane this size picks up more from the environment than
-    # its albedo suggests, and at 0.65 roughness it was the brightest thing in
-    # the view.
+    # Lake Ontario, well below the skyline and almost black — it carries the
+    # city's light rather than making its own.
     lake = cube(
         "lake",
-        (34, 22, 0.2),
-        (2.05, -26, -1.6),
-        material("lake", "screen", roughness=0.95, metallic=0.0, emission=0.5),
+        (90, 60, 0.3),
+        (2.05, -46, GROUND - 0.4),
+        material("lake", "night_sky", roughness=0.9, metallic=0.0, emission=0.30),
         bevel=0,
     )
 
     # The CN Tower. Unmistakable, and the one object that fixes the city.
+    # Scaled and placed so the pod lands inside the visible band rather than
+    # above it — a landmark whose recognisable part is cropped out is not a
+    # landmark.
+    tx, ty = 3.4, -30.0
     cn: list[bpy.types.Object] = [
-        cylinder("cn_shaft", 0.5, 15, (2.6, -14, 4.5), tower_mat, vertices=12),
-        cylinder("cn_pod", 1.5, 1.5, (2.6, -14, 10.4), tower_mat, vertices=16),
-        cylinder("cn_pod_lit", 1.55, 0.42, (2.6, -14, 10.6), lit_mat, vertices=16),
-        cylinder("cn_upper", 0.85, 1.6, (2.6, -14, 12.6), tower_mat, vertices=14),
-        cylinder("cn_mast", 0.16, 7.0, (2.6, -14, 16.6), tower_mat, vertices=8),
+        cylinder("cn_shaft", 0.62, 22.0, (tx, ty, GROUND + 11.0), tower_mat, vertices=12),
+        cylinder("cn_pod", 1.9, 1.7, (tx, ty, GROUND + 21.4), tower_mat, vertices=16),
+        cylinder("cn_pod_lit", 1.96, 0.5, (tx, ty, GROUND + 21.7), lit_mat, vertices=16),
+        cylinder("cn_upper", 1.05, 1.9, (tx, ty, GROUND + 23.6), tower_mat, vertices=14),
+        cylinder("cn_mast", 0.2, 9.0, (tx, ty, GROUND + 29.0), tower_mat, vertices=8),
     ]
-    beacon = cylinder("cn_beacon", 0.2, 0.2, (2.6, -14, 20.2), material("beacon", "red", roughness=0.3, emission=8.0), vertices=8)
+    beacon = cylinder(
+        "cn_beacon", 0.24, 0.24, (tx, ty, GROUND + 33.7),
+        material("beacon", "red", roughness=0.3, emission=8.0), vertices=8,
+    )
     parts.append(join("cn_tower", cn + [beacon]))
 
-    # The bank towers behind and beside it, each with a grid of lit windows on
-    # the face turned toward the room.
-    #
-    # These were continuous horizontal bands, which is not what a city at night
-    # looks like from across a lake — it looks like thousands of small separate
-    # points, most of them dark. A band reads as a lit strip on a dark box; a
-    # sparse grid reads as a building with people in some of the offices.
+    # The towers, in three depth layers. Layering is what the plan asks for and
+    # what stops a backdrop giving itself away the moment the camera moves.
     blocks: list[bpy.types.Object] = []
     lights: list[bpy.types.Object] = []
-    for i in range(26):
-        x = -3 + rand() * 12
-        y = -16 - rand() * 12
-        w = 1.1 + rand() * 2.2
-        d = 1.1 + rand() * 2.2
-        h = 3 + rand() * rand() * 13
-        blocks.append(cube(f"sky_block_{i}", (w, d, h), (x, y, h / 2 - 1.2), tower_mat, bevel=0))
+    layers = (
+        # (count, near y, far y, min height, max height, material, window odds)
+        (16, -25.0, -33.0, 15.0, 25.0, tower_mat, 0.30),
+        (18, -34.0, -44.0, 13.0, 22.0, tower_mat, 0.24),
+        (16, -45.0, -58.0, 11.0, 18.0, far_mat, 0.16),
+    )
+    index = 0
+    for count, near, far, low, high, body, odds in layers:
+        for _ in range(count):
+            x = -14 + rand() * 34
+            y = near + rand() * (far - near)
+            w = 2.0 + rand() * 4.5
+            d = 2.0 + rand() * 4.5
+            # Squared, so most towers are middling and a few are tall — which is
+            # the shape of a real skyline's height distribution.
+            h = low + (high - low) * (rand() * rand())
+            blocks.append(
+                cube(f"sky_block_{index}", (w, d, h), (x, y, GROUND + h / 2), body, bevel=0)
+            )
 
-        columns = max(2, int(w / 0.34))
-        rows = max(2, int(h / 0.55))
-        for col in range(columns):
-            for row in range(rows):
-                # Most windows are dark. Lighting them all turns the tower back
-                # into a glowing slab, which is the same failure as the bands.
-                if rand() > 0.34:
-                    continue
-                lights.append(
-                    cube(
-                        f"sky_window_{i}_{col}_{row}",
-                        (w / columns * 0.52, 0.05, h / rows * 0.42),
-                        (
-                            x - w / 2 + (col + 0.5) * (w / columns),
-                            y + d / 2 + 0.02,
-                            -1.2 + (row + 0.5) * (h / rows),
-                        ),
-                        lit_mat if rand() > 0.42 else cool_lit,
-                        bevel=0,
+            columns = max(2, int(w / 0.62))
+            rows = max(3, int(h / 1.05))
+            for col in range(columns):
+                for row in range(rows):
+                    # Most windows are dark. Lighting them all turns a tower
+                    # back into a glowing slab.
+                    if rand() > odds:
+                        continue
+                    lights.append(
+                        cube(
+                            f"sky_window_{index}_{col}_{row}",
+                            (w / columns * 0.46, 0.06, h / rows * 0.34),
+                            (
+                                x - w / 2 + (col + 0.5) * (w / columns),
+                                y + d / 2 + 0.03,
+                                GROUND + (row + 0.5) * (h / rows),
+                            ),
+                            lit_mat if rand() > 0.38 else cool_lit,
+                            bevel=0,
+                        )
                     )
-                )
-    parts.append(join("ix_window", [parts_sky, lake] + blocks + lights))
+            index += 1
+
+    parts.append(join("ix_window", sky_bands + [lake] + blocks + lights))
     return parts
+
+
+def _sky_occluder() -> list[bpy.types.Object]:
+    """
+    The black card that keeps the night sky inside the window — with a hole for
+    the window.
+
+    The skyline has to be wide enough to fill the window from the window's own
+    camera stop, but the establishing camera sits high on the +X side and sees
+    straight past the back wall's edge, so a city that wide appears floating in
+    the void beside the room. It also stands on ground at z = -16, so its tower
+    bases show under the wall's bottom edge.
+
+    The first version was a single slab at y = -2.75. That is behind the wall
+    and *in front of the city*, so it did stop the leak and it also blocked the
+    view — the window went black, which is precisely the thing the occluder
+    exists to protect. Solving an occlusion problem with an occluder that
+    occludes the subject is the kind of mistake that looks obviously right in
+    the source and obviously wrong on screen.
+
+    Four panels instead, leaving the window's cone open. The gap is generous:
+    the card sits 15 cm behind the wall, so the cone has barely widened, and a
+    few centimetres of slack costs nothing while a few too few would clip the
+    view.
+    """
+    mat = material("occluder", "void", roughness=1.0)
+    y = -2.75
+    # The aperture, with slack.
+    left, right = 1.10, 3.00
+    low, high = 0.80, 2.60
+    far = 30.0
+
+    panels = [
+        # (name, x centre, z centre, width, height)
+        ("sky_occluder", (left - far) / 2, 0.0, far + left, far * 2),
+        ("sky_occluder_r", (right + far) / 2, 0.0, far - right, far * 2),
+        ("sky_occluder_b", (left + right) / 2, (low - far) / 2, right - left, far + low),
+        ("sky_occluder_t", (left + right) / 2, (high + far) / 2, right - left, far - high),
+    ]
+    return [
+        cube(name, (w, 0.1, h), (cx, y, cz), mat, bevel=0)
+        for name, cx, cz, w, h in panels
+    ]
+
+
+def _ceiling() -> bpy.types.Object:
+    """
+    The ceiling: a light source in everything but name.
+
+    Bake-only — `EXPORT_EXCLUDE` drops it before the GLB is written, so the
+    browser still gets an open box it can look down into. It exists entirely
+    for the light. Without one, everything a lamp throws upward leaves the room
+    and never comes back, so nothing gets a second bounce and the room reads as
+    evenly lit in some places and abruptly black in others.
+
+    Hidden from camera rays but not from everything else. That distinction is
+    the whole trick: `visible_camera = False` means Cycles will not draw it when
+    something looks at it, while diffuse and glossy rays still hit it and still
+    carry its bounce. Without it the ceiling sits between the establishing
+    camera and the room, and both the preview render and any bake done from a
+    camera angle show a black band across the top of the frame instead of a
+    room.
+
+    White, and slightly warm — ceilings are painted white precisely because of
+    this, and the warmth keeps the bounce from reading as moonlight.
+    """
+    obj = plane(
+        "ceiling",
+        (6.4, 5.2),
+        (0, 0, CEILING_HEIGHT),
+        material("ceiling", "ceiling", roughness=0.95, grain="plaster"),
+        rotation=(math.radians(180), 0, 0),
+    )
+    obj.visible_camera = False
+    return obj
 
 
 def build_shell() -> list[bpy.types.Object]:
@@ -988,6 +1330,20 @@ def build_shell() -> list[bpy.types.Object]:
         cube("wall_left", (0.12, 5.2, WALL_TOP), (-3.2, 0, WALL_TOP / 2), accent, bevel=0),
         cube("skirting_back", (6.4, 0.05, 0.11), (0, -2.52, 0.055), material("skirt", "dark_metal")),
         cube("skirting_left", (0.05, 5.2, 0.11), (-3.12, 0, 0.055), material("skirt", "dark_metal")),
+        *_sky_occluder(),
+        # The ceiling. Bake-only — `EXPORT_EXCLUDE` drops it before the GLB is
+        # written, so the browser still gets an open box it can look down into.
+        #
+        # It exists entirely for the light. Without one, everything a lamp
+        # throws upward leaves the room and never comes back, which is why the
+        # room read as evenly lit in some places and abruptly black in others:
+        # there was no second bounce anywhere. A ceiling is the largest soft
+        # reflector in any room and the cheapest possible source of the fill
+        # that makes a space read as enclosed.
+        #
+        # White, and slightly warm. Ceilings are painted white precisely because
+        # of this, and the warmth is what stops the bounce reading as moonlight.
+        _ceiling(),
         # The carpet's body, and then its face.
         #
         # The face has to clear the floorboards, and by more than it looks. The
@@ -1006,7 +1362,7 @@ def build_shell() -> list[bpy.types.Object]:
              material("rug_pile", "rug", roughness=1.0, grain="pile"), bevel=0.004),
         # Inset half a millimetre so it never shares a plane with the body's top
         # face, and a shade smaller so the body shows as the carpet's own edge.
-        plane("rug", (3.88, 3.48), (0.2, 0.8, 0.006 + RUG_THICKNESS + 0.0005),
+        plane("rug", RUG_SPAN, (0.2, 0.8, 0.006 + RUG_THICKNESS + 0.0005),
               material("rug", "paper", roughness=0.96, grain="persian")),
     ]
 
@@ -1046,7 +1402,7 @@ def build_desk() -> list[bpy.types.Object]:
     nothing standing on the desk had to move vertically.
     """
     top = material("desk", "desk", roughness=0.45, grain="wood")
-    frame = material("desk_frame", "desk_frame", roughness=0.4, metallic=0.5, grain="brushed")
+    frame = material("desk_frame", "desk_frame", roughness=0.42, metallic=1.0, grain="brushed")
 
     parts = [
         cube("desk_top", (DESK_W, DESK_D, 0.045), (0, DESK_Y, 0.7675), top),
@@ -1059,23 +1415,94 @@ def build_desk() -> list[bpy.types.Object]:
         cube("drawers", (0.42, 0.58, 0.63), (0.70, DESK_Y - 0.03, 0.315),
              material("drawer", "plastic", roughness=0.5)),
     ]
+    # The drawers.
+    #
+    # A drawer front reads as a drawer front because of the gap round it, and
+    # for nothing else. These were three flat plates set into the carcass with
+    # no reveal, which is why the unit read as a box with stripes painted on.
+    #
+    # 4 mm all round, and the faces stand proud rather than flush — an inset
+    # front is a piece of cabinetry, and this is an office pedestal.
+    # The faces open toward the room, not toward the wall.
+    #
+    # They were at DESK_Y - 0.325, which is the unit's *back* edge — the side
+    # against the wall — so the drawers opened into the plaster and the room
+    # only ever saw a blank box. It survived because a featureless dark box
+    # under a desk is exactly what a closed drawer unit looks like from across
+    # the room; you have to put the camera at desk height to see there was
+    # nothing there.
+    unit_front = DESK_Y - 0.03 + 0.29
+    reveal = 0.004
+    face_h = 0.165
+    box_mat = material("drawer_box", "desk_frame", roughness=0.7)
+    runner_mat = material("drawer_runner", "metal", roughness=0.3, metallic=1.0)
     for i in range(3):
+        z = 0.155 + i * 0.20
+        # One is left open a centimetre. Nobody closes all three, and a room
+        # where everything is shut is a room nobody has used today.
+        ajar = 0.012 if i == 1 else 0.0
+        front = unit_front + 0.014 + ajar
+
         parts.append(
             cube(
                 f"drawer_face_{i}",
-                (0.39, 0.024, 0.165),
-                (0.70, DESK_Y - 0.325, 0.155 + i * 0.20),
+                (0.39 - reveal * 2, 0.024, face_h - reveal * 2),
+                (0.70, front, z),
                 material("drawer_face", "dark_metal", roughness=0.45),
+                bevel=0.003,
             )
         )
         parts.append(
             cube(
                 f"drawer_pull_{i}",
                 (0.15, 0.018, 0.012),
-                (0.70, DESK_Y - 0.34, 0.155 + i * 0.20),
-                material("pull", "metal", roughness=0.3, metallic=0.8),
+                (0.70, front + 0.015, z),
+                material("pull", "metal", roughness=0.3, metallic=1.0),
             )
         )
+        # Handle fixings, which is where the pull bolts through the face.
+        for side in (-1, 1):
+            parts.append(
+                cube(
+                    f"drawer_bolt_{i}_{side}",
+                    (0.012, 0.006, 0.012),
+                    (0.70 + side * 0.062, front + 0.004, z),
+                    runner_mat,
+                    bevel=0.001,
+                )
+            )
+
+        if ajar:
+            # An open drawer has to show a box, and the box is a different
+            # material from the face — cheaper, unfinished, and lighter. An open
+            # drawer with nothing in it is worse than a closed one, so this one
+            # has the cables and oddments everybody's second drawer has.
+            parts.append(
+                cube(f"drawer_box_{i}", (0.36, 0.50, face_h - 0.03),
+                     (0.70, front - 0.28, z - 0.004), box_mat, bevel=0.002)
+            )
+            parts.append(
+                cube(f"drawer_inner_{i}", (0.33, 0.46, face_h - 0.055),
+                     (0.70, front - 0.28, z + 0.004),
+                     material("drawer_void", "void", roughness=1.0), bevel=0)
+            )
+            for j, (dx, dy, w, l) in enumerate((
+                (-0.09, 0.10, 0.055, 0.11),
+                (0.04, 0.06, 0.075, 0.05),
+                (0.10, 0.14, 0.035, 0.09),
+            )):
+                parts.append(
+                    cube(f"drawer_thing_{i}_{j}", (w, l, 0.016),
+                         (0.70 + dx, front - 0.14 - dy, z - 0.052),
+                         material(f"drawer_thing_{j}", ("plastic", "book_a", "metal")[j], roughness=0.6),
+                         bevel=0.002, rotation_z=math.radians(6 - j * 7))
+                )
+            # Ball-bearing runners, visible the moment one opens.
+            for side in (-1, 1):
+                parts.append(
+                    cube(f"drawer_runner_{i}_{side}", (0.010, 0.44, 0.026),
+                         (0.70 + side * 0.185, front - 0.30, z), runner_mat, bevel=0.001)
+                )
     return parts
 
 
@@ -1088,9 +1515,9 @@ def build_monitors() -> list[bpy.types.Object]:
     has ever been — which is most of why the desk read as furniture for a
     giant.
     """
-    shell = material("monitor_shell", "plastic", roughness=0.4, metallic=0.25)
+    shell = material("monitor_shell", "plastic", roughness=0.4, metallic=0.0)
     screen_mat = material("screen", "screen", roughness=0.18)
-    arm_mat = material("arm", "dark_metal", roughness=0.35, metallic=0.6)
+    arm_mat = material("arm", "dark_metal", roughness=0.38, metallic=1.0, grain="brushed")
 
     out: list[bpy.types.Object] = []
     panel_w, panel_h = 0.615, 0.375
@@ -1103,6 +1530,68 @@ def build_monitors() -> list[bpy.types.Object]:
         # last decade is proportioned.
         panel = cube(f"{name}_body", (panel_w, 0.019, panel_h), (x, back, centre_z), shell, rotation_z=tilt)
         parts = [panel]
+
+        # Glass over the panel, with the display set behind it.
+        #
+        # An emissive plane flush with the bezel is the single thing that most
+        # reliably makes a monitor read as a screenshot of a monitor. A real one
+        # has a sheet of glass in front, the panel recessed behind it, and a
+        # black mask between the two — and at night, when most of the screen is
+        # dark, that glass is mostly reflecting the room.
+        # Behind the display plane, not in front of it.
+        #
+        # "Glass over the panel" is right about a real monitor and wrong about
+        # this one: the display is an opaque quad the runtime paints a canvas
+        # onto, so anything in front of it hides the content — and the content
+        # is the entire reason the monitors exist. Both screens shipped black.
+        # The glass reads as glass from its edge and from the reflection baked
+        # into the surround; it does not have to be the frontmost surface.
+        glass = cube(f"{name}_glass", (panel_w - 0.008, 0.003, panel_h - 0.008),
+                     (x + math.sin(tilt) * 0.009, back + 0.0090, centre_z), 
+                     material("screen_glass", "screen", roughness=0.05),
+                     rotation_z=tilt, bevel=0.001)
+        parts.append(glass)
+        # The mask around the panel, which is what the bezel lips over.
+        parts.append(
+            cube(f"{name}_mask", (panel_w - 0.004, 0.004, panel_h - 0.004),
+                 (x + math.sin(tilt) * 0.006, back + 0.0060, centre_z),
+                 material("screen_mask", "void", roughness=0.9), rotation_z=tilt, bevel=0)
+        )
+        # The OSD joystick nub under the right of the chin, and a brand mark on
+        # it. Every monitor has both and neither is ever modelled.
+        parts.append(
+            cylinder(f"{name}_osd", 0.005, 0.010,
+                     (x + math.cos(tilt) * 0.20, back - 0.014, centre_z - panel_h / 2 + 0.010),
+                     material("osd_nub", "dark_metal", roughness=0.4), vertices=8,
+                     rotation=(math.radians(90), 0, 0))
+        )
+        parts.append(
+            cube(f"{name}_brand", (0.038, 0.004, 0.007),
+                 (x, back + 0.011, centre_z - panel_h / 2 + 0.011),
+                 material("brand_mark", "metal", roughness=0.3, metallic=1.0),
+                 rotation_z=tilt, bevel=0)
+        )
+        # Ventilation slots across the back, and the VESA plate with its four
+        # screws. A monitor's back is a moulding, not a slab.
+        for slot in range(7):
+            parts.append(
+                cube(f"{name}_vent_{slot}", (0.20, 0.004, 0.005),
+                     (x + math.sin(tilt) * 0.04, back - 0.045, centre_z + 0.055 + slot * 0.011),
+                     material("vent", "void", roughness=0.9), rotation_z=tilt, bevel=0)
+            )
+        parts.append(
+            cube(f"{name}_vesa", (0.10, 0.006, 0.10),
+                 (x + math.sin(tilt) * 0.045, back - 0.047, centre_z - 0.010),
+                 material("vesa", "dark_metal", roughness=0.5), rotation_z=tilt, bevel=0.002)
+        )
+        for sx in (-0.04, 0.04):
+            for sz in (-0.04, 0.04):
+                parts.append(
+                    cylinder(f"{name}_vesa_screw_{sx}_{sz}", 0.0035, 0.004,
+                             (x + sx + math.sin(tilt) * 0.05, back - 0.050, centre_z - 0.010 + sz),
+                             material("vesa_screw", "metal", roughness=0.3, metallic=1.0),
+                             vertices=6, rotation=(math.radians(90), 0, 0))
+                )
         parts.append(
             cube(f"{name}_housing", (0.34, 0.036, 0.20), (x + math.sin(tilt) * 0.03, back - 0.026, centre_z - 0.005),
                  shell, rotation_z=tilt)
@@ -1141,7 +1630,7 @@ def build_laptop() -> list[bpy.types.Object]:
     runtime can animate it shut. Origin sits on the hinge line, not the lid
     centre, or it swings through the desk.
     """
-    body = material("laptop_body", "metal", roughness=0.3, metallic=0.75)
+    body = material("laptop_body", "metal", roughness=0.3, metallic=1.0)
     screen_mat = material("laptop_screen", "screen", roughness=0.15)
 
     # The desk's surface is at z = 0.79. The base used to sit at 0.774 with a
@@ -1184,6 +1673,64 @@ def build_laptop() -> list[bpy.types.Object]:
                     bevel=0.0004,
                 )
             )
+
+    # --- the parts that say "machined aluminium" -------------------------
+    #
+    # A laptop is a milled shell, and everything that says so lives on its
+    # edges: a polished chamfer catching a line of light, ports cut into the
+    # side with a visible wall thickness, a seam where lid meets base. Without
+    # them it is a box with keys on it.
+
+    chamfer_mat = material("laptop_chamfer", "metal", roughness=0.18, metallic=1.0)
+    for side in (-1, 1):
+        parts_base.append(
+            cube(f"laptop_chamfer_x_{side}", (0.0022, 0.245, 0.0022),
+                 (lx + side * 0.175, ly, DESK_TOP + 0.0118), chamfer_mat, bevel=0)
+        )
+    for edge, dy in (("front", -0.1225), ("back", 0.1225)):
+        parts_base.append(
+            cube(f"laptop_chamfer_y_{edge}", (0.35, 0.0022, 0.0022),
+                 (lx, ly + dy, DESK_TOP + 0.0118), chamfer_mat, bevel=0)
+        )
+
+    # Ports, cut into the sides with a wall thickness rather than painted on.
+    port_mat = material("laptop_port", "void", roughness=0.9)
+    for side, offsets in ((-1, (-0.05, 0.0, 0.05)), (1, (-0.03, 0.03))):
+        for index, dy in enumerate(offsets):
+            parts_base.append(
+                cube(f"laptop_port_{side}_{index}", (0.006, 0.0092, 0.0034),
+                     (lx + side * 0.1735, ly + dy, DESK_TOP + 0.0062), port_mat, bevel=0)
+            )
+
+    # Speaker grilles flanking the keyboard, perforated rather than painted.
+    grille_mat = material("laptop_grille", "void", roughness=0.85)
+    for side in (-1, 1):
+        for hole in range(14):
+            parts_base.append(
+                cube(f"laptop_grille_{side}_{hole}", (0.0034, 0.0034, 0.001),
+                     (lx + side * 0.152, ly - 0.098 + hole * 0.0092, deck_top - 0.0005),
+                     grille_mat, bevel=0)
+            )
+
+    # The seam where lid meets base, consistent all the way round.
+    parts_base.append(
+        cube("laptop_seam", (0.35, 0.245, 0.0012), (lx, ly, DESK_TOP + 0.0122),
+             material("laptop_seam", "bezel", roughness=0.5), bevel=0)
+    )
+
+    # Underside: rubber strips rather than four dots, and a regulatory panel.
+    foot_mat = material("laptop_foot", "bezel", roughness=0.9)
+    for dy in (-0.10, 0.10):
+        parts_base.append(
+            cube(f"laptop_foot_{dy}", (0.30, 0.010, 0.0016), (lx, ly + dy, DESK_TOP + 0.0008),
+                 foot_mat, bevel=0)
+        )
+
+    # A charger, plugged in and running off the desk edge.
+    parts_base.append(
+        cube("laptop_charger_plug", (0.010, 0.016, 0.008), (lx - 0.178, ly + 0.08, DESK_TOP + 0.008),
+             material("charger", "dark_metal", roughness=0.5), bevel=0.002)
+    )
 
     # Trackpad, palm rest side.
     parts_base.append(
@@ -1252,7 +1799,12 @@ def build_keyboard_and_props() -> list[bpy.types.Object]:
 
     # One key unit. Every width below is a multiple of it, as on a real board.
     U = 0.0195
-    KX, KY = KEY_X, DESK_FRONT - 0.13
+    # Far enough back to leave room for wrists.
+    #
+    # At DESK_FRONT - 0.13 the block's near edge was 2.5 cm from the desk edge,
+    # which is not a place anybody puts a keyboard and left the wrist rest
+    # hanging off the desk and inside the chair. `check_swallowed` caught that.
+    KX, KY = KEY_X, DESK_FRONT - 0.235
     deck = DESK_TOP + 0.014
 
     # Widths per row, in units. They sum to 15u on every row, which is what
@@ -1266,29 +1818,122 @@ def build_keyboard_and_props() -> list[bpy.types.Object]:
         (1.25, 1.25, 1.25, 6.25, 1.25, 1.25, 1.25, 1.25),
     )
 
+    # The function row stands off the main block. Every keyboard has that gap
+    # and a continuous grid of six rows does not read as one — the cluster gap
+    # is what the eye uses to tell a keyboard from a calculator.
+    cluster_gap = U * 0.42
+
     keys = []
+    stems = []
+    stem_mat = material("kb_stem", "book_b", roughness=0.5)
     for row_index, widths in enumerate(rows):
         # Rows are sculpted: the far row sits higher and the near row lower, so
         # the block dishes toward the fingers instead of being a flat plane.
         lift = (0.0032, 0.0016, 0.0, 0.0, 0.0008, 0.0022)[row_index]
-        y = KY + (len(rows) - 1 - row_index) * U
+        # Each row is also angled, not just raised. A keycap's top is tilted
+        # toward the typist, and the run of those angles down the block is what
+        # makes the profile recognisable from the side.
+        tilt = (0.10, 0.07, 0.02, -0.02, -0.07, -0.13)[row_index]
+        # Row 0 is the function row and belongs *furthest* from the typist.
+        #
+        # It was laid out at the largest y — the room side, which is where a
+        # person sits — so the whole block ran backwards: function keys under
+        # your palms and the space bar against the monitors. The cluster gap
+        # went with it, so the one gap that tells a keyboard from a calculator
+        # was at the near edge too.
+        y = KY + row_index * U + (0.0 if row_index == 0 else cluster_gap)
         x = KX - 15 * U / 2
         for col, width in enumerate(widths):
             span = width * U
-            keys.append(
+            cap = cube(
+                f"key_{row_index}_{col}",
+                (span - 0.0025, U - 0.0025, 0.0075),
+                (x + span / 2, y, deck + lift),
+                key_mat,
+                bevel=0.0008,
+            )
+            cap.rotation_euler = (tilt, 0, 0)
+            keys.append(cap)
+            # The switch stem under each cap, visible in the gaps from a low
+            # angle — which is exactly the angle anything standing on the desk
+            # would see the keyboard from.
+            stems.append(
                 cube(
-                    f"key_{row_index}_{col}",
-                    (span - 0.0025, U - 0.0025, 0.0075),
-                    (x + span / 2, y, deck + lift),
-                    key_mat,
-                    bevel=0.0008,
+                    f"kb_stem_{row_index}_{col}",
+                    (0.0042, 0.0042, 0.006),
+                    (x + span / 2, y, deck + lift - 0.005),
+                    stem_mat,
+                    bevel=0,
                 )
             )
             x += span
 
-    body = cube("kb_body", (15 * U + 0.016, len(rows) * U + 0.014, 0.016),
-                (KX, KY + (len(rows) - 1) * U / 2, DESK_TOP + 0.008), body_mat, bevel=0.003)
-    keyboard = join("ix_keyboard", [body] + keys)
+    depth = len(rows) * U + 0.014 + cluster_gap
+    body = cube("kb_body", (15 * U + 0.016, depth, 0.016),
+                (KX, KY + (len(rows) - 1) * U / 2 + cluster_gap / 2, DESK_TOP + 0.008),
+                body_mat, bevel=0.003)
+
+    # A caps-lock indicator, above the left of the block.
+    caps_led = cube("kb_caps_led", (0.0032, 0.0032, 0.001),
+                    (KX - 15 * U / 2 + 0.012, KY - U * 0.62, deck + 0.0012),
+                    material("kb_led", "green", roughness=0.3, emission=3.0), bevel=0)
+
+    # Flip-out feet at the back, which is what produces the slope. Modelled
+    # rather than faked by tilting the case alone, because the gap under the
+    # back edge is visible from desk height and is half of what says the feet
+    # are down.
+    feet = [
+        cube(f"kb_foot_{side}", (0.016, 0.010, 0.010),
+             (KX + side * (15 * U / 2 - 0.03), KY - U * 0.35, DESK_TOP + 0.005),
+             body_mat, bevel=0.002)
+        for side in (-1, 1)
+    ]
+
+    # A wrist rest, compressed where forearms sit.
+    wrist = cube("kb_wrist_rest", (15 * U + 0.016, 0.062, 0.011),
+                 (KX, KY + (len(rows) - 1) * U + cluster_gap + 0.048, DESK_TOP + 0.0075),
+                 material("wrist_rest", "chair_dark", roughness=0.9, grain="fabric"), bevel=0)
+    smooth(wrist, 2, crease=0.55)
+
+    # The cable, off the back edge and away toward the desk's grommet.
+    kb_cable = cable(
+        "kb_cable",
+        [
+            (KX, KY - U * 0.6, DESK_TOP + 0.010),
+            (KX + 0.10, KY - 0.16, DESK_TOP + 0.006),
+            (KX + 0.28, KY - 0.24, DESK_TOP + 0.004),
+        ],
+        0.0026,
+        material("kb_cable", "bezel", roughness=0.6),
+    )
+    # A desk mat under the keyboard and mouse.
+    #
+    # Almost universal on a desk like this, and it changes the read of the whole
+    # surface: it gives the keyboard and the mouse something to sit on other
+    # than bare wood, and it puts a soft dark rectangle under the brightest part
+    # of the room, which is what stops the desktop reading as one flat plank.
+    #
+    # Very thin, and sunk a hair into the desk so its underside never z-fights
+    # the wood.
+    mat_pad = cube(
+        "desk_mat",
+        (0.90, 0.40, 0.003),
+        (KEY_X + 0.06, DESK_FRONT - 0.18, DESK_TOP + 0.0012),
+        material("desk_mat", "rug", roughness=0.92, grain="fabric"),
+        bevel=0.002,
+        rotation_z=math.radians(-1.2),
+    )
+
+    keyboard = join("ix_keyboard", [body] + keys + stems + feet + [caps_led])
+    # Six degrees of slope, pivoted about the front edge so the near edge stays
+    # on the desk and the back lifts onto the feet.
+    # Six degrees, pivoting at the edge nearest the typist so the far edge is
+    # the one that lifts onto the feet. A keyboard slopes up and away; sloping
+    # up toward the person is the one orientation that makes it unusable, and it
+    # is invisible from above — which is the only angle the room is normally
+    # seen from.
+    set_origin(keyboard, (KX, KY + (len(rows) - 1) * U + cluster_gap + U * 0.5, DESK_TOP))
+    keyboard.rotation_euler = (math.radians(-6), 0, 0)
 
     # A mouse is a dome, not a disc. Subdividing a short box rounds the top and
     # keeps the base flat on the desk, which a scaled cylinder cannot do.
@@ -1330,7 +1975,7 @@ def build_keyboard_and_props() -> list[bpy.types.Object]:
         rotation=(0, math.radians(90), math.radians(14)),
     )
 
-    return [keyboard, mouse, mug, pencil, notebook,
+    return [mat_pad, keyboard, wrist, kb_cable, mouse, mug, pencil, notebook,
             build_headphones(-0.95, DESK_FRONT - 0.09, DESK_TOP)]
 
 
@@ -1345,7 +1990,7 @@ def build_headphones(hx: float, hy: float, deck: float) -> bpy.types.Object:
     """
     shell = material("headphone_shell", "plastic", roughness=0.42)
     pad = material("headphone_pad", "dark_metal", roughness=0.95, grain="fabric")
-    metal = material("headphone_band", "metal", roughness=0.4, metallic=0.7, grain="brushed")
+    metal = material("headphone_band", "metal", roughness=0.4, metallic=1.0, grain="brushed")
 
     span = 0.075
     parts: list[bpy.types.Object] = []
@@ -1432,7 +2077,7 @@ def build_cv() -> list[bpy.types.Object]:
     # holder moves together.
     cx, cy, cz = 0.92, DESK_FRONT - 0.15, DESK_TOP + 0.156
 
-    holder = material("cv_holder", "dark_metal", roughness=0.35, metallic=0.6, grain="brushed")
+    holder = material("cv_holder", "dark_metal", roughness=0.38, metallic=1.0, grain="brushed")
     board = material("cv_board", "chair_dark", roughness=0.5)
 
     # The unit normal the page faces, used to seat everything behind it without
@@ -1468,7 +2113,7 @@ def build_cv() -> list[bpy.types.Object]:
 
 
 def build_lamp() -> list[bpy.types.Object]:
-    metal = material("lamp_metal", "metal", roughness=0.3, metallic=0.7)
+    metal = material("lamp_metal", "metal", roughness=0.3, metallic=1.0)
     bulb_mat = material("bulb", "warm", roughness=0.4, emission=6.0)
 
     # Every joint is a point, and every tube spans two of them, so the parts
@@ -1529,7 +2174,9 @@ def build_shelf_and_books() -> list[bpy.types.Object]:
 
     books = []
     spines = []
-    colours = ["book_a", "book_b", "book_c", "book_d"]
+    # Stepped by a stride coprime with the count, so the run visits all eight
+    # before repeating and no two neighbours match.
+    colours = ["book_a", "book_b", "book_c", "book_d", "book_e", "book_f", "book_g", "book_h"]
 
     # Level 2 sits at eye height, so that shelf carries the project books: one
     # per project, each with its own spine quad the runtime paints the title
@@ -1568,27 +2215,80 @@ def build_shelf_and_books() -> list[bpy.types.Object]:
                 y += TITLED_WIDTH + 0.008
             continue
 
+        # No shelf on earth is a row of identical books at even spacing, and
+        # even spacing is the single strongest sign of a generated one. Four
+        # things break it up, all deterministic so the room rebuilds the same
+        # way every time:
+        #
+        #   · gaps vary rather than sitting at a constant 6 mm
+        #   · depth varies, so the fronts do not form a flat plane
+        #   · a book here and there leans, and the next one leans against it
+        #   · one is pulled half out, because somebody was reading it
         y = 0.18
+        slot = 0
         while y < 1.62:
-            h = 0.24 + (hash((level, round(y, 2))) % 5) * 0.012
-            w = 0.036 + (hash((level, round(y, 3))) % 4) * 0.008
-            colour = colours[(level + int(y * 10)) % 4]
-            books.append(
-                cube(
-                    f"book_{level}_{round(y, 3)}",
-                    (0.2, w, h),
-                    (-3.05, y, 0.32 + level * 0.5 + h / 2),
-                    material(f"book_{colour}", colour, roughness=0.8),
-                )
+            noise = hash((level, slot))
+            h = 0.24 + (noise % 5) * 0.012
+            w = 0.036 + ((noise >> 3) % 4) * 0.008
+            depth = 0.18 + ((noise >> 6) % 5) * 0.012
+            colour = colours[(level * 5 + slot * 3) % len(colours)]
+
+            # Books are pushed to the back of a shelf, so their spines line up
+            # at the front and the variation shows there.
+            back = -3.15
+            x = back + depth / 2
+            # One book on the room's eye-level shelf is half out. Exactly one:
+            # a tidy shelf reads as staged and a chaotic one reads as
+            # art-directed, but one thing out of place reads as real.
+            if level == 1 and slot == 4:
+                x += 0.055
+
+            lean = 0.0
+            if (noise >> 9) % 7 == 0 and y + w < 1.5:
+                # Degrees, alternating direction so a pair leans together the
+                # way books do when the row is not full.
+                lean = math.radians(5.5 if (noise >> 12) % 2 else -4.5)
+
+            book = cube(
+                f"book_{level}_{slot}",
+                (depth, w, h),
+                (x, y, 0.32 + level * 0.5 + h / 2),
+                material(f"book_{colour}", colour, roughness=0.8),
             )
-            y += w + 0.006
+            if lean:
+                # Pivot about the foot, not the middle. A box rotated about its
+                # own centre drives its bottom corner through the shelf, and at
+                # five degrees that is a couple of millimetres — small enough to
+                # look like a rendering error rather than a modelling one.
+                set_origin(book, (x, y, 0.32 + level * 0.5))
+                book.rotation_euler = (lean, 0, 0)
+            books.append(book)
+
+            y += w + 0.004 + ((noise >> 15) % 4) * 0.004
+            slot += 1
+
+        # A short stack lying flat on top of the upright row, which is where
+        # books go when the shelf is full and nobody wants to reshuffle it.
+        if level in (0, 2):
+            stack_y = 1.30 if level == 0 else 1.24
+            for tier in range(2 if level == 0 else 3):
+                thickness = 0.030 + (tier % 2) * 0.008
+                books.append(
+                    cube(
+                        f"book_flat_{level}_{tier}",
+                        (0.19, 0.26, thickness),
+                        (-3.055 + tier * 0.004, stack_y, 0.34 + level * 0.5 + 0.30 + tier * 0.036),
+                        material(f"book_{colours[(level + tier) % len(colours)]}", colours[(level + tier) % len(colours)], roughness=0.8),
+                        rotation_z=math.radians(2.4 - tier * 1.9),
+                    )
+                )
 
     return [shelf, join("ix_bookshelf", books)] + spines
 
 
 def build_whiteboard() -> list[bpy.types.Object]:
     board = cube("board_face", (0.04, 1.5, 1.05), (-3.12, -1.35, 1.72), material("board", "board", roughness=0.35))
-    frame = cube("board_frame", (0.05, 1.6, 1.15), (-3.14, -1.35, 1.72), material("board_frame", "metal", roughness=0.4, metallic=0.6))
+    frame = cube("board_frame", (0.05, 1.6, 1.15), (-3.14, -1.35, 1.72), material("board_frame", "metal", roughness=0.34, metallic=1.0, grain="brushed"))
 
     # The writing surface is its own quad named `ix_whiteboard_face`, so the
     # runtime can paint a real drawn diagram onto it. The previous version was
@@ -1603,18 +2303,126 @@ def build_whiteboard() -> list[bpy.types.Object]:
     )
 
     # Sticky notes, likewise one quad rather than six coloured chips.
-    stickies = [
-        plane(
-            "ix_sticky_notes",
-            (0.86, 0.42),
-            (-3.086, -1.42, 1.12),
-            material("sticky_face", "sticky", roughness=0.85),
-            rotation=(math.radians(90), 0, math.radians(90)),
-        )
-    ]
+    return [join("ix_whiteboard", [board, frame]), face, build_sticky_notes()]
 
-    return [join("ix_whiteboard", [board, frame]), face, stickies[0]]
 
+def build_sticky_notes() -> bpy.types.Object:
+    """
+    Six notes around the whiteboard, scattered the way notes actually end up.
+
+    This was one flat 86 x 42 cm quad with all six painted onto it, tilt
+    included. Three things were wrong with that and only one of them was the
+    flatness.
+
+    **They were flat.** Only the top strip of a sticky note is adhesive, so the
+    bottom lifts away and catches light under its own edge. A note lying flat
+    against the wall is the clearest possible sign it was drawn rather than
+    stuck.
+
+    **They were a grid.** Three by two at even spacing, all in a block under the
+    board. Nobody has ever stuck notes up like that. Real ones go up one at a
+    time as the thought arrives, so they cluster in twos and threes, sit at
+    different heights, and leave gaps — and one always ends up off on its own.
+
+    **They were one colour.** Six different pads in the canvas, one shared
+    material in the model, so every render outside the browser showed a block of
+    identical yellow squares.
+
+    Placed by hand below. Six positions are few enough that authoring them is
+    honest and a generator would only be a way of pretending the arrangement was
+    not a decision.
+    """
+    # Proud of `ix_whiteboard_face`, which sits at x = -3.088.
+    board_x = -3.079
+    size = 0.116
+    lift = 0.014
+    span = 5
+
+    # (y, z, tilt in degrees, canvas cell, colour).
+    #
+    # On the board, not on the wall beside it. Sticky notes go on things — a
+    # board, a bezel, a monitor's edge — because that is what the adhesive strip
+    # is for and because a note on bare plaster has nothing to do with anything
+    # around it. They used to sit in a block below the board, which read as a
+    # decal applied to the wall rather than as paper someone put there.
+    #
+    # The board face runs y -2.10..-0.60 and z 1.195..2.245. These sit across
+    # its lower left, where the drawn diagram has its margin, so they overlap
+    # the bullets a little — which is exactly what happens to a whiteboard
+    # somebody actually uses.
+    #
+    # Two clusters and a stray: three crowded together, two paired further
+    # along, and one on its own out to the right, put up at a different time
+    # from the rest.
+    placements = (
+        (-1.97, 1.42, -5.5, 0, "note_yellow"),
+        (-1.83, 1.31, 3.8, 1, "note_mint"),
+        (-1.90, 1.58, 1.6, 2, "note_blue"),
+        (-1.52, 1.36, -2.4, 3, "note_pink"),
+        (-1.40, 1.26, 4.6, 4, "note_violet"),
+        (-0.92, 1.53, -3.2, 5, "note_peach"),
+    )
+
+    columns, rows = 3, 2
+    verts: list[tuple[float, float, float]] = []
+    faces: list[tuple[int, ...]] = []
+    for centre_y, centre_z, degrees, _cell, _colour in placements:
+        tilt = math.radians(degrees)
+        base = len(verts)
+        for r in range(span):
+            # v runs 0 at the top edge, which is the adhesive one, to 1 at the
+            # free bottom edge.
+            v = r / (span - 1)
+            for c in range(span):
+                u = c / (span - 1)
+                local_y = (u - 0.5) * size
+                local_z = (0.5 - v) * size
+                spun_y = local_y * math.cos(tilt) - local_z * math.sin(tilt)
+                spun_z = local_y * math.sin(tilt) + local_z * math.cos(tilt)
+                # Squared, so the top two thirds stay flat against the wall and
+                # the last third does the curling — which is what a strip of
+                # adhesive across the top actually produces. Corners lift a
+                # little further than the middle of the edge.
+                corner = 1.0 + 0.35 * abs(u - 0.5) * 2.0
+                verts.append(
+                    (
+                        board_x + lift * (v**2) * corner,
+                        centre_y + spun_y,
+                        centre_z + spun_z,
+                    )
+                )
+        for r in range(span - 1):
+            for c in range(span - 1):
+                a = base + r * span + c
+                faces.append((a, a + 1, a + span + 1, a + span))
+
+    notes = poly("ix_sticky_notes", verts, faces, (0, 0, 0),
+                 material("note_yellow", "note_yellow", roughness=0.85))
+
+    # One material slot per note, so each is its own colour. glTF splits the
+    # object into a primitive per material — all still named `ix_sticky_notes`,
+    # which is what the runtime looks up, and each keeps its own UVs, so the
+    # canvas still lands on the right cells.
+    for _, _, _, _, colour in placements[1:]:
+        notes.data.materials.append(material(colour, colour, roughness=0.85))
+
+    per_note = (span - 1) * (span - 1)
+    for polygon in notes.data.polygons:
+        polygon.material_index = polygon.index // per_note
+
+    # UVs by hand: each note addresses its own cell of the shared canvas.
+    # `PAINTED` keeps the unwrap from touching these, so they survive to the GLB.
+    layer = notes.data.uv_layers.new(name="UVMap")
+    for polygon in notes.data.polygons:
+        index = polygon.index // per_note
+        cell = placements[index][3]
+        column, row = cell % columns, cell // columns
+        for loop in polygon.loop_indices:
+            local = notes.data.loops[loop].vertex_index - index * span * span
+            u = (local % span) / (span - 1)
+            v = (local // span) / (span - 1)
+            layer.data[loop].uv = ((column + u) / columns, (row + v) / rows)
+    return notes
 
 def build_server_rack() -> list[bpy.types.Object]:
     """
@@ -1632,7 +2440,7 @@ def build_server_rack() -> list[bpy.types.Object]:
     which is what actually clears the sill — a short rack under a window is the
     normal way to fit one there anyway.
     """
-    case = material("rack", "plastic", roughness=0.4, metallic=0.3, grain="brushed")
+    case = material("rack", "plastic", roughness=0.44, grain="brushed")
     rx, ry = 2.88, -2.14
     height = 0.98
     parts = [cube("rack_body", (0.5, 0.62, height), (rx, ry, height / 2), case)]
@@ -1684,7 +2492,7 @@ def build_window() -> list[bpy.types.Object]:
 
 
 def build_certificates() -> list[bpy.types.Object]:
-    frame_mat = material("cert_frame", "dark_metal", roughness=0.45, metallic=0.4)
+    frame_mat = material("cert_frame", "dark_metal", roughness=0.4, metallic=1.0)
     mat_mat = material("cert_paper", "paper", roughness=0.8)
     parts = []
     # Moved right along the wall to clear the doorway. They sit above the
@@ -1705,7 +2513,7 @@ def build_chair_and_plant() -> list[bpy.types.Object]:
     """
     fabric = material("chair_fabric", "chair_dark", roughness=0.92, grain="fabric")
     trim = material("chair_trim", "chair_light", roughness=0.85, grain="fabric")
-    metal = material("chair_metal", "metal", roughness=0.35, metallic=0.75, grain="brushed")
+    metal = material("chair_metal", "metal", roughness=0.35, metallic=1.0, grain="brushed")
 
     # On the keyboard's centreline, pushed back from the desk edge and turned a
     # little — a chair someone has just got up from. It used to sit 29 cm to the
@@ -1716,7 +2524,11 @@ def build_chair_and_plant() -> list[bpy.types.Object]:
     # moved that edge back 55 cm and left the chair marooned in open floor — a
     # chair nobody could sit in without standing up first. Anything positioned
     # against the desk has to be expressed in terms of the desk.
-    cx, cy = CHAIR_X, DESK_FRONT + 0.50
+    # Tucked in, not adrift. At +0.50 the chair's front edge stood 7 cm clear of
+    # the desk with a 20 degree turn on it, which reads as a chair abandoned in
+    # the middle of the floor rather than one somebody pushed back and stood up
+    # from.
+    cx, cy = CHAIR_X, DESK_FRONT + 0.46
     parts = []
 
     # Seat: a control cage dished in the middle and turned up at the sides, then
@@ -1841,6 +2653,17 @@ def build_chair_and_plant() -> list[bpy.types.Object]:
         parts.append(post)
         pad = cube(f"arm_pad_{side}", (0.105, 0.32, 0.05), (cx + side * 0.3, cy + 0.0, 0.72), fabric, bevel=0)
         parts.append(smooth(pad, 2, crease=0.45))
+        # The slide track the pad runs on, and the button that releases it.
+        parts.append(
+            cube(f"arm_track_{side}", (0.052, 0.20, 0.016), (cx + side * 0.3, cy + 0.0, 0.692),
+                 material("arm_track", "dark_metal", roughness=0.4, metallic=1.0), bevel=0.003)
+        )
+        parts.append(
+            cylinder(f"arm_button_{side}", 0.009, 0.012,
+                     (cx + side * 0.334, cy - 0.05, 0.688),
+                     material("arm_button", "plastic", roughness=0.35), vertices=10,
+                     rotation=(0, math.radians(90), 0))
+        )
 
     # The mechanism under the pan. Every chair has one and it is always visible
     # from a low angle — without it the seat floats on the gas lift with a gap
@@ -1853,7 +2676,10 @@ def build_chair_and_plant() -> list[bpy.types.Object]:
     )
 
     # Gas lift and the five-star base with real castors.
-    parts.append(cylinder("gas_lift", 0.035, 0.34, (cx, cy, 0.24), metal, vertices=14))
+    # A gas lift is two visible sections and a shroud, not one cylinder — the
+    # step where the inner tube leaves the outer is what says it telescopes.
+    parts.append(cylinder("gas_lift_inner", 0.028, 0.20, (cx, cy, 0.33), metal, vertices=14))
+    parts.append(cylinder("gas_lift_outer", 0.038, 0.17, (cx, cy, 0.20), metal, vertices=14))
     parts.append(cylinder("lift_shroud", 0.055, 0.16, (cx, cy, 0.16), material("shroud", "plastic", roughness=0.5), vertices=14))
     castor_mat = material("castor", "plastic", roughness=0.45)
     for i in range(5):
@@ -1861,13 +2687,26 @@ def build_chair_and_plant() -> list[bpy.types.Object]:
         dx, dy = math.cos(angle), math.sin(angle)
         spoke = cube(f"spoke_{i}", (0.055, 0.3, 0.035), (cx + dx * 0.15, cy + dy * 0.15, 0.075), metal, rotation_z=angle + math.pi / 2)
         parts.append(spoke)
+        # A ridge down the spine of each spoke. A flat spoke reads as cardboard;
+        # every real base is ribbed, because that is what stops it flexing.
+        parts.append(
+            cube(f"spoke_rib_{i}", (0.016, 0.27, 0.014), (cx + dx * 0.155, cy + dy * 0.155, 0.094),
+                 metal, rotation_z=angle + math.pi / 2, bevel=0.003)
+        )
         # A fork and twin wheels, not a single disc on the end of the spoke. A
         # castor is the one part of a chair seen from close to its own height,
         # and a bare cylinder there reads as a peg.
         parts.append(
             cube(f"castor_fork_{i}", (0.035, 0.05, 0.055), (cx + dx * 0.285, cy + dy * 0.285, 0.068),
-                 material("castor_fork", "dark_metal", roughness=0.4, metallic=0.5),
+                 material("castor_fork", "dark_metal", roughness=0.4, metallic=1.0),
                  rotation_z=angle + math.pi / 2, bevel=0.004)
+        )
+        # The axle the fork carries, visible between the two wheels.
+        parts.append(
+            cylinder(f"castor_axle_{i}", 0.006, 0.052,
+                     (cx + dx * 0.29, cy + dy * 0.29, 0.030),
+                     material("castor_axle", "metal", roughness=0.3, metallic=1.0),
+                     vertices=8, rotation=(0, math.radians(90), angle))
         )
         for offset in (-0.019, 0.019):
             parts.append(
@@ -1875,10 +2714,130 @@ def build_chair_and_plant() -> list[bpy.types.Object]:
                          (cx + dx * 0.29 - dy * offset, cy + dy * 0.29 + dx * offset, 0.030),
                          castor_mat, vertices=14, rotation=(0, math.radians(90), angle))
             )
+            # A hub cap in a harder, shinier material than the tyre. The two are
+            # never the same plastic on a real castor, and the difference is
+            # visible from exactly the height a castor is seen from.
+            parts.append(
+                cylinder(f"castor_hub_{i}_{offset}", 0.013, 0.017,
+                         (cx + dx * 0.29 - dy * offset, cy + dy * 0.29 + dx * offset, 0.030),
+                         material("castor_hub", "metal", roughness=0.25, metallic=1.0),
+                         vertices=10, rotation=(0, math.radians(90), angle))
+            )
+
+    # --- the hardware, and the sewing ------------------------------------
+    #
+    # Everything to here is the shape of the chair. What follows is what makes
+    # it a manufactured object rather than a moulded one: the parts that are
+    # assembled, adjusted and stitched. A chair is the thing in an office
+    # everybody has looked at closely, so these are the details that are
+    # actually checked.
+
+    # Topstitching, running beside the piping.
+    #
+    # The piping is the cord; the stitching is what holds it on, and they are
+    # not the same detail. A seam without stitching reads as a moulded ridge —
+    # which is what the previous version had, a continuous cord with nothing
+    # sewing it down. Real upholstery is double-needle: two dashed lines, one
+    # each side of the seam.
+    # Close to the trim colour, not a contrast thread. At full contrast and
+    # 5.5 mm long these read as a string of beads laid across the seat rather
+    # than as sewing — topstitching is visible because it dents the fabric, not
+    # because it is a different colour.
+    stitch_mat = material("chair_stitch", "chair_light", roughness=0.55)
+    for u in (-0.55, 0.55):
+        for path, name in (
+            ([(cx + u * half, cy + dy - wrap * (1 - u * u) + 0.048, z)
+              for z, dy, half, wrap in back_rows], "back"),
+            ([(cx + u * half, cy + dy, mid_z + (edge_z - mid_z) * u * u + 0.048)
+              for dy, mid_z, edge_z, half in seat_rows], "seat"),
+        ):
+            for step in range(len(path) - 1):
+                a, b = path[step], path[step + 1]
+                # Six stitches per span, each a short dash rather than a line.
+                for k in range(9):
+                    t = (k + 0.3) / 9.0
+                    here = tuple(a[axis] + (b[axis] - a[axis]) * t for axis in range(3))
+                    for side in (-0.009, 0.009):
+                        parts.append(
+                            cube(
+                                f"stitch_{name}_{u}_{step}_{k}_{side}",
+                                (0.0026, 0.0009, 0.0009),
+                                (here[0] + side, here[1], here[2]),
+                                stitch_mat,
+                                bevel=0,
+                            )
+                        )
+
+    # The hard shell on the back of the backrest. A task chair is upholstery on
+    # the front and a moulded plastic shell behind, and the two never share a
+    # material — without it the back reads as fabric all the way through.
+    shell_mat = material("chair_shell", "plastic", roughness=0.36)
+    # Built from the shell's own cage rather than as a box guessed to fit.
+    # A guessed box stands proud wherever the shell narrows — and this shell
+    # narrows a lot, from 26 cm half-width at the shoulders to 13 cm at the top
+    # — so the plate showed as a slab sticking out past the backrest's edge.
+    plate_verts: list[tuple[float, float, float]] = []
+    for z, dy, half, wrap in back_rows:
+        for u in columns:
+            # Inset from the upholstery all round, and set behind it.
+            plate_verts.append((u * half * 0.88, dy - wrap * (1 - u * u) - 0.055, z))
+    plate_faces = []
+    for row in range(len(back_rows) - 1):
+        for col in range(stride - 1):
+            a = row * stride + col
+            plate_faces.append((a, a + 1, a + stride + 1, a + stride))
+    shell = poly("back_plate", plate_verts, plate_faces, (cx, cy, 0), shell_mat)
+    shell.modifiers.new("Thickness", "SOLIDIFY").thickness = 0.022
+    parts.append(smooth(shell, 2, crease=0.4))
+
+    # The moulded logo recess every one of them has, on the plate at shoulder
+    # height where the cage puts it.
+    badge_row = back_rows[3]
+    parts.append(
+        cube("back_badge", (0.06, 0.016, 0.030),
+             (cx, cy + badge_row[1] - badge_row[3] - 0.070, badge_row[0]), metal, bevel=0.003)
+    )
+
+    # Elastic straps slinging the headrest and the lumbar cushion off the shell,
+    # with their buckles. These cushions are hung, not glued, and the straps are
+    # the reason they sit proud of the back instead of merging into it.
+    strap_mat = material("chair_strap", "bezel", roughness=0.8, grain="fabric")
+    for cushion_z, cushion_dy, span in ((1.31, -0.345, 0.075), (0.69, -0.155, 0.085)):
+        for side in (-1, 1):
+            parts.append(
+                cube(f"strap_{cushion_z}_{side}", (0.022, 0.055, span * 2.4),
+                     (cx + side * 0.085, cy + cushion_dy - 0.02, cushion_z), strap_mat, bevel=0.002)
+            )
+            parts.append(
+                cube(f"buckle_{cushion_z}_{side}", (0.026, 0.012, 0.018),
+                     (cx + side * 0.085, cy + cushion_dy - 0.05, cushion_z - span * 0.9),
+                     metal, bevel=0.002)
+            )
+
+    # A certification tag sewn into the seam. Every chair has one, and it is the
+    # kind of thing nobody notices until it is missing.
+    tag = cube("chair_tag", (0.05, 0.002, 0.032), (cx + 0.19, cy + 0.20, 0.455),
+               material("chair_tag", "paper", roughness=0.8), bevel=0)
+    tag.rotation_euler = (0, 0, 0.3)
+    parts.append(tag)
+
+    # The second lever. A chair has two — tilt on one side, height on the other
+    # — and one lever alone reads as a chair that cannot be raised.
+    parts.append(
+        cylinder("height_lever", 0.010, 0.11, (cx - 0.20, cy + 0.04, 0.378), metal, vertices=10,
+                 rotation=(0, math.radians(90), math.radians(-10)))
+    )
+    # The recline bracket and its tension knob, under the pan where the
+    # mechanism actually is.
+    parts.append(cube("recline_bracket", (0.16, 0.09, 0.05), (cx, cy - 0.12, 0.372), metal, bevel=0.006))
+    parts.append(
+        cylinder("tension_knob", 0.028, 0.045, (cx, cy - 0.13, 0.325),
+                 material("knob", "dark_metal", roughness=0.5), vertices=14)
+    )
 
     chair = join("ix_chair", parts)
     set_origin(chair, (cx, cy, 0.0))
-    chair.rotation_euler = (0, 0, math.radians(-20))
+    chair.rotation_euler = (0, 0, math.radians(-11))
 
     return [chair, build_plant(2.78, 0.35)]
 
@@ -1985,8 +2944,8 @@ def build_lounge() -> list[bpy.types.Object]:
     """
     fabric = material("sofa_fabric", "sofa", roughness=0.95, grain="fabric")
     wood = material("lounge_wood", "desk", roughness=0.55, grain="wood")
-    dark = material("lounge_dark", "bezel", roughness=0.4, metallic=0.2)
-    metal = material("lounge_metal", "metal", roughness=0.35, metallic=0.8, grain="brushed")
+    dark = material("lounge_dark", "bezel", roughness=0.42)
+    metal = material("lounge_metal", "metal", roughness=0.35, metallic=1.0, grain="brushed")
 
     # Nothing here shares a face with anything else. Two coplanar surfaces of
     # different objects z-fight, and upholstery is where that bites hardest,
@@ -2042,7 +3001,7 @@ def build_lounge() -> list[bpy.types.Object]:
                    material(f"magazine_{key}", key, roughness=0.5), bevel=0.004)
         mag.rotation_euler = (0, 0, 0.12 * (i - 1))
         table.append(mag)
-    table.append(cylinder("table_bowl", 0.11, 0.05, (0.62, 0.52, 0.42), material("bowl", "metal", roughness=0.25, metallic=0.9)))
+    table.append(cylinder("table_bowl", 0.11, 0.05, (0.62, 0.52, 0.42), material("bowl", "metal", roughness=0.25, metallic=1.0)))
 
     # A floor lamp behind the far arm of the sofa. It stands where the TV used
     # to: this room has two walls and both are spoken for, so a screen on the
@@ -2059,7 +3018,30 @@ def build_lounge() -> list[bpy.types.Object]:
     shade_obj = bpy.context.object
     shade_obj.name = "floor_lamp_shade"
     shade_obj.data.name = "floor_lamp_shade"
-    lamp.append(shade(shade_obj, material("lamp_shade", "paper", roughness=0.85, grain="paper")))
+    # The shade emits, because a lit shade does. It is paper with a bulb inside
+    # it, so most of what reaches the eye is light coming *through* the material
+    # rather than bouncing off it — and treating it as an ordinary diffuse
+    # surface gave the worst artefact in the room. The bake could only light its
+    # outside, which faces away from the bulb, so it landed hard against a UV
+    # island boundary: one half of the cone blew out to white, the other stayed
+    # grey and blocky, with a seam straight down the middle where they met.
+    #
+    # Emission fixes the cause rather than the symptom. It is uniform across the
+    # cone, so the seam has nothing left to reveal, and it is what the surface
+    # is actually doing.
+    lamp.append(
+        shade(
+            shade_obj,
+            material(
+                "lamp_shade",
+                "paper",
+                roughness=0.85,
+                emission=1.05,
+                emission_key="lampglow",
+                grain="paper",
+            ),
+        )
+    )
 
     # A side table by the near arm of the sofa, with a speaker on it.
     tx, ty = 1.62, 0.55
@@ -2180,7 +3162,7 @@ def build_guitar(gx: float, gy: float, stand_mat: bpy.types.Material) -> list[bp
 
     # Tuning pegs, three a side. Tiny, but a bare headstock reads as a plank
     # and this is the one place the eye expects detail.
-    peg_mat = material("guitar_peg", "metal", roughness=0.35, metallic=0.85)
+    peg_mat = material("guitar_peg", "metal", roughness=0.35, metallic=1.0)
     for index in range(3):
         for side in (-1, 1):
             base = along(0.99 + index * 0.035)
@@ -2189,6 +3171,96 @@ def build_guitar(gx: float, gy: float, stand_mat: bpy.types.Material) -> list[bp
                          (base[0], gy + side * 0.052, base[2]), peg_mat, vertices=8,
                          rotation=(math.radians(90), 0, 0))
             )
+
+    # --- the parts that make it an instrument rather than a guitar-shaped box
+    #
+    # Everything below is small, and all of it is what the eye checks. A body
+    # with a neck reads as a prop; frets, a nut and six strings of visibly
+    # different gauge read as something somebody plays.
+
+    # Scale length: nut to saddle. Every fret position is derived from it rather
+    # than spaced evenly, because even spacing is wrong in a way most people can
+    # see without being able to say why — frets crowd together toward the body,
+    # and the rule is that each one sits at 2^(-n/12) of the remaining length.
+    saddle_at, nut_at = 0.165, 0.980
+    scale_length = nut_at - saddle_at
+
+    fret_mat = material("guitar_fret", "metal", roughness=0.25, metallic=1.0)
+    bone_mat = material("guitar_bone", "paper", roughness=0.4)
+
+    for n in range(1, 19):
+        at = nut_at - scale_length * (1.0 - 2.0 ** (-n / 12.0))
+        # Frets stop where the neck meets the body.
+        if at < 0.560:
+            break
+        fret = cube(f"guitar_fret_{n}", (0.004, 0.049, 0.0022), along(at, 0.037), fret_mat, bevel=0)
+        fret.rotation_euler = (0, -lean, 0)
+        parts.append(fret)
+
+        # Position markers, at the frets every guitarist looks for.
+        if n in (3, 5, 7, 9, 12, 15):
+            midpoint = nut_at - scale_length * (1.0 - 2.0 ** (-(n - 0.5) / 12.0))
+            # Twelve gets two, which is how you know it is the octave.
+            for dot_y in ((-0.012, 0.012) if n == 12 else (0.0,)):
+                parts.append(
+                    cylinder(
+                        f"guitar_dot_{n}_{dot_y}", 0.005, 0.002,
+                        (along(midpoint, 0.038)[0], gy + dot_y, along(midpoint, 0.038)[2]),
+                        bone_mat, vertices=10, rotation=(0, math.radians(90) - lean, 0),
+                    )
+                )
+
+    # Nut and saddle: the two pieces the strings actually bear on, and the
+    # reason they stand clear of the fretboard instead of lying on it.
+    nut = cube("guitar_nut", (0.008, 0.048, 0.006), along(nut_at, 0.038), bone_mat, bevel=0.001)
+    nut.rotation_euler = (0, -lean, 0)
+    parts.append(nut)
+
+    saddle = cube("guitar_saddle", (0.005, 0.076, 0.008), along(saddle_at, 0.073), bone_mat, bevel=0.001)
+    saddle.rotation_euler = (0, -lean, 0)
+    parts.append(saddle)
+
+    # Bridge pins, six of them, holding the ball ends.
+    pin_mat = material("guitar_pin", "plastic", roughness=0.4)
+    for index in range(6):
+        pin_y = gy - 0.030 + index * 0.012
+        seat = along(saddle_at - 0.018, 0.070)
+        parts.append(
+            cylinder(f"guitar_pin_{index}", 0.0032, 0.010, (seat[0], pin_y, seat[2]),
+                     pin_mat, vertices=8, rotation=(0, math.radians(90) - lean, 0))
+        )
+
+    # The rosette. A ring of inlay round the soundhole — the one piece of
+    # decoration an acoustic guitar always has, and the thing that stops the
+    # soundhole reading as a drilled hole.
+    for radius, thickness, mat_key in ((0.058, 0.0035, "guitar_bridge"), (0.053, 0.0018, "guitar_peg")):
+        ring = cylinder(f"guitar_rosette_{radius}", radius, 0.002, along(0.315, 0.055),
+                        _materials[mat_key], vertices=28,
+                        rotation=(0, math.radians(90) - lean, 0))
+        ring.modifiers.new("Ring", "WIREFRAME").thickness = thickness
+        parts.append(ring)
+
+    # Six strings, thick to thin. Uniform strings are wrong at a glance, and the
+    # gauge run is the whole reason a guitar's neck reads as strung rather than
+    # as striped. They rise from the saddle to the nut, standing clear of the
+    # fretboard the whole way — the gap under them is what says they are under
+    # tension.
+    string_mat = material("guitar_string", "metal", roughness=0.2, metallic=1.0)
+    for index in range(6):
+        gauge = 0.00105 - index * 0.00014
+        string_y = gy - 0.021 + index * 0.0084
+        low = along(saddle_at, 0.079)
+        high = along(nut_at, 0.045)
+        parts.append(
+            strut(
+                f"guitar_string_{index}",
+                (low[0], string_y, low[2]),
+                (high[0], string_y, high[2]),
+                gauge,
+                string_mat,
+                vertices=6,
+            )
+        )
 
     parts.append(cube("guitar_stand", (0.28, 0.32, 0.03), (gx + 0.06, gy, 0.055), stand_mat))
     return parts
@@ -2207,7 +3279,7 @@ def build_door() -> list[bpy.types.Object]:
     """
     wood = material("door", "desk", roughness=0.4, grain="wood")
     trim = material("door_trim", "paper", roughness=0.55)
-    metal = material("door_handle", "metal", roughness=0.25, metallic=0.9, grain="brushed")
+    metal = material("door_handle", "metal", roughness=0.25, metallic=1.0, grain="brushed")
 
     dx = -2.6
     width = 0.88
@@ -2257,7 +3329,7 @@ def build_fittings() -> list[bpy.types.Object]:
     BACK, LEFT = -2.53, -3.13
     plate = material("fitting_plate", "paper", roughness=0.35)
     dark = material("fitting_dark", "plastic", roughness=0.4)
-    metal = material("fitting_metal", "metal", roughness=0.3, metallic=0.8, grain="brushed")
+    metal = material("fitting_metal", "metal", roughness=0.3, metallic=1.0, grain="brushed")
     out: list[bpy.types.Object] = []
 
     # The light switch, beside the door at handle height rather than at the
@@ -2345,7 +3417,7 @@ def build_details() -> list[bpy.types.Object]:
     think to put in: cables, a pen pot, a clock, a phone left face-down.
     """
     dark = material("detail_dark", "plastic", roughness=0.55)
-    metal = material("detail_metal", "metal", roughness=0.3, metallic=0.85, grain="brushed")
+    metal = material("detail_metal", "metal", roughness=0.3, metallic=1.0, grain="brushed")
     paper_mat = material("detail_paper", "paper", roughness=0.85, grain="paper")
     rubber = material("cable", "dark_metal", roughness=0.85)
 
@@ -2439,7 +3511,7 @@ def build_details() -> list[bpy.types.Object]:
     award = bpy.context.object
     award.name = "award"
     award.data.name = "award"
-    top.append(shade(award, material("award", "warm", roughness=0.2, metallic=0.9)))
+    top.append(shade(award, material("award", "warm", roughness=0.2, metallic=1.0)))
     out.append(join("shelf_top", top))
     # Smaller, and further off the wall. At 0.42 its leaves spanned 29 cm on a
     # 22 cm capping board and reached 4 cm inside the wall itself.
@@ -2480,6 +3552,127 @@ def build_details() -> list[bpy.types.Object]:
                  rotation=(math.radians(90), 0, 0)),
     ]
     out.append(join("clock", clock))
+
+    # --- signs that somebody lives here ---------------------------------
+    #
+    # None of this is furniture and none of it is expensive. The plan is right
+    # that it is the cheapest realism per hour in the whole document: a room
+    # reads as occupied because of the things nobody would think to model.
+
+    # --- surface history -------------------------------------------------
+    #
+    # Clean surfaces are the strongest single signal that something was
+    # generated rather than lived with. The grain maps cannot carry any of this:
+    # they tile every half metre and are shared by every material of a kind, so
+    # a coffee ring painted into the wood map would appear sixty times across
+    # the floor. Marks that belong in one place have to be geometry.
+    #
+    # They are also nearly free. Each is a quad a fraction of a millimetre proud
+    # of what it marks, and the bake resolves it into the lightmap along with
+    # everything else.
+
+    # A coffee ring on the desk, from the times the mug missed the coaster.
+    ring = cylinder("desk_coffee_ring", 0.043, 0.0006, (0.40, DESK_BACK + 0.27, DESK_TOP + 0.0004),
+                    material("coffee_ring", "earth", roughness=0.55), vertices=26)
+    ring.modifiers.new("Ring", "WIREFRAME").thickness = 0.0035
+    out.append(ring)
+
+    # No floor scuffs.
+    #
+    # A first pass put flat tan discs on the boards — a wide one by the door and
+    # an arc where the castors run. They read as unexplained stains rather than
+    # as wear, and that is not a tuning problem: real wear on a floor is a
+    # change in *sheen*, not in colour. A worn board is the same brown and
+    # catches light differently, which needs a roughness mask in the object's
+    # own UV space. This pipeline gives every material of a kind one shared
+    # tiling texture, so there is nowhere to put that mask.
+    #
+    # Left out until the wear-mask pipeline exists. A missing detail costs less
+    # than a detail that reads as a mistake.
+
+    # A bin, with paper in it, and one piece that missed. Nothing says occupied
+    # like a near miss on the floor.
+    bin_mat = material("bin", "dark_metal", roughness=0.5, metallic=1.0, grain="brushed")
+    bx, by = 1.34, -1.92
+    out.append(
+        cylinder("bin_body", 0.125, 0.30, (bx, by, 0.15), bin_mat, vertices=20)
+    )
+    out.append(
+        cylinder("bin_rim", 0.131, 0.014, (bx, by, 0.297), bin_mat, vertices=20)
+    )
+    # The opening. A solid cylinder has a lid, and everything dropped in it is
+    # buried — which is what the first pass produced: a bin with a dome on top
+    # and three invisible paper balls inside.
+    out.append(
+        cylinder("bin_well", 0.113, 0.26, (bx, by, 0.168),
+                 material("bin_void", "void", roughness=0.95), vertices=20)
+    )
+    paper_mat = material("waste_paper", "paper", roughness=0.85, grain="paper")
+    # Poking above the rim, because a bin somebody uses is never empty enough
+    # for its contents to sit below the line.
+    for i, (dx, dy, dz, spin) in enumerate((
+        (-0.035, 0.02, 0.305, 0.6), (0.042, -0.025, 0.322, -1.1), (0.005, 0.055, 0.292, 2.2),
+    )):
+        ball = cube(f"bin_paper_{i}", (0.062, 0.058, 0.050), (bx + dx, by + dy, dz), paper_mat, bevel=0)
+        ball.rotation_euler = (spin, spin * 0.6, spin * 0.3)
+        # Creased hard enough to stay faceted. Crumpled paper is planes and
+        # ridges; smoothed to a blob it reads as an egg.
+        out.append(smooth(ball, 1, crease=0.62))
+    # The one that missed, on the floor short of the bin.
+    missed = cube("paper_missed", (0.070, 0.064, 0.056), (bx + 0.26, by + 0.20, 0.030), paper_mat, bevel=0)
+    missed.rotation_euler = (0.4, 1.2, 0.8)
+    out.append(smooth(missed, 1, crease=0.62))
+
+    # A second mug, never taken to the kitchen. One mug is set dressing; two is
+    # a habit.
+    out.append(
+        cylinder("mug_second", 0.041, 0.093, (0.66, DESK_BACK + 0.20, DESK_TOP + 0.047),
+                 material("mug_second", "chair_light", roughness=0.32), vertices=22)
+    )
+    out.append(
+        cylinder("mug_second_well", 0.034, 0.070, (0.66, DESK_BACK + 0.20, DESK_TOP + 0.064),
+                 material("mug_void", "void", roughness=0.9), vertices=22)
+    )
+
+    # Shelf clutter. A shelf of upright books at even spacing is a shelf nobody
+    # owns — the ring binders, the archive box and the award are what a shelf
+    # accumulates around the books.
+    binder_mat = material("binder", "book_f", roughness=0.7)
+    for i in range(3):
+        out.append(
+            cube(f"shelf_binder_{i}", (0.20, 0.052, 0.29),
+                 (-3.06, 1.66 - i * 0.058, 0.32 + 3 * 0.5 + 0.145),
+                 binder_mat, bevel=0.004, rotation_z=math.radians(1.5 - i * 1.4))
+        )
+    out.append(
+        cube("shelf_box", (0.22, 0.30, 0.16), (-3.05, 0.36, 0.32 + 0.5 + 0.08),
+             material("archive_box", "desk", roughness=0.85, grain="paper"), bevel=0.006,
+             rotation_z=math.radians(-2.2))
+    )
+    # The award, on the capping board where the career timeline ends.
+    out.append(
+        cube("award_base", (0.09, 0.09, 0.022), (-3.04, 0.62, 2.191),
+             material("award_base", "dark_metal", roughness=0.4), bevel=0.004)
+    )
+    out.append(
+        cube("award_plate", (0.062, 0.014, 0.115), (-3.04, 0.62, 2.26),
+             material("award", "metal", roughness=0.22, metallic=1.0), bevel=0.006,
+             rotation_z=math.radians(4))
+    )
+
+    # Guitar accessories. An instrument with no accessories reads as decoration
+    # rather than as something played.
+    pick_mat = material("guitar_pick", "sticky", roughness=0.4)
+    for i, (dx, dy) in enumerate(((0.02, 0.03), (-0.03, -0.01))):
+        pick = cube(f"guitar_pick_{i}", (0.026, 0.024, 0.001),
+                    (-2.72 + dx, 2.28 + dy, 0.072), pick_mat, bevel=0.004)
+        pick.rotation_euler = (0, 0, 0.7 + i)
+        out.append(pick)
+    out.append(
+        cube("guitar_capo", (0.018, 0.062, 0.020), (-2.66, 2.34, 0.080),
+             material("capo", "metal", roughness=0.3, metallic=1.0), bevel=0.004,
+             rotation_z=math.radians(24))
+    )
 
     return out
 
@@ -2523,7 +3716,13 @@ def add_lighting() -> None:
 
     # The practical overhead, just under the ceiling. Small and close rather
     # than huge and far, so it falls off across the room instead of flooding it.
-    area("key", 260, 1.5, (0.35, 0.15, 2.58), (1.0, 0.94, 0.86))
+    # 150 W, not 260. This is the one source in the room with nothing to come
+    # from — the ceiling is bake-only, so no fixture hanging off it survives to
+    # the browser, and a strong overhead with no visible lamp is exactly the
+    # "where is that light coming from" the room kept provoking. It is now a
+    # soft fill that lets the desk lamp, the monitors, the floor lamp and the
+    # window read as the sources instead.
+    area("key", 150, 1.5, (0.35, 0.15, 2.58), (1.0, 0.94, 0.86))
 
     # A weak bounce off the left wall, enough that the shelf side of the room is
     # not a silhouette. Deliberately far below the key.
@@ -2534,6 +3733,21 @@ def add_lighting() -> None:
     # back-right corner, so the room's warmest light came from a bare patch of
     # desk two and a half metres away from the lamp casting it. The third bug of
     # exactly this kind, after the lamp's power cable and six camera stops.
+    # The floor lamp, which until now was a lamp-shaped object that did nothing.
+    #
+    # It stands 2 m from the nearest light and casts none of its own, so the
+    # lounge half of the room was lit by an overhead source with no fixture
+    # while the one visible fixture down there sat dark. `check_lights` could
+    # not see it: that walks a curated list of light-and-fixture pairs, so it
+    # catches a light that has drifted from its lamp and is blind to a lamp
+    # that never had a light. `check_dark_fixtures` covers the other direction.
+    bpy.ops.object.light_add(type="POINT", location=(-1.22, 1.85, 1.44))
+    floor_lamp = bpy.context.object
+    floor_lamp.name = "floor_lamp_light"
+    floor_lamp.data.energy = 52
+    floor_lamp.data.color = (1.0, 0.72, 0.42)
+    floor_lamp.data.shadow_soft_size = 0.09
+
     bpy.ops.object.light_add(type="POINT", location=(0.80, DESK_BACK + 0.28, 1.10))
     warm = bpy.context.object
     warm.name = "lamp_light"
@@ -2584,6 +3798,24 @@ def texture_uvs() -> None:
     bpy.ops.object.mode_set(mode="EDIT")
     bpy.ops.mesh.select_all(action="SELECT")
     bpy.ops.uv.smart_project(angle_limit=math.radians(66), island_margin=0.02)
+    # Equalise texel density across islands before anything else touches them.
+    #
+    # Smart UV Project packs islands to fill the square, not to a consistent
+    # scale, so a joined mesh comes out with its parts at wildly different
+    # densities — `desk_clutter` measured 2245x between its coarsest and finest
+    # face, meaning the same wood grain was a fingerprint on one prop and
+    # floorboards on the next. The per-object factor below cannot fix that: it
+    # scales the whole mesh by one number and preserves the ratio exactly.
+    #
+    # It went unnoticed because these are all *joins* of small props, and a
+    # smear in a noise texture still looks like noise. It stops being harmless
+    # on UV1, where the lightmap and the aging masks are positional.
+    #
+    # The UV selection matters: these operators act on selected *UVs*, not on
+    # the selected faces, and without it this call returns success and changes
+    # nothing at all.
+    bpy.ops.uv.select_all(action="SELECT")
+    bpy.ops.uv.average_islands_scale()
     bpy.ops.object.mode_set(mode="OBJECT")
     bpy.ops.object.select_all(action="DESELECT")
 
@@ -2786,7 +4018,12 @@ def main() -> None:
     for check in (export_room.check_resting, export_room.check_clearance,
                   export_room.check_stops, export_room.check_lights,
                   export_room.check_buried, export_room.check_furniture,
-                  export_room.check_swallowed, export_room.check_paired):
+                  export_room.check_swallowed, export_room.check_paired,
+                  export_room.check_painted_uvs,
+                  export_room.check_uniform_materials,
+                  export_room.check_metalness,
+                  lambda: export_room.check_uv_stretch(0, share=0.45),
+                  export_room.check_dark_fixtures):
         for complaint in check():
             print(f"[build_room] {complaint}", file=sys.stderr)
 
@@ -2803,6 +4040,12 @@ def main() -> None:
         unwrap_all()
     except Exception as exc:  # pragma: no cover - unwrap is best-effort
         print(f"[build_room] unwrap skipped: {exc}", file=sys.stderr)
+
+    # Before dropping anything. A bake-only object still shades and occludes the
+    # room, so it is part of what the bake depends on — and taking the
+    # fingerprint after `drop_export_only` produced a value the bake could never
+    # reproduce, so every bake looked stale the moment it finished.
+    fingerprint = export_room.write_geometry_stamp(OUT_GEOMETRY)
 
     hidden = drop_export_only()
     if hidden:
@@ -2821,6 +4064,8 @@ def main() -> None:
     meshes = [o for o in bpy.context.scene.objects if o.type == "MESH"]
     print(f"[build_room] objects={len(meshes)} materials={len(bpy.data.materials)}")
     print(f"[build_room] wrote {OUT_GLB} ({os.path.getsize(OUT_GLB) / 1024:.0f} KB)")
+
+    print(f"[build_room] geometry fingerprint {fingerprint[:12]}…")
 
 
 if __name__ == "__main__":

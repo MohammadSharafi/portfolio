@@ -22,7 +22,18 @@ import { useEngine } from './engine/store';
  * engine store, so this file stays a list of what exists rather than becoming
  * the place all the wiring accumulates.
  */
-function Scene({ url, baked }: { url: string; baked: boolean }) {
+function Scene({
+  url,
+  lightmap,
+  aging,
+  intensity,
+}: {
+  url: string;
+  lightmap: string | null;
+  aging: string | null;
+  intensity: number;
+}) {
+  const baked = lightmap !== null;
   const reducedMotion = useReducedMotion();
   const [root, setRoot] = useState<Object3D | null>(null);
   const lampOn = useEngine((state) => state.lampOn);
@@ -31,11 +42,29 @@ function Scene({ url, baked }: { url: string; baked: boolean }) {
     <>
       <CameraRig reducedMotion={reducedMotion} />
 
-      {/* A baked room carries its own lighting, so lighting it again would be
-        both wrong and wasted. The lit path gets a full rig instead. */}
+      {/* The environment is the one thing a lightmap cannot replace.
+        A lightmap is *diffuse* irradiance, and three.js spends it on
+        `indirectDiffuse` alone. Metal has no diffuse term at all — its colour
+        is entirely what it reflects — so a metal lit only by a lightmap
+        renders black, and the room had seventeen such materials: the monitor
+        arm, the chair post, the castors, the guitar frets, every drawer pull.
+        They were not dark. They were unlit, and no amount of exposure was
+        going to bring them back.
+        So the probe stays mounted when baked — but it reflects the *room*, not
+        the sky. `buildEnvironment` is a cold dome with a horizon band, which is
+        right when the environment is doing the lighting and wrong once a
+        lightmap has taken that job: what is left for the probe is specular, and
+        specular is a reflection of the surroundings. A chrome drawer pull
+        indoors at night reflects dark walls, a warm lamp and two bright
+        monitors, not a blue sky — and handing it the sky put a faint cold cast
+        on every metal and every gloss in the room. */}
+      <SceneEnvironment intensity={baked ? 0.35 : 0.62} interior={baked} />
+
+      {/* The rest of the rig is the lit room's business. A baked room carries
+        its own direct and bounced light, so re-lighting it would double every
+        shadow it already has. */}
       {baked ? null : (
         <>
-          <SceneEnvironment intensity={0.62} />
           {/* Ambient is deliberately low. A high uniform term lights the inside
             of every corner as brightly as the middle of every wall, which is
             the single thing that makes a real-time room read as flat — the
@@ -75,7 +104,13 @@ function Scene({ url, baked }: { url: string; baked: boolean }) {
         </>
       )}
 
-      <RoomModel url={url} baked={baked} onReady={setRoot} />
+      <RoomModel
+        url={url}
+        lightmap={lightmap}
+        aging={aging}
+        intensity={intensity}
+        onReady={setRoot}
+      />
 
       {root ? <Screens root={root} /> : null}
       {root ? <Animations root={root} /> : null}
@@ -88,16 +123,28 @@ function Scene({ url, baked }: { url: string; baked: boolean }) {
       </Physics>
 
       <EffectComposer enableNormalPass={false}>
-        {/* Ambient occlusion, and only on the lit path — a baked room already
-          carries its own occlusion in the lightmap, and a second pass on top
-          would darken every corner twice.
+        {/* Ambient occlusion at two very different scales, because the two
+          paths are missing two different things.
 
-          This is the largest single difference between the real-time room and
-          the baked one. Direct light plus an environment gives no contact
-          shadow at all: every object floats a little, because the crease where
-          it meets the floor is exactly as bright as the floor. */}
+          Unbaked, there is no occlusion at all: direct light plus an
+          environment gives no contact shadow, so every object floats a little
+          because the crease where it meets the floor is exactly as bright as
+          the floor. That wants a wide radius doing the whole job.
+
+          Baked, the lightmap has already resolved occlusion by path tracing
+          it, and a second wide pass would darken every corner twice — which is
+          why this used to be switched off entirely. But a 4096 atlas spread
+          over an entire room lands somewhere near a centimetre per texel, and
+          contact darkening lives below that: the millimetre of shadow where a
+          chair castor touches the floor, where a book meets a shelf, where the
+          bin sits on the boards. The lightmap cannot resolve it and the eye
+          reads its absence as objects hovering.
+
+          So the baked path gets a *small* radius at low strength — fine
+          contact only, leaving every larger occlusion to the bake that already
+          did it properly. */}
         {baked ? (
-          <></>
+          <N8AO aoRadius={0.12} intensity={1.1} distanceFalloff={0.35} quality="medium" halfRes />
         ) : (
           <N8AO aoRadius={0.55} intensity={2.4} distanceFalloff={0.8} quality="medium" halfRes />
         )}
@@ -121,7 +168,7 @@ export function RoomExperience() {
       <Canvas
         // Decorative: everything it renders is also a button in the overlay.
         aria-hidden="true"
-        shadows={!asset.baked}
+        shadows={asset.lightmap === null}
         dpr={[1, 2]}
         gl={{ antialias: true, powerPreference: 'high-performance' }}
         camera={{
@@ -134,11 +181,24 @@ export function RoomExperience() {
         }}
         onCreated={({ gl }) => {
           gl.toneMapping = ACESFilmicToneMapping;
+          // 1.15, not higher. three.js's ACES divides by 0.6 before the curve, which
+          // makes it land close to `tonemap.py`'s Narkowicz fit at zero stops —
+          // so this is very nearly the exposure the bake and the Cycles previews
+          // are judged at, and the browser and the reference render can be
+          // compared directly. Raising it to hide a dark room hides the contrast
+          // along with it.
           gl.toneMappingExposure = 1.15;
         }}
       >
         <Suspense fallback={null}>
-          {asset.resolved ? <Scene url={asset.url} baked={asset.baked} /> : null}
+          {asset.resolved ? (
+            <Scene
+              url={asset.url}
+              lightmap={asset.lightmap}
+              aging={asset.aging}
+              intensity={asset.intensity}
+            />
+          ) : null}
         </Suspense>
       </Canvas>
 

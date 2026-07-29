@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { useThree } from '@react-three/fiber';
-import { buildEnvironment } from '@/three/environment';
+import { buildEnvironment, buildRoomProbe } from '@/three/environment';
 
 /**
  * The image-based lighting for the lit (unbaked) room.
@@ -12,12 +12,25 @@ import { buildEnvironment } from '@/three/environment';
  * locally from a procedural sky, so the room lights itself with nothing
  * fetched and nothing to go down.
  */
-export function SceneEnvironment({ intensity = 0.45 }: { intensity?: number }) {
+export function SceneEnvironment({
+  intensity = 0.45,
+  interior = false,
+}: {
+  intensity?: number;
+  /**
+   * Reflect the room instead of the sky.
+   *
+   * A baked room's probe is only ever doing specular — the lightmap owns the
+   * diffuse — and specular is a reflection of the surroundings. Indoors at
+   * night those surroundings are dark walls and a few lamps, not a sky.
+   */
+  interior?: boolean;
+}) {
   const gl = useThree((state) => state.gl);
   const scene = useThree((state) => state.scene);
 
   useEffect(() => {
-    const environment = buildEnvironment(gl);
+    const environment = interior ? buildRoomProbe(gl) : buildEnvironment(gl);
     scene.environment = environment.texture;
     scene.environmentIntensity = intensity;
 
@@ -25,7 +38,7 @@ export function SceneEnvironment({ intensity = 0.45 }: { intensity?: number }) {
       scene.environment = null;
       environment.dispose();
     };
-  }, [gl, scene, intensity]);
+  }, [gl, scene, intensity, interior]);
 
   return null;
 }

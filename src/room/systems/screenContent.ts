@@ -454,25 +454,47 @@ export function stickyTexture() {
   // opaque, so an alpha background renders as black gaps between the notes.
   const { canvas, ctx } = surface(W, H, '#eef1f6');
 
+  // Saturated, not pastel.
+  //
+  // These were the tints a design system reaches for on a white page, and on a
+  // whiteboard at 13 cm they disappeared: pale yellow on white reads as nothing
+  // at all from anywhere in the room. A real sticky note is a strong colour —
+  // that is the entire point of the product — and it has to hold up against the
+  // brightest surface in the room.
   const notes: Array<[string, string]> = [
-    ['#fde68a', 'ship it, then measure it'],
-    ['#a7f3d0', 'the constraint picks the stack'],
-    ['#bfdbfe', 'a number with no source is a guess'],
-    ['#fecaca', 'no fibre → no excuse'],
-    ['#ddd6fe', 'read the RFC first'],
-    ['#fed7aa', 'Toronto — next'],
+    ['#f6c945', 'ship it, then measure it'],
+    ['#5fd6a4', 'the constraint picks the stack'],
+    ['#77b2f0', 'a number with no source is a guess'],
+    ['#f28b8b', 'no fibre → no excuse'],
+    ['#b9a3f0', 'read the RFC first'],
+    ['#f6a45c', 'Toronto — next'],
   ];
 
+  // Each note fills its whole cell, square to the canvas.
+  //
+  // The tilt used to be painted here with `ctx.rotate`. It is geometry now —
+  // `build_sticky_notes` gives each note its own angle and curls its bottom
+  // edge off the board — so drawing a tilt as well would double it, and the
+  // corners would be cut off by the cell the quad maps to.
+  const cell = W / 3;
+  const cellHeight = H / 2;
   notes.forEach(([colour, text], index) => {
-    const x = (index % 3) * 341;
-    const y = Math.floor(index / 3) * 256;
+    const x = (index % 3) * cell;
+    const y = Math.floor(index / 3) * cellHeight;
     ctx.save();
-    ctx.translate(x + 170, y + 128);
-    ctx.rotate((index % 2 === 0 ? 1 : -1) * 0.03);
+    ctx.translate(x + cell / 2, y + cellHeight / 2);
     ctx.fillStyle = colour;
-    ctx.fillRect(-150, -108, 300, 216);
-    ctx.fillStyle = '#3f3f46';
-    ctx.font = `500 30px ${FONT_UI}`;
+    ctx.fillRect(-cell / 2, -cellHeight / 2, cell, cellHeight);
+    // A darker band down the bottom edge, where the note curls away from the
+    // board and shades itself. The geometry does curl, but the lightmap cannot
+    // resolve a 3 mm lift, so the shading that sells it has to be drawn.
+    const shade = ctx.createLinearGradient(0, cellHeight / 2 - 46, 0, cellHeight / 2);
+    shade.addColorStop(0, 'rgba(0,0,0,0)');
+    shade.addColorStop(1, 'rgba(0,0,0,0.22)');
+    ctx.fillStyle = shade;
+    ctx.fillRect(-cell / 2, cellHeight / 2 - 46, cell, 46);
+    ctx.fillStyle = '#2b2b31';
+    ctx.font = `600 32px ${FONT_UI}`;
     ctx.textAlign = 'center';
     const words = text.split(' ');
     let line = '';
@@ -635,7 +657,7 @@ export function bookSpineTexture(index: number) {
   ctx.fillStyle = 'rgba(255,255,255,0.22)';
   ctx.fillRect(W - 10, 34, 3, H - 68);
 
-  if (!project) return finish(canvas);
+  if (!project) return finish(canvas, 'flip-v');
 
   ctx.save();
   ctx.translate(W / 2, H / 2);
@@ -659,5 +681,8 @@ export function bookSpineTexture(index: number) {
   if (stack) ctx.fillText(stack, 0, 34);
 
   ctx.restore();
-  return finish(canvas);
+  // Same quad rotation as the whiteboard: standing up to face +X sends V
+  // downward. Verified by `check_painted_uvs`, not by eye — spine text is far
+  // too small to read upside-down from any camera the room has.
+  return finish(canvas, 'flip-v');
 }

@@ -76,12 +76,46 @@ def _height(kind: str) -> np.ndarray:
     rng = np.random.default_rng(abs(hash(kind)) % (2**32))
 
     if kind == "wood":
-        # Growth rings: smooth noise pushed through a sine, so the bands are
-        # sharp where they crowd together and soft where they spread.
-        base = _noise(rng, 2.2, (1.0, 26.0))
-        rings = np.sin(base * 26.0) * 0.5 + 0.5
-        fibre = _noise(rng, 1.1, (1.0, 60.0))
-        return np.clip(rings * 0.62 + fibre * 0.38, 0, 1)
+        # Growth rings.
+        #
+        # The previous version was a sine of stretched noise, and it produced
+        # evenly spaced hard-edged bands — corrugated cardboard rather than
+        # timber. Two things were wrong with it, and both matter more than the
+        # noise underneath.
+        #
+        # Ring *spacing* has to wander. A tree does not put on the same amount
+        # of wood every year, and perfectly even stripes are the single loudest
+        # tell in procedural wood. So the phase is advanced by a low-frequency
+        # warp as well as by position, which crowds the rings in some places and
+        # opens them out in others.
+        #
+        # And the ring *profile* is asymmetric. Earlywood is a broad pale band
+        # that darkens gradually; latewood is a narrow hard line. A sine is
+        # symmetric and gives every band the same soft shoulder on both sides,
+        # which is why it reads as a pattern instead of as growth.
+        across = np.linspace(0.0, 1.0, SIZE, endpoint=False)[None, :] * np.ones((SIZE, 1))
+        # The wander has to stay *subordinate* to the ramp, and it is easy to
+        # overshoot. Rings are the contour lines of the phase field, so once the
+        # warp's gradient across the grain rivals the ramp's, the contours stop
+        # running as lines and close into loops — the first attempt used an
+        # isotropic warp at an amplitude near the ring count and every wooden
+        # surface came out looking like a topographic map.
+        #
+        # Two things keep it in line. The amplitude is a fraction of the ring
+        # count rather than a large part of it, and the noise is stretched so it
+        # varies slowly *across* the grain and freely *along* it — which is also
+        # what real cathedral figure does, arcing down the length of a board
+        # rather than swirling on the spot.
+        wander = _noise(rng, 2.6, (1.0, 0.4)) - 0.5
+        phase = (across * 11.0 + wander * 1.3) % 1.0
+        rings = np.power(phase, 0.42)
+
+        # Fibre along the length of the board, far finer than the rings.
+        fibre = _noise(rng, 1.0, (1.0, 85.0))
+        # Open pores: short dark flecks lying along the grain. Small, and the
+        # thing that stops a board looking like a painted gradient.
+        pores = np.where(_noise(rng, 0.7, (1.0, 24.0)) < 0.2, -0.14, 0.0)
+        return np.clip(rings * 0.7 + fibre * 0.3 + pores, 0, 1)
 
     if kind == "fabric":
         # 64 threads to the tile is about 8 mm each, which is as fine as a
@@ -109,6 +143,36 @@ def _height(kind: str) -> np.ndarray:
     if kind == "paper":
         return np.clip(_noise(rng, 1.2, (1.0, 1.0)) * 0.5 + 0.25, 0, 1)
 
+    # --- micro-surfaces -----------------------------------------------------
+    #
+    # The four below are not textures anyone will look at. They exist because a
+    # perfectly uniform roughness does not occur in nature, and the eye is very
+    # good at spotting one: a constant-roughness surface returns a highlight of
+    # exactly the same size and sharpness everywhere on it, which is the single
+    # most reliable tell that something was rendered rather than photographed.
+    # Real moulded plastic has flow lines, real metal has micro-scratches, real
+    # lacquer has orange peel. None of it is visible as texture; all of it is
+    # visible as a highlight that breaks up.
+
+    if kind == "plastic":
+        # Injection moulding: very fine isotropic tooth, plus the faint
+        # low-frequency swirl left by the flow of the melt across the tool.
+        return np.clip(_noise(rng, 1.5, (1.0, 1.0)) * 0.7 + _noise(rng, 2.6, (1.0, 1.0)) * 0.3, 0, 1)
+
+    if kind == "metal":
+        # Machined and handled, rather than deliberately brushed. Mostly
+        # isotropic, with a slight bias along one axis from tooling.
+        return np.clip(_noise(rng, 0.95, (1.0, 6.0)) * 0.65 + _noise(rng, 1.6, (1.0, 1.0)) * 0.35, 0, 1)
+
+    if kind == "lacquer":
+        # Orange peel. A sprayed clear coat never levels perfectly flat, and the
+        # gentle undulation left behind is why a real gloss reflection wobbles
+        # slightly and a rendered one is a mirror.
+        return np.clip(_noise(rng, 2.7, (1.0, 1.0)), 0, 1)
+
+    if kind == "rubber":
+        return np.clip(_noise(rng, 1.15, (1.0, 1.0)) * 0.8 + 0.1, 0, 1)
+
     return np.full((SIZE, SIZE), 0.5)
 
 
@@ -116,7 +180,10 @@ def _height(kind: str) -> np.ndarray:
 # far the roughness swings, and how deep the bump reads in metres. A single flat
 # albedo is the thing that most reliably makes a rendered room look rendered.
 _LOOK = {
-    "wood": (0.30, 0.16, 0.0016),
+    # Dropped from 0.30. A third of the base colour swinging either way is far
+    # more contrast than any finished board has, and it turned the rings into
+    # stripes you read as a pattern rather than as wood.
+    "wood": (0.19, 0.14, 0.0016),
     "fabric": (0.18, 0.12, 0.0009),
     "pile": (0.22, 0.10, 0.0028),
     # Kept faint on purpose. Painted plaster barely varies, and a wall is the
@@ -125,7 +192,25 @@ _LOOK = {
     "plaster": (0.05, 0.05, 0.0004),
     "brushed": (0.16, 0.22, 0.0004),
     "paper": (0.09, 0.05, 0.0004),
+    # The micro-surfaces. Albedo spread is zero for all four by design — see
+    # `MICRO` — so only the roughness and depth columns are doing anything.
+    # Metal gets the widest roughness swing of anything in the room: a metal has
+    # no diffuse colour to look at, so its entire appearance *is* the shape of
+    # its highlight, and varying that is the only way to make one look used.
+    "plastic": (0.0, 0.06, 0.00010),
+    "metal": (0.0, 0.13, 0.00008),
+    "lacquer": (0.0, 0.04, 0.00022),
+    "rubber": (0.0, 0.10, 0.00030),
 }
+
+# Kinds that describe a finish rather than a substance.
+#
+# These carry roughness and normal but never touch base colour. The colours they
+# would modulate are chosen per object — a red mug, a mint keycap, a black
+# monitor shell — and a greyscale multiplier over the top would drag every one
+# of them toward grey to say something that roughness already says better. It
+# also keeps them cheap: four extra images in the GLB rather than twelve.
+MICRO = frozenset({"plastic", "metal", "lacquer", "rubber"})
 
 KINDS = tuple(_LOOK)
 

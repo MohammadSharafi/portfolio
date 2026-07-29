@@ -17,10 +17,12 @@ all — which is both better looking and dramatically cheaper than anything the
 GPU could compute in a frame budget. It is the whole reason a room like this can
 hold 120fps on a laptop.
 
-Output:
-    public/models/room-baked.glb   the model, materials pointing at the atlas
-    public/models/room-bake.png    the atlas itself
+Output, deployed:
+    public/models/room-baked.glb   the model, atlas packed inside it as JPEG
     public/models/room-baked.json  which room.glb this was baked from
+
+Output, local only:
+    scripts/blender/room-bake.png  the atlas as a standalone file, gitignored
 
 The runtime prefers room-baked.glb when it is present and falls back to the
 real-time lit room.glb when it is not, so running this is an upgrade rather than
@@ -32,8 +34,10 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import sys
+import time
 from datetime import datetime, timezone
 
 import bpy
@@ -41,9 +45,20 @@ import bpy
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.normpath(os.path.join(HERE, "..", ".."))
 OUT_DIR = os.path.join(ROOT, "public", "models")
-OUT_GLB = os.path.join(OUT_DIR, "room-baked.glb")
-OUT_PNG = os.path.join(OUT_DIR, "room-bake.png")
-OUT_STAMP = os.path.join(OUT_DIR, "room-baked.json")
+OUT_LIGHTMAP = os.path.join(OUT_DIR, "room-lightmap.jpg")
+# Deliberately not under public/. The atlas the browser draws is the JPEG the
+# glTF exporter packs into OUT_GLB; nothing on the site ever fetches this file.
+# It is written so a human can open the atlas to inspect UV packing or lighting,
+# and so `--reuse-atlas` can re-export without re-baking. Left in public/ it was
+# 13 MB of dead weight in every deploy.
+OUT_PNG = os.path.join(HERE, "room-bake.png")
+# The bake's own output, before any view transform: scene-linear radiance at
+# full float precision. This is what `--reuse-atlas` re-encodes from, and it has
+# to be the raw one — see `write_lightmap_from_raw`. Gitignored; it is large.
+OUT_RAW = os.path.join(HERE, "room-bake.exr")
+# Dust, wear and occlusion, on the same UV1 atlas as the lightmap.
+OUT_AGING = os.path.join(OUT_DIR, "room-aging.png")
+OUT_STAMP = os.path.join(OUT_DIR, "room-lightmap.json")
 
 sys.path.insert(0, HERE)
 
@@ -53,8 +68,26 @@ def parse_args() -> argparse.Namespace:
     argv = sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else []
     parser = argparse.ArgumentParser(prog="bake_room")
     parser.add_argument("--size", type=int, default=4096, help="atlas resolution")
+    parser.add_argument(
+        "--aging-size",
+        type=int,
+        default=2048,
+        help="resolution of the dust/wear/occlusion atlas",
+    )
+    parser.add_argument("--skip-aging", action="store_true", help="lightmap only")
     parser.add_argument("--samples", type=int, default=256, help="Cycles samples")
     parser.add_argument("--cpu", action="store_true", help="force CPU rendering")
+    parser.add_argument(
+        "--saturation",
+        type=float,
+        default=1.12,
+        help="chroma restored after the filmic curve; 1.0 leaves it desaturated",
+    )
+    parser.add_argument(
+        "--reuse-atlas",
+        action="store_true",
+        help="re-export from the existing room-bake.png instead of baking again",
+    )
     parser.add_argument(
         "--exposure",
         type=float,
@@ -102,16 +135,33 @@ def ensure_cycles() -> bool:
 def configure_cycles(samples: int, force_cpu: bool, exposure: float = 0.0) -> None:
     scene = bpy.context.scene
     scene.cycles.samples = samples
-    # Exposure is a knob rather than a constant because the only way to judge a
-    # bake is to look at one, and that cannot happen on the machine that writes
-    # this script — it has no Cycles. One flag beats editing light energies and
-    # re-running blind.
-    scene.view_settings.exposure = exposure
+    # Exposure and the rest of the view transform are applied by `tonemap.apply`
+    # after the bake, not by Blender. Baking ignores `view_settings` entirely —
+    # it writes raw scene-linear radiance into the image — so setting exposure
+    # here did nothing at all to the shipped atlas, which is why the knob never
+    # appeared to work.
+    scene.view_settings.view_transform = "Standard"
+    scene.view_settings.look = "None"
+    scene.view_settings.exposure = 0.0
     scene.cycles.use_denoising = True
-    scene.cycles.bake_type = "COMBINED"
 
+    # A lightmap, not a finished image.
+    #
+    # COMBINED bakes light *times* albedo into one picture, which the runtime
+    # then had to draw with an unlit material — and that is why nothing in the
+    # room looked like its material. Glass, plastic, wood and cotton all became
+    # the same flat painted colour, because an unlit shader has no roughness
+    # response, no specular and no fresnel to tell them apart with.
+    #
+    # DIFFUSE with the colour pass *off* bakes incoming irradiance alone. The
+    # model keeps its real base colour, roughness, metalness and normal maps,
+    # and the runtime multiplies this in through three.js's `lightMap` slot. The
+    # lighting is still resolved once, at render quality, and free at runtime —
+    # but a glossy surface can now be glossy.
+    scene.cycles.bake_type = "DIFFUSE"
     scene.render.bake.use_pass_direct = True
     scene.render.bake.use_pass_indirect = True
+    scene.render.bake.use_pass_color = False
     # No selected-to-active projection: every object bakes its own lighting into
     # its own islands of the shared atlas.
     scene.render.bake.use_selected_to_active = False
@@ -144,6 +194,132 @@ def configure_cycles(samples: int, force_cpu: bool, exposure: float = 0.0) -> No
 
     scene.cycles.device = "CPU"
     print("[bake_room] no GPU backend found, baking on CPU")
+
+
+def bake_in_batches(meshes: list[bpy.types.Object], *, batch: int = 8) -> None:
+    """
+    Bakes every object into the shared atlas, a handful at a time, reporting as
+    it goes.
+
+    Baking all of them in one `bpy.ops.object.bake` call is equivalent and one
+    line shorter — each object writes only its own islands either way, and only
+    the first batch clears. What one call cannot do is say how far along it is,
+    and at a 4096 atlas this takes the better part of an hour on a laptop GPU.
+    A silent forty-minute operator is indistinguishable from a hung one.
+
+    `use_clear` on the first batch only. Clearing per batch would wipe the
+    islands the previous batches had just written and leave an atlas holding
+    nothing but the last eight objects.
+    """
+    started = time.monotonic()
+
+    for index in range(0, len(meshes), batch):
+        chunk = meshes[index : index + batch]
+
+        bpy.ops.object.select_all(action="DESELECT")
+        for obj in chunk:
+            obj.select_set(True)
+        bpy.context.view_layer.objects.active = chunk[0]
+
+        bpy.ops.object.bake(type="COMBINED", use_clear=index == 0)
+
+        done = index + len(chunk)
+        elapsed = time.monotonic() - started
+        remaining = elapsed / done * (len(meshes) - done)
+        print(
+            f"[bake_room] {done}/{len(meshes)} objects · "
+            f"{elapsed / 60:.1f} min elapsed · ~{remaining / 60:.1f} min left",
+            flush=True,
+        )
+
+
+def finish_atlas(atlas: bpy.types.Image, path: str, *, exposure: float, saturation: float) -> float:
+    """
+    Writes the lightmap JPEG and a tone-mapped PNG to look at. Returns the scale
+    the runtime has to multiply the lightmap back up by.
+
+    The JPEG is *not* a picture. It is irradiance — a physical quantity the
+    browser multiplies into each material's own albedo — so it must not have a
+    view transform baked into it. Applying the filmic curve here and then
+    letting `RoomExperience` apply ACES again to the finished frame runs the
+    room through two tone maps, and two tone maps is very nearly black: the
+    curve's shoulder rolls midtones down toward 0.5, and doing that twice puts
+    the whole room in the bottom quarter of the range. That is exactly what the
+    first lightmap build looked like.
+
+    So the curve is applied once, in the renderer, to the assembled frame. What
+    ships here is the raw quantity, and the only transform on it is the one
+    forced by the container: a JPEG holds [0,1], irradiance does not, so the
+    values are divided down by `scale` and the runtime multiplies back.
+
+    `foreach_get` rather than slicing `atlas.pixels`: the property is a
+    bpy_prop_array, and indexing it element-by-element to read a 4096² atlas
+    means 67 million individual Python-to-RNA round trips. That version took
+    long enough to look like a hang.
+    """
+    import numpy as np
+
+    import tonemap
+
+    width, height = atlas.size
+    buffer = np.empty(width * height * atlas.channels, dtype=np.float32)
+    atlas.pixels.foreach_get(buffer)
+
+    pixels = buffer.reshape(-1, atlas.channels)
+    rgb = pixels[:, :3]
+    peak = float(rgb.max()) if len(pixels) else 0.0
+
+    # The divisor is the 99.5th percentile, not the peak. The peak belongs to
+    # the handful of texels *on* a lamp's own shade, which are hundreds of times
+    # brighter than the room they light; normalising by that would push every
+    # real surface into the bottom two or three sRGB code values and the room
+    # would band like a gradient in an old GIF. Clipping those few texels costs
+    # nothing — a lamp shade is emissive at runtime anyway, drawn by the
+    # emissive pass rather than by its lightmap.
+    lit = rgb[rgb > 0.0]
+    scale = float(np.percentile(lit, 99.5)) if lit.size else 1.0
+    scale = max(scale, 1e-3)
+    clipped = float((rgb > scale).mean() * 100.0)
+
+    # sRGB storage, so the 8 bits available are spent where the eye can see the
+    # steps — a linear 8-bit lightmap bands visibly in the shadows.
+    normalised = np.clip(rgb / scale, 0.0, 1.0)
+
+    # Round-tripping through `images.load` fails with "does not have any image
+    # data": the load is lazy and neither `reload` nor a save forces the buffer
+    # in reliably. Handing Blender an 8-bit image and the display-linear values
+    # avoids the file entirely — and an 8-bit image, unlike a float one, does
+    # get the sRGB transform applied on save.
+    out = bpy.data.images.new("room_lightmap", width, height, float_buffer=False)
+    out.colorspace_settings.name = "sRGB"
+    rgba = np.concatenate([normalised, np.ones((len(normalised), 1), dtype=np.float32)], axis=-1)
+    out.pixels.foreach_set(rgba.reshape(-1))
+    out.update()
+    out.filepath_raw = OUT_LIGHTMAP
+    out.file_format = "JPEG"
+    out.save()
+    print(f"[bake_room] wrote {OUT_LIGHTMAP} ({os.path.getsize(OUT_LIGHTMAP) / 1024 / 1024:.1f} MB)")
+
+    # Keep the radiance itself, so re-encoding never needs another bake. Saved
+    # only when this atlas came from a bake — when it *is* the reloaded EXR,
+    # rewriting it under itself would be pointless and briefly destructive.
+    if os.path.abspath(atlas.filepath_raw or "") != os.path.abspath(OUT_RAW):
+        atlas.filepath_raw = OUT_RAW
+        atlas.file_format = "OPEN_EXR"
+        atlas.save()
+
+    # The PNG is the opposite: nobody multiplies it by anything, it exists to be
+    # looked at, so it gets the full view transform.
+    finished = tonemap.apply(pixels, exposure=exposure, saturation=saturation)
+    rgb8 = tonemap.encode_srgb(finished[:, :3]).reshape(height, width, 3)
+    # Blender's buffer runs bottom-up; PNG scanlines run top-down.
+    tonemap.write_png(path, rgb8[::-1])
+
+    # The peak is the one number worth printing. Below about 1.5 the room has no
+    # highlights for the curve to work on and the lights want turning up; in the
+    # hundreds, something is emitting far more than it should.
+    print(f"[bake_room] peak radiance {peak:.2f}, stored at 1/{scale:.3f} ({clipped:.2f}% clipped)")
+    return scale
 
 
 def prepare_materials(atlas: bpy.types.Image, build_room) -> list[bpy.types.Object]:
@@ -181,58 +357,160 @@ def prepare_materials(atlas: bpy.types.Image, build_room) -> list[bpy.types.Obje
     return meshes
 
 
-def rewire_to_baked(atlas: bpy.types.Image, meshes: list[bpy.types.Object]) -> None:
+def write_lightmap_from_raw(source_exr: str, *, exposure: float, saturation: float) -> float:
     """
-    Repoints every material at the atlas.
+    Re-encode a previously baked atlas without re-baking it.
 
-    The lighting now lives in the texture, so the base colour *is* the finished
-    pixel. Roughness and metallic are flattened to matte — leaving them would
-    have the browser add a second specular response on top of one already baked
-    in, which reads as a greasy sheen over everything.
+    Reads the *raw radiance* EXR, not the tone-mapped PNG. That distinction is
+    the whole reason this function exists in this form: the PNG has the view
+    transform baked into it, so re-deriving the lightmap from it would ship a
+    tone-mapped lightmap, the browser would tone-map the frame again, and the
+    room would come back crushed to black — the exact bug this pipeline just
+    had. Reusing the PNG made that failure a one-flag mistake anyone could make
+    months later with no way to see it coming.
+
+    No second GLB any more. `room.glb` already carries the bake UVs on
+    TEXCOORD_1 and real base-colour, roughness and normal maps, so the only
+    thing the bake needs to add is the lighting — one image the runtime hangs
+    on `material.lightMap`.
+
+    JPEG because it is the whole download and a lightmap is the ideal subject:
+    broad smooth gradients, no text, no hard edges except at island borders,
+    which the bleed margin already softens.
     """
-    seen: set[str] = set()
+    image = bpy.data.images.load(source_exr, check_existing=False)
+    # `load` is lazy: it records the path and reads nothing, so touching the
+    # pixels straight afterwards fails with "does not have any image data".
+    # `reload` is what actually pulls them in.
+    image.reload()
+    return finish_atlas(image, OUT_PNG, exposure=exposure, saturation=saturation)
+
+
+def bake_aging(size: int, samples: int, meshes: list[bpy.types.Object]) -> None:
+    """
+    Bake the dust, wear and occlusion masks into their own atlas.
+
+    Deliberately in the same Blender session as the lightmap, immediately after
+    it, and not a separate script. Both atlases are indexed by the UV1 layout
+    that `unwrap_all` produced, and that layout is only reproducible by running
+    the identical unwrap on the identical geometry. A separate script that
+    re-unwrapped would agree *almost* always, and the failure mode when it did
+    not is dust appearing on the underside of the desk and wear down the middle
+    of the wall — wrong in a way that looks like a shader bug rather than a
+    stale file. Sharing the session removes the question.
+
+    Every object is given the same mask material for the duration, since the
+    masks depend on geometry and not on what the surface is made of. Materials
+    are restored afterwards; nothing here is exported.
+    """
+    import aging
+
+    scene = bpy.context.scene
+    atlas = bpy.data.images.new("room_aging", size, size, float_buffer=False)
+    mask = aging.mask_material()
+
+    node = mask.node_tree.nodes.new("ShaderNodeTexImage")
+    node.image = atlas
+    mask.node_tree.nodes.active = node
+
+    saved = [(obj, [slot.material for slot in obj.material_slots]) for obj in meshes]
     for obj in meshes:
-        for slot in obj.material_slots:
-            mat = slot.material
-            if mat is None or mat.name in seen or not mat.use_nodes:
-                continue
-            seen.add(mat.name)
+        obj.data.materials.clear()
+        obj.data.materials.append(mask)
 
-            nodes = mat.node_tree.nodes
-            links = mat.node_tree.links
-            bsdf = nodes.get("Principled BSDF")
-            tex = next((n for n in nodes if n.type == "TEX_IMAGE" and n.image == atlas), None)
-            if bsdf is None or tex is None:
-                continue
+    # EMIT writes the shader's own output rather than anything lit, which is
+    # what makes this a data bake instead of a render.
+    previous_type, previous_samples = scene.cycles.bake_type, scene.cycles.samples
+    scene.cycles.bake_type = "EMIT"
+    scene.cycles.samples = samples
 
-            uv = nodes.new("ShaderNodeUVMap")
-            uv.uv_map = "Bake"
-            uv.location = (-1100, 400)
-            links.new(uv.outputs["UV"], tex.inputs["Vector"])
-            links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
+    print(f"[bake_room] baking aging masks at {size}px, {samples} samples")
+    started = time.time()
+    bake_in_batches(meshes)
+    print(f"[bake_room] aging masks took {time.time() - started:.0f}s")
 
-            # Unlink before setting, or the value is ignored and the map wins.
-            # The grain maps are now wired into roughness and normal at build
-            # time, and a link left in place would ship a roughness map and a
-            # normal map inside the baked GLB — several hundred kilobytes of
-            # data addressed through the atlas's UVs, which are not the UVs it
-            # was authored against, describing a lighting response the browser
-            # does not compute because the baked room draws unlit.
-            for socket in ("Roughness", "Normal"):
-                for link in list(bsdf.inputs[socket].links):
-                    mat.node_tree.links.remove(link)
+    scene.cycles.bake_type, scene.cycles.samples = previous_type, previous_samples
+    for obj, materials in saved:
+        obj.data.materials.clear()
+        for material in materials:
+            obj.data.materials.append(material)
 
-            bsdf.inputs["Roughness"].default_value = 1.0
-            bsdf.inputs["Metallic"].default_value = 0.0
-            if "Emission Strength" in bsdf.inputs:
-                bsdf.inputs["Emission Strength"].default_value = 0.0
+    # PNG, not JPEG, and this is not a size decision that can be revisited.
+    # These are three independent masks living in three channels, and JPEG
+    # subsamples chroma — it assumes the channels are a colour anyone is
+    # looking at, and smears them into each other. Wear would bleed into dust
+    # along every edge in the room.
+    atlas.filepath_raw = OUT_AGING
+    atlas.file_format = "PNG"
+    atlas.save()
+    print(f"[bake_room] wrote {OUT_AGING} ({os.path.getsize(OUT_AGING) / 1024 / 1024:.1f} MB)")
 
-    # The Bake UVs are the ones the atlas is addressed by, so they have to be
-    # the set glTF exports as UV0.
-    for obj in meshes:
-        if "Bake" in obj.data.uv_layers:
-            obj.data.uv_layers.active = obj.data.uv_layers["Bake"]
-            obj.data.uv_layers["Bake"].active_render = True
+
+def stamp_source(scale: float = 1.0) -> None:
+    """Records which room.glb this bake came from, so a stale one is ignored."""
+    # Record which room this was baked from.
+    #
+    # The runtime prefers the baked model over the live one, so a bake that has
+    # fallen behind does not degrade the site quietly — it *replaces* it with an
+    # older room, and every change made since becomes invisible. That has now
+    # happened twice, and both times the room looked broken in ways the code
+    # said were already fixed.
+    #
+    # The fix is not to remember to re-bake. It is for the baked model to carry
+    # the fingerprint of the room it came from, so the runtime can notice and
+    # fall back on its own.
+    import export_room
+
+    source = os.path.join(OUT_DIR, "room.glb")
+    stamp = {
+        # Kept for the record, and no longer what the runtime gates on. See
+        # `geometry` below.
+        "source": hashlib.sha256(open(source, "rb").read()).hexdigest() if os.path.exists(source) else "",
+        # What actually decides whether this bake still applies. Hashing the
+        # whole GLB threw away a valid hour-long bake every time a texture
+        # changed, which made material work and lighting work mutually
+        # exclusive. See `export_room.geometry_fingerprint`.
+        "geometry": export_room.geometry_fingerprint(),
+        "baked": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        # What `lightMapIntensity` has to be for the room to be lit as it was
+        # rendered. Two factors, and both are easy to lose:
+        #
+        #   `scale`, undoing the divide that squeezed irradiance into a JPEG.
+        #
+        #   π, because Cycles and three.js disagree about where it lives.
+        #   Blender's colour-free DIFFUSE pass already carries the 1/π of the
+        #   Lambert BRDF, so albedo × bake is the outgoing radiance. three.js
+        #   applies its own RECIPROCAL_PI to whatever the lightMap yields, so
+        #   handing it Blender's number divides by π a second time and the room
+        #   comes out 3.14× too dark — dim enough to read as "the lights need
+        #   turning up" and send you off adjusting wattages that were right.
+        "intensity": math.pi * scale,
+    }
+    # The build writes its own copy of this fingerprint for Vite to inline, and
+    # if the two disagree the runtime throws the bake away as stale — silently,
+    # and every single time, which looks exactly like a bake that will not take.
+    #
+    # They disagreed once already: `build_room` was computing it after
+    # `drop_export_only`, so the value it published was for a room missing an
+    # object the bake had rendered with. Cheap to check here, and the
+    # alternative is discovering it by wondering why an hour of baking had no
+    # effect.
+    published = os.path.join(OUT_DIR, "room-geometry.json")
+    if os.path.exists(published):
+        with open(published, encoding="utf-8") as handle:
+            theirs = json.load(handle).get("geometry", "")
+        if theirs and theirs != stamp["geometry"]:
+            print(
+                "[bake_room] WARNING: this bake's fingerprint does not match the one\n"
+                f"  build_room published ({theirs[:12]}… vs {stamp['geometry'][:12]}…).\n"
+                "  The runtime will ignore this lightmap. Re-run build_room.py.",
+                file=sys.stderr,
+            )
+
+    with open(OUT_STAMP, "w", encoding="utf-8") as handle:
+        json.dump(stamp, handle, indent=2)
+        handle.write("\n")
+    print(f"[bake_room] wrote {OUT_STAMP} (source {stamp['source'][:12]}…)")
 
 
 def main() -> None:
@@ -273,6 +551,26 @@ def main() -> None:
 
     build_room.unwrap_all()
 
+    os.makedirs(OUT_DIR, exist_ok=True)
+
+    if args.reuse_atlas:
+        # Re-export without re-baking.
+        #
+        # The bake takes the better part of an hour, and plenty of reasons to
+        # re-export have nothing to do with the lighting — changing the texture
+        # encoding, or fixing a name the runtime looks up. Paying for a bake to
+        # do either is what makes people avoid touching the pipeline at all.
+        # Only valid while the geometry and its UVs are unchanged.
+        if not os.path.exists(OUT_RAW):
+            sys.exit(
+                f"--reuse-atlas needs the raw radiance atlas, and {OUT_RAW} is not there.\n"
+                "Bake once without the flag to produce it."
+            )
+        print(f"[bake_room] reusing {OUT_RAW}; nothing was baked")
+        scale = write_lightmap_from_raw(OUT_RAW, exposure=args.exposure, saturation=args.saturation)
+        stamp_source(scale)
+        return
+
     if not ensure_cycles():
         sys.exit(
             "Cycles could not be selected as the render engine.\n"
@@ -283,63 +581,44 @@ def main() -> None:
 
     configure_cycles(args.samples, args.cpu, args.exposure)
 
-    atlas = bpy.data.images.new("room_bake", args.size, args.size, float_buffer=False)
+    # A float buffer, not the 8-bit one this used to bake into.
+    #
+    # An 8-bit image clamps on write, so every value above 1.0 was destroyed the
+    # moment Cycles produced it — before anything could roll it off. That is
+    # what made the lamp, the screens and both LED strips ship as identical flat
+    # white shapes, and per-channel clipping shifted warm highlights' hue on the
+    # way there. The float buffer keeps the full range so `tonemap.apply` has
+    # something left to compress.
+    # The atlas UVs exist now, and this is the only place they can be checked.
+    # UV1 is generated here rather than stored in the model, so nothing
+    # downstream ever sees it — and it is the layer that matters most, because
+    # the lightmap and the aging masks read through it are positional. A
+    # starved island puts one texel of dust across a hand's width of desk.
+    import export_room
+
+    for complaint in export_room.check_uv_stretch(1, share=0.06):
+        print(f"[bake_room] {complaint}", file=sys.stderr)
+
+    atlas = bpy.data.images.new("room_bake", args.size, args.size, float_buffer=True)
     meshes = prepare_materials(atlas, build_room)
 
-    bpy.ops.object.select_all(action="DESELECT")
-    for obj in meshes:
-        obj.select_set(True)
-    bpy.context.view_layer.objects.active = meshes[0]
-
     print(f"[bake_room] baking {len(meshes)} objects at {args.size}px, {args.samples} samples")
-    bpy.ops.object.bake(type="COMBINED", use_clear=True)
+    bake_in_batches(meshes)
 
     os.makedirs(OUT_DIR, exist_ok=True)
-    atlas.filepath_raw = OUT_PNG
-    atlas.file_format = "PNG"
-    atlas.save()
-    print(f"[bake_room] wrote {OUT_PNG}")
+    scale = finish_atlas(atlas, OUT_PNG, exposure=args.exposure, saturation=args.saturation)
+    print(f"[bake_room] wrote {OUT_PNG} ({os.path.getsize(OUT_PNG) / 1024 / 1024:.1f} MB)")
 
-    rewire_to_baked(atlas, meshes)
+    # Straight on into the aging masks, while the UV1 layout that both atlases
+    # are indexed by is still the one in memory. See `bake_aging`.
+    if not args.skip_aging:
+        bake_aging(args.aging_size, max(32, args.samples // 2), meshes)
 
-    # The ceiling has done its job — every bounce off it is already in the
-    # atlas. Exporting it would hand the browser a closed box.
-    hidden = build_room.drop_export_only()
-    if hidden:
-        print(f"[bake_room] {hidden} bake-only object(s) kept out of the GLB")
-
-    bpy.ops.export_scene.gltf(
-        filepath=OUT_GLB,
-        export_format="GLB",
-        export_apply=True,
-        export_lights=False,
-        export_cameras=False,
-        export_yup=True,
-        export_image_format="AUTO",
-    )
-    print(f"[bake_room] wrote {OUT_GLB} ({os.path.getsize(OUT_GLB) / 1024 / 1024:.1f} MB)")
-
-    # Record which room this was baked from.
-    #
-    # The runtime prefers the baked model over the live one, so a bake that has
-    # fallen behind does not degrade the site quietly — it *replaces* it with an
-    # older room, and every change made since becomes invisible. That has now
-    # happened twice, and both times the room looked broken in ways the code
-    # said were already fixed.
-    #
-    # The fix is not to remember to re-bake. It is for the baked model to carry
-    # the fingerprint of the room it came from, so the runtime can notice and
-    # fall back on its own.
-    source = os.path.join(OUT_DIR, "room.glb")
-    stamp = {
-        "source": hashlib.sha256(open(source, "rb").read()).hexdigest() if os.path.exists(source) else "",
-        "baked": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-    }
-    with open(OUT_STAMP, "w", encoding="utf-8") as handle:
-        json.dump(stamp, handle, indent=2)
-        handle.write("\n")
-    print(f"[bake_room] wrote {OUT_STAMP} (source {stamp['source'][:12]}…)")
-    print("[bake_room] done — the runtime will now prefer the baked room")
+    # No rewiring. The materials keep their own base colour, roughness, metalness
+    # and normal maps — that is the entire point of a lightmap over a combined
+    # bake, and pointing base colour at the atlas would throw them away again.
+    stamp_source(scale)
+    print("[bake_room] done — room.glb plus the lightmap are what the site loads")
 
 
 if __name__ == "__main__":

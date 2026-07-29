@@ -18,12 +18,15 @@ So the export refuses to run against a scene missing a name the runtime needs.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import math
 import os
 import re
 import sys
 
 import bpy
+from mathutils import Vector
 
 ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 BLEND = os.path.join(ROOT, "assets", "room.blend")
@@ -74,6 +77,84 @@ SYSTEM_MESHES = {
 # Book spines are numbered, one per project, and Screens.tsx paints a title onto
 # each. The count has to match the number of titled books the shelf carries.
 SPINE_COUNT = 6
+
+
+def geometry_fingerprint() -> str:
+    """
+    A hash of everything a bake depends on: shape, lights and emission.
+
+    The stamp used to record a hash of `room.glb` itself, and the runtime
+    ignored the lightmap unless the served model matched it byte for byte. That
+    is correct but far too strict, because the file also contains every texture:
+    softening the wood grain, or changing a base colour, produced a different
+    GLB and threw away an hour-long bake that was still perfectly valid.
+
+    What the bake depends on is where the surfaces are. The UV1 atlas it is
+    indexed by is generated from the geometry at bake time, so identical
+    geometry gives an identical atlas, and irradiance landing on a surface does
+    not care what colour that surface is going to be painted.
+
+    The one thing this deliberately does not catch is colour bleed. A wall
+    repainted from cream to red changes the colour of the light bouncing off
+    it, and that *is* in the lightmap. It is a second-order effect and worth
+    trading for the ability to iterate on materials at all — a re-bake will pick
+    it up whenever one next happens.
+
+    Geometry is not quite the whole story, so this also covers the lights and
+    every emissive material. Those are inputs to the bake in exactly the way a
+    base colour is not: making a lamp shade glow adds a light source to the
+    room, and the irradiance on every surface near it changes. Leaving them out
+    would have let a genuinely stale bake pass as current, which is a worse
+    failure than the over-strict rule this replaces — a stale lightmap looks
+    plausible and is wrong.
+
+    Positions are world-space and rounded to 0.01 mm so that a float that
+    reassociated differently between two runs cannot invalidate a bake.
+    """
+    digest = hashlib.sha256()
+    for obj in sorted(bpy.context.scene.objects, key=lambda o: o.name):
+        if obj.type == "MESH":
+            digest.update(obj.name.encode())
+            matrix = obj.matrix_world
+            for vertex in obj.data.vertices:
+                x, y, z = matrix @ vertex.co
+                digest.update(f"{x:.5f},{y:.5f},{z:.5f};".encode())
+            for polygon in obj.data.polygons:
+                digest.update(",".join(str(i) for i in polygon.vertices).encode())
+        elif obj.type == "LIGHT":
+            light = obj.data
+            x, y, z = obj.matrix_world.translation
+            size = getattr(light, "size", 0.0)
+            digest.update(
+                f"light:{obj.name}:{light.type}:{light.energy:.4f}:"
+                f"{tuple(round(c, 5) for c in light.color)}:{size:.4f}:"
+                f"{x:.5f},{y:.5f},{z:.5f};".encode()
+            )
+
+    # Emissive materials are light sources, whatever else they are.
+    for mat in sorted(bpy.data.materials, key=lambda m: m.name):
+        if not mat.use_nodes:
+            continue
+        bsdf = mat.node_tree.nodes.get("Principled BSDF")
+        if bsdf is None:
+            continue
+        strength = bsdf.inputs["Emission Strength"].default_value
+        if strength <= 0:
+            continue
+        colour = tuple(round(c, 5) for c in bsdf.inputs["Emission Color"].default_value)
+        digest.update(f"emit:{mat.name}:{strength:.4f}:{colour};".encode())
+
+    return digest.hexdigest()
+
+
+def write_geometry_stamp(path: str) -> str:
+    """Records the fingerprint next to the model, for the build to inline."""
+    fingerprint = geometry_fingerprint()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump({"geometry": fingerprint}, handle, indent=2)
+        handle.write("\n")
+    return fingerprint
 
 
 def scene_mesh_names() -> set[str]:
@@ -319,6 +400,56 @@ def check_stops() -> list[str]:
 LIGHT_FIXTURES = (("lamp_light", "ix_lamp", 0.20),)
 
 
+def check_dark_fixtures() -> list[str]:
+    """
+    Lamps that cast no light.
+
+    `check_lights` walks a curated list of light-and-fixture pairs, so it
+    catches a light that has drifted away from its lamp and is completely blind
+    to the opposite: a lamp nobody ever gave a light to. The floor lamp stood in
+    the lounge for its whole existence as a lamp-shaped object with a bright
+    shade and no source, 2 m from the nearest light in the room — which reads,
+    at a glance, exactly like a lamp that is switched off, so nothing about it
+    looked wrong.
+    """
+    lights = [o for o in bpy.context.scene.objects if o.type == "LIGHT"]
+    complaints = []
+    for obj in bpy.context.scene.objects:
+        if obj.type != "MESH" or not obj.data.vertices:
+            continue
+        if not any(word in obj.name for word in ("lamp", "bulb")):
+            continue
+        if obj.name.endswith("_light"):
+            continue
+        # Measured to the fixture's *bounds*, not its centroid.
+        #
+        # A floor lamp is a 1.6 m pole with a shade on top, so its centroid sits
+        # halfway up the stem — 74 cm below the shade the bulb actually lives
+        # in. Judging by centroid reports a correctly lit lamp as dark, which is
+        # a check that trains you to ignore it.
+        box = _world_box(obj)
+        def _outside(light) -> float:
+            at = light.matrix_world.translation
+            return math.sqrt(
+                sum(
+                    max(box[axis * 2] - at[axis], 0.0, at[axis] - box[axis * 2 + 1]) ** 2
+                    for axis in range(3)
+                )
+            )
+
+        nearest = min(
+            ((light, _outside(light)) for light in lights),
+            key=lambda pair: pair[1],
+            default=(None, 1e9),
+        )
+        if nearest[1] > 0.25:
+            complaints.append(
+                f"{obj.name} looks like a lamp but the nearest light is "
+                f"{nearest[1] * 100:.0f} cm away — it casts nothing"
+            )
+    return complaints
+
+
 def check_lights() -> list[str]:
     """
     Lights that have drifted away from the object they are supposed to be coming
@@ -418,6 +549,14 @@ FURNITURE = (
     "light_switch", "socket_0", "socket_1", "ix_certificates",
 )
 
+# Pairs that are meant to share space. A chair pushed in at a desk puts its
+# armrests under the overhang, which is what "pushed in" means — the plan even
+# asks for it. Listing the few honest cases keeps the check useful for the many
+# dishonest ones.
+FURNITURE_ALLOWED = frozenset({
+    frozenset({"ix_chair", "desk_top"}),
+})
+
 # How far two pieces of furniture may overlap before it is a mistake. Generous:
 # a chair tucked under a desk and a lamp overhanging a sill are both correct and
 # both overlap a little once reduced to boxes.
@@ -431,6 +570,242 @@ def _world_box(obj) -> tuple[float, ...]:
         min(p.y for p in pts), max(p.y for p in pts),
         min(p.z for p in pts), max(p.z for p in pts),
     )
+
+
+# What orientation each painted quad's canvas needs, as `finish` in
+# src/room/systems/screenContent.ts names them. Kept here because it is a fact
+# about the *model* — which way a quad was stood up — and the runtime is only
+# compensating for it.
+PAINTED_ORIENTATION = {
+    "ix_monitor_health_display": "mirror-u",
+    "ix_monitor_code_display": "mirror-u",
+    "ix_laptop_display": "mirror-u",
+    "ix_cv_face": "mirror-u",
+    "ix_whiteboard_face": "flip-v",
+    "ix_sticky_notes": "flip-v",
+    "ix_book_spine_": "flip-v",
+}
+
+
+def check_uv_stretch(layer: int = 0, starved: float = 0.25, share: float = 0.04) -> list[str]:
+    """
+    Meshes with a real amount of surface starved of texels.
+
+    A face whose UV island is squashed gets fewer texels than its area
+    deserves, so whatever is sampled through it is smeared. That mattered
+    little when UV0 carried nothing but a repeating half-metre tile of wood
+    grain — a smear in noise still looks like noise. It matters on UV1, where
+    the lightmap and the aging masks live, because those are *positional*: a
+    starved island puts one texel of dust across a hand's width of desk, and
+    the edge of a wear mark lands somewhere the edge is not.
+
+    Measured by area, not by ratio, which is the whole difference between this
+    being useful and being ignored. The first version reported the spread
+    between the least and most dense face and fired on nine objects at once
+    with numbers like 2245x — all of them cylinder poles and cone tips, a few
+    square millimetres of degenerate triangle that no texture will ever be read
+    from. Weighting by surface area drops those to nothing and leaves the
+    question worth asking: how much of this object is genuinely under-sampled?
+
+    `share` is deliberately different for the two layers. UV1 is held tight
+    because the masks on it are positional. UV0 is run loose, because what it
+    carries is a repeating noise tile and a fifth of a cable at half density is
+    a fifth of a cable whose grain is slightly finer — nobody can see it, and
+    the objects it fires on (the blind's slats, the guitar's body, the
+    radiator's fins, the cables) are curved or thin enough that no planar
+    unwrap avoids it. Lowering the projection angle to split them into flatter
+    islands was tried and made it worse: more islands meant more of the mesh
+    near a seam. That is a real constraint of unwrapping curved geometry, not
+    a bug waiting to be fixed.
+    """
+    complaints = []
+    for obj in bpy.context.scene.objects:
+        if obj.type != "MESH" or len(obj.data.uv_layers) <= layer:
+            continue
+        mesh = obj.data
+        uv = mesh.uv_layers[layer]
+
+        faces = []
+        for polygon in mesh.polygons:
+            loops = list(polygon.loop_indices)
+            origin = uv.data[loops[0]].uv
+            area = 0.0
+            for index in range(1, len(loops) - 1):
+                a = uv.data[loops[index]].uv - origin
+                b = uv.data[loops[index + 1]].uv - origin
+                area += abs(a.x * b.y - a.y * b.x) * 0.5
+            if area > 1e-12 and polygon.area > 1e-9:
+                faces.append((area / polygon.area, polygon.area))
+
+        total = sum(weight for _, weight in faces)
+        if len(faces) < 8 or total <= 0:
+            continue
+
+        # Area-weighted median density: the density half the surface is below.
+        faces.sort()
+        running = 0.0
+        median = faces[-1][0]
+        for density, weight in faces:
+            running += weight
+            if running >= total * 0.5:
+                median = density
+                break
+
+        smeared = sum(weight for density, weight in faces if density < median * starved)
+        if smeared / total > share:
+            complaints.append(
+                f"{obj.name} UV{layer} has {100 * smeared / total:.0f}% of its surface "
+                f"under {starved:.0%} of its own texel density"
+            )
+    return complaints
+
+
+def check_metalness() -> list[str]:
+    """
+    Materials sitting between conductor and dielectric.
+
+    Metalness selects a physical model, it does not blend two looks: a metal has
+    no diffuse colour and tints its own reflection, a dielectric has diffuse
+    colour and reflects white at about 4%, and nothing is 30% of the way
+    between. An intermediate value only means something inside a texture, where
+    it marks where paint stops and bare metal begins.
+
+    The room had thirteen of these, and they are hard to spot by eye because
+    the result is not obviously broken — it is a plastic bin that looks dingy,
+    or a monitor shell that will not take a colour. See the note above
+    `build_room.default_grain`.
+    """
+    complaints = []
+    for mat in bpy.data.materials:
+        if not mat.use_nodes:
+            continue
+        bsdf = mat.node_tree.nodes.get("Principled BSDF")
+        if bsdf is None or bsdf.inputs["Metallic"].is_linked:
+            continue
+        value = bsdf.inputs["Metallic"].default_value
+        if 0.05 < value < 0.95:
+            complaints.append(f"{mat.name} is {value:.2f} metallic, which is neither a metal nor a dielectric")
+    return complaints
+
+
+def check_uniform_materials() -> list[str]:
+    """
+    Materials shipping a perfectly constant roughness.
+
+    Nothing real has one. A constant roughness returns a highlight of exactly
+    the same size and sharpness across a whole surface, and the eye reads that
+    as plastic — it is the reason untextured 3D looks untextured even when
+    every colour is correct.
+
+    `build_room.default_grain` means a material now has to opt *out* of surface
+    detail rather than remember to opt in, so this should stay quiet. It exists
+    for the case that rule cannot cover: a material built by hand in the .blend,
+    or one whose grain was wired and then trampled. Those are exactly the ones
+    nobody would think to look for.
+
+    Warned about, not fatal. A flat material is a missed opportunity, not a
+    broken room, and a check that blocks the export over one would get deleted.
+    """
+    import build_room
+
+    allowed = build_room.FLAT_BY_DESIGN
+    complaints = []
+    for mat in bpy.data.materials:
+        if mat.name in allowed or not mat.use_nodes:
+            continue
+        # Names collide across the room; `desk_top.001` is the same surface.
+        if mat.name.split(".")[0] in allowed:
+            continue
+        bsdf = mat.node_tree.nodes.get("Principled BSDF")
+        if bsdf is None:
+            continue
+        # An emissive panel's appearance is its emission, not its finish.
+        if bsdf.inputs["Emission Strength"].default_value > 0:
+            continue
+        if not bsdf.inputs["Roughness"].is_linked:
+            complaints.append(
+                f"{mat.name} has a flat roughness of "
+                f"{bsdf.inputs['Roughness'].default_value:.2f} and no surface detail"
+            )
+    return complaints
+
+
+def check_painted_uvs() -> list[str]:
+    """
+    Which way each painted quad's UVs actually run, against what the runtime
+    assumes.
+
+    Every readable surface in the room is a quad the browser paints a canvas
+    onto, and which way that canvas lands is decided entirely by the rotation
+    that stood the quad up. There is no correction that is right for all of
+    them, so `finish` applies a different one per surface — and nothing
+    connected the two, so a quad could be rotated and the drawing on it would
+    silently turn over.
+
+    Both the whiteboard and the sticky notes shipped upside down that way, and
+    the book spines shipped upside down for longer, because spine text is far
+    too small to read from any camera the room has. Nobody was going to catch
+    that by looking.
+
+    The derivation, which is worth stating because two conventions collide in
+    it: a viewer reading a quad looks along its inward normal with world up, so
+    screen-right is `(-normal) x up` and U has to run that way. V is the
+    opposite of what it looks like — Blender writes v, glTF stores 1 - v, and
+    the CanvasTexture the runtime builds flips Y a third time, so a quad whose
+    V runs up in Blender is sampled bottom-to-top by the time it is drawn.
+    """
+    room_centre = Vector((0.0, 0.4, 1.2))
+    up = Vector((0.0, 0.0, 1.0))
+
+    complaints = []
+    for obj in bpy.context.scene.objects:
+        if obj.type != "MESH":
+            continue
+        expected = next(
+            (v for k, v in PAINTED_ORIENTATION.items() if obj.name.startswith(k)), None
+        )
+        if expected is None:
+            continue
+
+        mesh = obj.data
+        layer = mesh.uv_layers.active
+        if layer is None or not mesh.polygons:
+            continue
+
+        poly = mesh.polygons[0]
+        loops = list(poly.loop_indices)
+        world = [obj.matrix_world @ mesh.vertices[mesh.loops[i].vertex_index].co for i in loops]
+        uvs = [layer.data[i].uv for i in loops]
+
+        origin, uv0 = world[0], uvs[0]
+        du = dv = None
+        for point, uv in zip(world[1:], uvs[1:]):
+            delta = uv - uv0
+            if abs(delta.x) > 0.5 and abs(delta.y) < 0.5 and du is None:
+                du = (point - origin) / delta.x
+            if abs(delta.y) > 0.5 and abs(delta.x) < 0.5 and dv is None:
+                dv = (point - origin) / delta.y
+        if du is None or dv is None:
+            continue
+
+        normal = (obj.matrix_world.to_3x3() @ poly.normal).normalized()
+        if normal.dot(room_centre - origin) < 0:
+            normal = -normal
+
+        u_ok = du.normalized().dot((-normal).cross(up).normalized()) > 0
+        v_ok = dv.normalized().dot(up) < 0
+
+        actual = (
+            "as-drawn" if u_ok and v_ok
+            else "mirror-u" if v_ok
+            else "flip-v" if u_ok
+            else "rotate-180"
+        )
+        if actual != expected:
+            complaints.append(
+                f"{obj.name} needs '{actual}' in screenContent.ts, which says '{expected}'"
+            )
+    return complaints
 
 
 def check_furniture() -> list[str]:
@@ -459,6 +834,8 @@ def check_furniture() -> list[str]:
                 min(a[3], b[3]) - max(a[2], b[2]),
                 min(a[5], b[5]) - max(a[4], b[4]),
             ]
+            if frozenset({first, second}) in FURNITURE_ALLOWED:
+                continue
             if all(o > FURNITURE_TOLERANCE for o in overlap):
                 complaints.append(
                     f"{first} and {second} occupy the same space — "
@@ -499,6 +876,13 @@ def check_swallowed() -> list[str]:
         box = _world_box(obj)
         for name, big in boxes.items():
             if stem and (stem in name or name.split("_")[0] in obj.name):
+                continue
+            # Something standing *on* a piece of furniture is inside its
+            # bounding box and perfectly visible — an award on a bookcase's
+            # capping board sits between the two raised sides, so the box test
+            # calls it swallowed. Resting on the top surface is the one case
+            # where containment means the opposite of hidden.
+            if box[4] >= big[5] - 0.05:
                 continue
             inside = all(
                 box[axis * 2] > big[axis * 2] - BURIED_TOLERANCE

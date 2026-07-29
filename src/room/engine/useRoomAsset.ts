@@ -1,16 +1,39 @@
 import { useEffect, useState } from 'react';
 
-const BAKED = '/models/room-baked.glb';
-const STAMP = '/models/room-baked.json';
-const LIT = '/models/room.glb';
+const ROOM = '/models/room.glb';
+const LIGHTMAP = '/models/room-lightmap.jpg';
+const AGING = '/models/room-aging.png';
+const STAMP = '/models/room-lightmap.json';
 
 /** SHA-256 of the `room.glb` this bundle was built against, inlined by Vite. */
 declare const __ROOM_HASH__: string;
+/** Fingerprint of that room's *geometry*, which is what a bake depends on. */
+declare const __ROOM_GEOMETRY__: string;
 
 export interface RoomAsset {
   url: string;
-  /** True once we know the baked atlas exists and the room can render unlit. */
-  baked: boolean;
+  /** The lightmap to hang on the room's materials, once one is known to match. */
+  lightmap: string | null;
+  /**
+   * What `lightMapIntensity` has to be for this particular bake.
+   *
+   * It travels with the image rather than living in the runtime because it is
+   * a property *of the bake*: it encodes the divisor that squeezed that bake's
+   * irradiance into a JPEG, which depends on how bright that bake came out.
+   * Hardcoding it here would mean every re-bake silently changed the room's
+   * exposure until someone noticed and re-tuned a constant by eye.
+   */
+  intensity: number;
+  /**
+   * Dust, wear and occlusion, baked from the room's own geometry.
+   *
+   * Gated on the same stamp as the lightmap and never resolved separately.
+   * Both atlases are indexed by one UV1 layout produced by a single unwrap, so
+   * an aging atlas from a different bake would put dust on the underside of
+   * the desk — and unlike a stale lightmap, which looks like bad lighting,
+   * that looks like a shader bug and would be chased in the wrong file.
+   */
+  aging: string | null;
   resolved: boolean;
 }
 
@@ -35,14 +58,34 @@ export interface RoomAsset {
  * heals itself the moment someone re-bakes.
  */
 export function useRoomAsset(): RoomAsset {
-  const [asset, setAsset] = useState<RoomAsset>({ url: LIT, baked: false, resolved: false });
+  const [asset, setAsset] = useState<RoomAsset>({
+    url: ROOM,
+    lightmap: null,
+    intensity: 1,
+    aging: null,
+    resolved: false,
+  });
 
   useEffect(() => {
     let cancelled = false;
 
-    const settle = (found: boolean) => {
+    const settle = (found: boolean, intensity = 1, aged = false) => {
       if (cancelled) return;
-      setAsset({ url: found ? BAKED : LIT, baked: found, resolved: true });
+      // One model either way. The bake adds lighting to it rather than
+      // replacing it — there is no second copy of the room any more.
+      //
+      // Every field describing the bake is cleared together when it is
+      // rejected, `intensity` included. It used to keep the rejected bake's
+      // scale, which was harmless only because the one caller happens to check
+      // `lightmap` first — an asset that advertises a scale for a lightmap it
+      // is not using is a trap set for whoever reads it next.
+      setAsset({
+        url: ROOM,
+        lightmap: found ? LIGHTMAP : null,
+        intensity: found ? intensity : 1,
+        aging: found && aged ? AGING : null,
+        resolved: true,
+      });
     };
 
     // A dev server that rewrites unknown paths to index.html answers 200 with
@@ -52,16 +95,34 @@ export function useRoomAsset(): RoomAsset {
 
     void (async () => {
       try {
-        const model = await fetch(BAKED, { method: 'HEAD' });
-        if (!isRealFile(model)) return settle(false);
+        const image = await fetch(LIGHTMAP, { method: 'HEAD' });
+        if (!isRealFile(image)) return settle(false);
 
         const stamp = await fetch(STAMP);
         // Baked before the stamp existed, so its provenance is unknowable. An
         // unlit room is a smaller loss than confidently showing the wrong one.
         if (!isRealFile(stamp)) return settle(false);
 
-        const { source } = (await stamp.json()) as { source?: string };
-        settle(Boolean(source) && source === __ROOM_HASH__);
+        const { source, geometry, intensity } = (await stamp.json()) as {
+          source?: string;
+          geometry?: string;
+          intensity?: number;
+        };
+        // A bake from before the stamp carried an intensity would be scaled by
+        // its own unknown divisor, so 1 is the only safe reading of a missing
+        // field — and it is wrong, which is the point: it looks wrong rather
+        // than looking plausible and being wrong.
+        // Geometry, not the file. A bake is stale when the room changed shape,
+        // not when a texture in it changed — see `roomGeometry` in
+        // vite.config.ts. Bakes made before the fingerprint existed carry only
+        // `source`, and fall back to the strict test rather than being trusted.
+        const matches = geometry
+          ? geometry === __ROOM_GEOMETRY__
+          : Boolean(source) && source === __ROOM_HASH__;
+        // Older bakes predate the aging pass, and `--skip-aging` omits it, so
+        // its absence is normal rather than an error.
+        const aged = matches && isRealFile(await fetch(AGING, { method: 'HEAD' }));
+        settle(matches, intensity ?? 1, aged);
       } catch {
         settle(false);
       }
