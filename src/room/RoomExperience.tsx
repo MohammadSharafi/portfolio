@@ -50,13 +50,15 @@ function Scene({
         arm, the chair post, the castors, the guitar frets, every drawer pull.
         They were not dark. They were unlit, and no amount of exposure was
         going to bring them back.
-        So the probe stays mounted when baked, dimmed to roughly a quarter. It
-        is there for the specular half of the lighting; the bake still owns the
-        diffuse half. The overlap — the environment's own small diffuse
-        contribution, on top of the bake's — is the price, and at this
-        intensity it reads as the faint sky fill a room by a window actually
-        has. */}
-      <SceneEnvironment intensity={baked ? 0.1 : 0.62} />
+        So the probe stays mounted when baked — but it reflects the *room*, not
+        the sky. `buildEnvironment` is a cold dome with a horizon band, which is
+        right when the environment is doing the lighting and wrong once a
+        lightmap has taken that job: what is left for the probe is specular, and
+        specular is a reflection of the surroundings. A chrome drawer pull
+        indoors at night reflects dark walls, a warm lamp and two bright
+        monitors, not a blue sky — and handing it the sky put a faint cold cast
+        on every metal and every gloss in the room. */}
+      <SceneEnvironment intensity={baked ? 0.35 : 0.62} interior={baked} />
 
       {/* The rest of the rig is the lit room's business. A baked room carries
         its own direct and bounced light, so re-lighting it would double every
@@ -121,16 +123,28 @@ function Scene({
       </Physics>
 
       <EffectComposer enableNormalPass={false}>
-        {/* Ambient occlusion, and only on the lit path — a baked room already
-          carries its own occlusion in the lightmap, and a second pass on top
-          would darken every corner twice.
+        {/* Ambient occlusion at two very different scales, because the two
+          paths are missing two different things.
 
-          This is the largest single difference between the real-time room and
-          the baked one. Direct light plus an environment gives no contact
-          shadow at all: every object floats a little, because the crease where
-          it meets the floor is exactly as bright as the floor. */}
+          Unbaked, there is no occlusion at all: direct light plus an
+          environment gives no contact shadow, so every object floats a little
+          because the crease where it meets the floor is exactly as bright as
+          the floor. That wants a wide radius doing the whole job.
+
+          Baked, the lightmap has already resolved occlusion by path tracing
+          it, and a second wide pass would darken every corner twice — which is
+          why this used to be switched off entirely. But a 4096 atlas spread
+          over an entire room lands somewhere near a centimetre per texel, and
+          contact darkening lives below that: the millimetre of shadow where a
+          chair castor touches the floor, where a book meets a shelf, where the
+          bin sits on the boards. The lightmap cannot resolve it and the eye
+          reads its absence as objects hovering.
+
+          So the baked path gets a *small* radius at low strength — fine
+          contact only, leaving every larger occlusion to the bake that already
+          did it properly. */}
         {baked ? (
-          <></>
+          <N8AO aoRadius={0.12} intensity={1.1} distanceFalloff={0.35} quality="medium" halfRes />
         ) : (
           <N8AO aoRadius={0.55} intensity={2.4} distanceFalloff={0.8} quality="medium" halfRes />
         )}
@@ -167,6 +181,12 @@ export function RoomExperience() {
         }}
         onCreated={({ gl }) => {
           gl.toneMapping = ACESFilmicToneMapping;
+          // 1.15, not higher. three.js's ACES divides by 0.6 before the curve, which
+          // makes it land close to `tonemap.py`'s Narkowicz fit at zero stops —
+          // so this is very nearly the exposure the bake and the Cycles previews
+          // are judged at, and the browser and the reference render can be
+          // compared directly. Raising it to hide a dark room hides the contrast
+          // along with it.
           gl.toneMappingExposure = 1.15;
         }}
       >

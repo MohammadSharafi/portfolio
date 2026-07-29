@@ -1,5 +1,6 @@
 import { useEffect, useMemo } from 'react';
 import { useGLTF, useTexture } from '@react-three/drei';
+import { useStore } from '@react-three/fiber';
 import type { MeshStandardMaterial, Texture } from 'three';
 import { Mesh, SRGBColorSpace, type Object3D } from 'three';
 import { useEngine } from '../engine/store';
@@ -110,6 +111,10 @@ export function RoomModel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prepared]);
 
+  // `useStore`, not `useThree`. The latter subscribes to every field in the
+  // r3f store, so this component would re-render on any state change at all.
+  const store = useStore();
+
   // A handle on the room, in dev only.
   //
   // Every lighting question this pipeline raises — is the lightmap actually
@@ -119,8 +124,16 @@ export function RoomModel({
   // and re-baking to check. Stripped from production builds by `import.meta.env`.
   useEffect(() => {
     if (!import.meta.env.DEV) return;
-    (window as unknown as { room?: Object3D }).room = prepared;
-  }, [prepared]);
+    // The camera, renderer and scene come along with the room. r3f keeps all
+    // three in its own store rather than in the scene graph, so from a console
+    // there is no way to reach them — which leaves questions like "what does
+    // this shelf look like from 30 cm" and "what is the exposure actually set
+    // to" answerable only by editing the source and waiting for a reload.
+    Object.assign(window as unknown as Record<string, unknown>, {
+      room: prepared,
+      three: store.getState(),
+    });
+  }, [prepared, store]);
 
   useEffect(() => {
     return () => {

@@ -25,15 +25,24 @@ import { NoColorSpace, type MeshStandardMaterial, type Texture } from 'three';
 const DUST_COLOUR = 'vec3( 0.60, 0.575, 0.535 )';
 
 /**
- * How much of each effect at full mask. Both are deliberately low.
+ * How much of each effect at full mask.
  *
- * The masks say *where*, and these say *how much* — and the brief is a room
- * that looks lived in, not dirty. At 0.30 the dust is only legible where it
- * has had a large flat surface to gather on, which is exactly where a person
- * would notice it in a real room and nowhere else.
+ * The masks say *where*, and these say *how much*. Both are set against what
+ * the atlas actually contains rather than by taste, because the two are very
+ * differently distributed and a single "subtle" number suits neither:
+ *
+ *   dust  reaches 255 and covers 12.8% of lit texels
+ *   wear  reaches 228 and covers 2.6%, with a mean of 2.1
+ *
+ * Wear is nearly all zero because nearly all of a room is not an edge. Judging
+ * it by its mean and setting a cautious 0.45 put the sharpest edge in the room
+ * at 0.40 of an effect that is itself subtle — below anything a screen can
+ * show, which is why the first pass was invisible in the browser and the
+ * effect looked like it had not shipped. What matters is the value at the
+ * peak, since the peak is the only place there is an edge to wear.
  */
-export const DUST_AMOUNT = 0.3;
-export const WEAR_AMOUNT = 0.45;
+export const DUST_AMOUNT = 0.4;
+export const WEAR_AMOUNT = 0.85;
 
 /** The GLSL spliced in after the material has resolved its own maps. */
 const AGING_FRAGMENT = /* glsl */ `
