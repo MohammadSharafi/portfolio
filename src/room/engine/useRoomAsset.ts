@@ -73,10 +73,16 @@ export function useRoomAsset(): RoomAsset {
       if (cancelled) return;
       // One model either way. The bake adds lighting to it rather than
       // replacing it — there is no second copy of the room any more.
+      //
+      // Every field describing the bake is cleared together when it is
+      // rejected, `intensity` included. It used to keep the rejected bake's
+      // scale, which was harmless only because the one caller happens to check
+      // `lightmap` first — an asset that advertises a scale for a lightmap it
+      // is not using is a trap set for whoever reads it next.
       setAsset({
         url: ROOM,
         lightmap: found ? LIGHTMAP : null,
-        intensity,
+        intensity: found ? intensity : 1,
         aging: found && aged ? AGING : null,
         resolved: true,
       });
