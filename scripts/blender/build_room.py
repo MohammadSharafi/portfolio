@@ -65,7 +65,12 @@ def argv_after_dashes() -> list[str]:
 # --------------------------------------------------------------------------
 PALETTE = {
     "wall": (0.086, 0.098, 0.129, 1),
-    "wall_accent": (0.129, 0.106, 0.153, 1),
+    # Warm clay rather than the mauve this used to be. The old value was chosen
+    # against a room so dark that only its lightness mattered; lit properly it
+    # read as a strong purple, which fought both the wood and the rug's reds.
+    # Still an accent wall — just one that belongs to the same room as the
+    # floor.
+    "wall_accent": (0.142, 0.117, 0.107, 1),
     "floor": (0.192, 0.137, 0.094, 1),
     "rug": (0.114, 0.125, 0.176, 1),
     "desk": (0.361, 0.243, 0.157, 1),
@@ -1126,8 +1131,12 @@ def build_toronto() -> list[bpy.types.Object]:
     # night skyline long before it washes out the lights, and that difference is
     # most of what makes a city read as deep rather than as one flat cut-out.
     far_mat = material("sky_tower_far", "sky_haze", roughness=0.85, metallic=0.0)
-    lit_mat = material("sky_lit", "warm", roughness=0.4, emission=2.4)
-    cool_lit = material("sky_lit_cool", "cyan", roughness=0.4, emission=2.0)
+    # The city has to compete with a lit room now. Seen from inside a bright
+    # interior a night skyline is mostly a black rectangle — which is true, and
+    # useless, since the view is one of the things the room is for. Raised until
+    # the windows still read against the new interior level.
+    lit_mat = material("sky_lit", "warm", roughness=0.4, emission=6.5)
+    cool_lit = material("sky_lit_cool", "cyan", roughness=0.4, emission=5.5)
 
     parts: list[bpy.types.Object] = []
 
@@ -1183,7 +1192,7 @@ def build_toronto() -> list[bpy.types.Object]:
     ]
     beacon = cylinder(
         "cn_beacon", 0.24, 0.24, (tx, ty, GROUND + 33.7),
-        material("beacon", "red", roughness=0.3, emission=8.0), vertices=8,
+        material("beacon", "red", roughness=0.3, emission=18.0), vertices=8,
     )
     parts.append(join("cn_tower", cn + [beacon]))
 
@@ -3677,17 +3686,79 @@ def build_details() -> list[bpy.types.Object]:
     return out
 
 
+def build_ceiling_lamp() -> list[bpy.types.Object]:
+    """
+    A pendant over the middle of the room, and the reason the room can be bright.
+
+    Every previous attempt to lift the general light level ran into the same
+    wall: the strongest source in the room came from a point just under the
+    ceiling with nothing there to produce it. That reads as wrong immediately,
+    even to someone who could not say why — so the overhead kept getting turned
+    back down, and the room kept being too dark to show any of the detail in it.
+
+    The ceiling itself is bake-only (`EXPORT_EXCLUDE`), so a fixture could not
+    hang off it and reach the browser. This one is separate geometry, which does
+    export, and it is what finally motivates a bright room.
+
+    A wide shallow shade rather than a bare bulb: it puts most of its light
+    down onto the desk and the rug, throws a little up so the ceiling bounce has
+    something to work with, and hides the emitter from the camera at the angles
+    the site actually uses.
+    """
+    lamp: list[bpy.types.Object] = []
+    lx, ly, lz = 0.05, -0.35, 2.28
+
+    metal = material("fitting_metal", "dark_metal", roughness=0.35, metallic=1.0, grain="brushed")
+
+    # Cord and canopy, so it is attached to something.
+    lamp.append(cylinder("pendant_canopy", 0.07, 0.02, (lx, ly, CEILING_HEIGHT - 0.01), metal))
+    lamp.append(
+        cylinder("pendant_cord", 0.006, CEILING_HEIGHT - lz - 0.1, (lx, ly, (CEILING_HEIGHT + lz + 0.1) / 2), metal, vertices=8)
+    )
+
+    # The shade. Warm on the outside, and the emitter is a separate disc tucked
+    # up inside its mouth so the shade reads as lit rather than as glowing.
+    bpy.ops.mesh.primitive_cone_add(radius1=0.30, radius2=0.13, depth=0.16, vertices=28, location=(lx, ly, lz))
+    shade_obj = bpy.context.object
+    shade_obj.name = "pendant_shade"
+    shade_obj.data.name = "pendant_shade"
+    lamp.append(
+        shade(
+            shade_obj,
+            material("pendant_shade", "paper", roughness=0.8, emission=0.7, emission_key="lampglow", grain="paper"),
+        )
+    )
+
+    # The bulb, seen only from below.
+    disc = cylinder(
+        "pendant_bulb",
+        0.11,
+        0.012,
+        (lx, ly, lz - 0.075),
+        material("pendant_bulb", "lampglow", roughness=0.4, emission=7.0, emission_key="lampglow"),
+    )
+    lamp.append(disc)
+    return lamp
+
+
 def add_lighting() -> None:
     """
     The rig the bake resolves. The runtime does not import these — it rigs its
     own — but keeping them here means both start from the same intent.
 
-    This is a room at night, and it is lit like one: a practical overhead, a
-    warm pool from the desk lamp, cold light off the monitors, and city glow
-    through the window. The previous rig was two large soft area lights from
-    above at 520 W and 180 W, which lit every corner to the same value — and an
-    evenly lit room is the single clearest sign of a rendered space. Real rooms
-    have a source and fall away from it.
+    A bright, warm interior. It used to be a night scene lit by practicals
+    alone, which was defensible and was quietly costing everything else: with
+    most surfaces sitting at a fraction of a stop, wood grain, dust, edge wear
+    and the whole material pass had nowhere to show. Every one of those got
+    built, and none of them could be seen. Grading could not rescue it either,
+    because there was nothing in the shadows to lift — you cannot expose your
+    way out of a room that was never lit.
+
+    So the light level comes up several stops and the *sources* stay honest.
+    The pendant added in `build_ceiling_lamp` does most of the work and can be
+    seen doing it, which is what the old overhead never had. The practicals are
+    still here and still matter — they are accents on a lit room now rather than
+    the only things holding the dark back.
     """
     # A world, first. `read_factory_settings(use_empty=True)` leaves the scene
     # without one, and Cycles gathers ambient light from the world — with none,
@@ -3695,14 +3766,15 @@ def add_lighting() -> None:
     # the first baked room came out a dark cave with three bright screens
     # floating in it.
     #
-    # Held low. Ambient is what fills the shadows, and shadows that are filled
-    # to the same level as everything else are not shadows.
+    # Warmer and considerably stronger than the night rig's. This is the light
+    # that reaches into the places no lamp points at, and in a bright room those
+    # places are dim rather than black.
     world = bpy.data.worlds.get("room_world") or bpy.data.worlds.new("room_world")
     bpy.context.scene.world = world
     world.use_nodes = True
     background = world.node_tree.nodes["Background"]
-    background.inputs["Color"].default_value = (0.055, 0.072, 0.125, 1.0)
-    background.inputs["Strength"].default_value = 0.6
+    background.inputs["Color"].default_value = (0.14, 0.15, 0.19, 1.0)
+    background.inputs["Strength"].default_value = 1.6
 
     def area(name, energy, size, location, colour, rotation=(0, 0, 0)):
         bpy.ops.object.light_add(type="AREA", location=location)
@@ -3714,54 +3786,64 @@ def add_lighting() -> None:
         light.rotation_euler = rotation
         return light
 
-    # The practical overhead, just under the ceiling. Small and close rather
-    # than huge and far, so it falls off across the room instead of flooding it.
-    # 150 W, not 260. This is the one source in the room with nothing to come
-    # from — the ceiling is bake-only, so no fixture hanging off it survives to
-    # the browser, and a strong overhead with no visible lamp is exactly the
-    # "where is that light coming from" the room kept provoking. It is now a
-    # soft fill that lets the desk lamp, the monitors, the floor lamp and the
-    # window read as the sources instead.
-    area("key", 150, 1.5, (0.35, 0.15, 2.58), (1.0, 0.94, 0.86))
+    # The pendant, and the room's key. It sits inside the shade built by
+    # `build_ceiling_lamp`, so this is the one strong source in the room that
+    # has something visible making it.
+    #
+    # Tungsten-warm rather than white. A warm key against the cold window and
+    # colder monitors is what gives the room two temperatures to play against
+    # each other; a neutral key flattens that into one wash.
+    bpy.ops.object.light_add(type="POINT", location=(0.05, -0.35, 2.20))
+    pendant = bpy.context.object
+    pendant.name = "pendant_light"
+    pendant.data.energy = 900
+    pendant.data.color = (1.0, 0.83, 0.62)
+    pendant.data.shadow_soft_size = 0.22
 
-    # A weak bounce off the left wall, enough that the shelf side of the room is
-    # not a silhouette. Deliberately far below the key.
-    area("fill", 55, 2.4, (-2.4, 1.2, 2.2), (0.82, 0.86, 1.0))
+    # A broad soft top-up under the ceiling, well below the pendant. Not a
+    # second key — it exists so the pendant's falloff lands on something instead
+    # of running to black at the edges of the room.
+    area("ceiling_bounce", 210, 3.2, (0.1, 0.1, 2.62), (1.0, 0.93, 0.84))
+
+    # Wall washes, one per wall, aimed *at* the wall rather than into the room.
+    # A room this size reads as a box unless its walls carry a gradient, and a
+    # gradient on a wall has to come from a source beside it.
+    area("wash_left", 130, 2.2, (-2.72, 0.6, 1.95), (1.0, 0.9, 0.8),
+         rotation=(0, math.radians(-62), 0))
+    area("wash_back", 120, 2.4, (0.2, 2.35, 1.95), (0.98, 0.92, 0.86),
+         rotation=(math.radians(62), 0, 0))
 
     # The desk lamp. Positioned from the lamp's actual head — it used to sit at
     # (-1.02, -2.0), which is where the lamp stood before it was moved to the
     # back-right corner, so the room's warmest light came from a bare patch of
-    # desk two and a half metres away from the lamp casting it. The third bug of
-    # exactly this kind, after the lamp's power cable and six camera stops.
-    # The floor lamp, which until now was a lamp-shaped object that did nothing.
-    #
-    # It stands 2 m from the nearest light and casts none of its own, so the
-    # lounge half of the room was lit by an overhead source with no fixture
-    # while the one visible fixture down there sat dark. `check_lights` could
-    # not see it: that walks a curated list of light-and-fixture pairs, so it
-    # catches a light that has drifted from its lamp and is blind to a lamp
-    # that never had a light. `check_dark_fixtures` covers the other direction.
-    bpy.ops.object.light_add(type="POINT", location=(-1.22, 1.85, 1.44))
-    floor_lamp = bpy.context.object
-    floor_lamp.name = "floor_lamp_light"
-    floor_lamp.data.energy = 52
-    floor_lamp.data.color = (1.0, 0.72, 0.42)
-    floor_lamp.data.shadow_soft_size = 0.09
-
+    # desk two and a half metres away from the lamp casting it.
     bpy.ops.object.light_add(type="POINT", location=(0.80, DESK_BACK + 0.28, 1.10))
     warm = bpy.context.object
     warm.name = "lamp_light"
-    warm.data.energy = 70
-    warm.data.color = (1.0, 0.62, 0.28)
+    warm.data.energy = 120
+    warm.data.color = (1.0, 0.68, 0.36)
     warm.data.shadow_soft_size = 0.06
 
+    # The floor lamp, which until now was a lamp-shaped object that did nothing.
+    # `check_lights` could not see that: it walks a curated list of
+    # light-and-fixture pairs, so it catches a light that has drifted from its
+    # lamp and is blind to a lamp that never had a light.
+    bpy.ops.object.light_add(type="POINT", location=(-1.22, 1.85, 1.44))
+    floor_lamp = bpy.context.object
+    floor_lamp.name = "floor_lamp_light"
+    floor_lamp.data.energy = 95
+    floor_lamp.data.color = (1.0, 0.74, 0.46)
+    floor_lamp.data.shadow_soft_size = 0.09
+
     # The monitors, throwing cold light forward onto the desk and the chair.
-    area("screen_bounce", 70, 1.2, (0.0, DESK_BACK + 0.26, 1.10), (0.42, 0.66, 1.0),
+    # Kept cold and kept modest: against a warm key its job is to tint the desk,
+    # not to light it.
+    area("screen_bounce", 85, 1.2, (0.0, DESK_BACK + 0.26, 1.10), (0.42, 0.66, 1.0),
          rotation=(math.radians(90), 0, 0))
 
-    # City glow through the window. Weak, cold, and coming from the one place in
-    # the room where outside light could plausibly arrive.
-    area("window_glow", 45, 1.3, (2.05, -2.42, 1.72), (0.52, 0.66, 1.0),
+    # City glow through the window — the one cold source with somewhere real to
+    # come from, and the reason the near wall does not match the far one.
+    area("window_glow", 110, 1.3, (2.05, -2.42, 1.72), (0.55, 0.68, 1.0),
          rotation=(math.radians(90), 0, 0))
 
 
@@ -3965,6 +4047,7 @@ def build_all() -> None:
     build_door()
     build_fittings()
     build_details()
+    build_ceiling_lamp()
     add_lighting()
 
 
