@@ -59,9 +59,11 @@ const AGING_FRAGMENT = /* glsl */ `
   // one place more than another, a corner catches and a span beside it does
   // not.
   //
-  // Two octaves of cheap value noise on the atlas UV, which is unique per
-  // point, so the patchiness is stable in world space and does not swim when
-  // the camera moves. Kept above zero at its lowest so heavily worn spots stay
+  // One octave of value noise, sampled on the atlas UV. That coordinate is
+  // unique per point on the room, so the patchiness sits still in world space
+  // rather than swimming as the camera moves — which a screen-space or
+  // view-dependent hash would do, and which reads instantly as a shader rather
+  // than as dirt. Kept above zero at its lowest so heavily worn spots stay
   // continuous instead of dissolving into speckle.
   vec2 wearCell = vAoMapUv * 220.0;
   vec2 wearId = floor( wearCell );
