@@ -1929,9 +1929,22 @@ def build_keyboard_and_props() -> list[bpy.types.Object]:
         # went with it, so the one gap that tells a keyboard from a calculator
         # was at the near edge too.
         y = KY + row_index * U + (0.0 if row_index == 0 else cluster_gap)
-        x = KX - 15 * U / 2
+        # Columns run toward -X, and that is not arbitrary.
+        #
+        # The typist sits at +Y and looks down -Y, which puts world +X on their
+        # left — the same fact that makes every monitor in this room need
+        # `mirror-u`. Laying column 0 out at the smallest X therefore put the
+        # escape key at the typist's right hand and the 2u backspace at their
+        # left, with the whole board reflected about its centre line.
+        #
+        # It survived a long time because it is invisible from every angle the
+        # room is normally seen from, and because a keyboard is symmetrical
+        # enough at a glance that only the legends give it away — which there
+        # were none of until now.
+        x = KX + 15 * U / 2
         for col, width in enumerate(widths):
             span = width * U
+            x -= span
             cap = cube(
                 f"key_{row_index}_{col}",
                 (span - 0.0025, U - 0.0025, 0.0075),
@@ -1946,7 +1959,12 @@ def build_keyboard_and_props() -> list[bpy.types.Object]:
             # The cap turns about its own middle, so its top corner travels —
             # placing the quad at the untilted height leaves it hanging off the
             # back edge of every key in the two steepest rows.
-            lift_h = 0.0040
+            # Half a tenth of a millimetre above the cap's top face, which is
+            # as close as it can sit without coplanarity. It was five times
+            # that, and the gap was visible: enough parallax to shift the mark
+            # off centre at a low angle, and enough room underneath for contact
+            # darkening to draw a rectangle around it. Printing has no gap.
+            lift_h = 0.00380
             legend = plane(
                 f"legend_{row_index}_{col}",
                 (min(span, U) * 0.58, U * 0.50),
@@ -1972,9 +1990,8 @@ def build_keyboard_and_props() -> list[bpy.types.Object]:
                     bevel=0,
                 )
             )
-            x += span
 
-    join("ix_keycap_legends", legends)
+    legend_block = join("ix_keycap_legends", legends)
 
     depth = len(rows) * U + 0.014 + cluster_gap
     body = cube("kb_body", (15 * U + 0.016, depth, 0.016),
@@ -2040,8 +2057,32 @@ def build_keyboard_and_props() -> list[bpy.types.Object]:
     # up toward the person is the one orientation that makes it unusable, and it
     # is invisible from above — which is the only angle the room is normally
     # seen from.
-    set_origin(keyboard, (KX, KY + (len(rows) - 1) * U + cluster_gap + U * 0.5, DESK_TOP))
-    keyboard.rotation_euler = (math.radians(-6), 0, 0)
+    # The pivot, named once, because two objects have to turn about it and the
+    # legends are not in the join above.
+    #
+    # They cannot be: they carry a grid atlas addressed through per-cell UVs and
+    # the runtime paints them as one surface, so they are a separate mesh by
+    # design. That made them the one part of the keyboard the slope did not
+    # reach — the caps rose by up to 12 mm at the back and the legends stayed
+    # flat on the deck, which buried every one of them inside the key it was
+    # meant to be printed on.
+    #
+    # It looked exactly like a texture that had failed to apply, and it was
+    # chased as one: the atlas was regenerated, the UVs were dumped and checked
+    # cell by cell, the material assignment was traced through the render, and
+    # every one of those came back correct. What finally showed it was measuring
+    # the geometry — cap tops at z 0.823, legends at 0.812 — because a thing
+    # that is 11 mm inside another thing is not a shading problem.
+    slope = (KX, KY + (len(rows) - 1) * U + cluster_gap + U * 0.5, DESK_TOP)
+    for part in (keyboard, legend_block):
+        set_origin(part, slope)
+        part.rotation_euler = (math.radians(-6), 0, 0)
+    # A legend is printed on the cap, not resting above it. The quad clears the
+    # cap by a quarter of a millimetre, which is nothing to look at and plenty
+    # to cast with — at the grazing angle the desk lamp makes, that gap threw a
+    # crisp offset rectangle onto every key and the caps read as having stickers
+    # on them.
+    legend_block.visible_shadow = False
 
     # A mouse is a dome, not a disc. Subdividing a short box rounds the top and
     # keeps the base flat on the desk, which a scaled cylinder cannot do.

@@ -59,7 +59,7 @@ function Scene({
         indoors at night reflects dark walls, a warm lamp and two bright
         monitors, not a blue sky — and handing it the sky put a faint cold cast
         on every metal and every gloss in the room. */}
-      <SceneEnvironment intensity={baked ? 0.35 : 0.62} interior={baked} />
+      <SceneEnvironment intensity={baked ? 0.35 : 0.3} interior={baked} />
 
       {/* The rest of the rig is the lit room's business. A baked room carries
         its own direct and bounced light, so re-lighting it would double every
@@ -72,22 +72,27 @@ function Scene({
         which against the pale walls blew the room out to one flat blue-white
         and looked nothing like the room the bake produces.
 
-        So it mirrors `add_lighting` in build_room.py: a warm key from where the
-        ceiling source is, violet down the shelf wall, amber along the door
-        wall, and the practicals as accents. Two rigs, one art direction. */}
+        So it mirrors `add_lighting` in build_room.py, which no longer has an
+        overhead at all: two LED coves, a desk lamp, a floor lamp, the monitors
+        and the window, with a dim cool bounce standing in for the ceiling.
+        Two rigs, one art direction. */}
       {baked ? null : (
         <>
-          {/* Low and warm. Ambient is what fills the shadows, and shadows
-            filled to the same level as everything else are not shadows — the
-            pale walls do the filling now, by bouncing the key around. */}
-          <ambientLight color="#4a4038" intensity={0.55} />
+          {/* Barely there, and cool. This stands in for the light the ceiling
+            returns after the practicals have thrown their share at it — which
+            in a room lit by two LED coves and a lamp is very little, and blue.
+            It was 0.55 and warm, which filled every shadow to the same value as
+            everything else and left the room with no shape in it. */}
+          <ambientLight color="#232a3a" intensity={0.16} />
 
-          {/* The key, from where the ceiling source sits in the bake. Warm, and
-            the only light here casting a shadow map: a second shadow-caster in
-            a room this size reads as two suns. */}
+          {/* Not a key any more — the overhead is off. This is the same bounce
+            term from above given a direction so surfaces facing up read a
+            little brighter than surfaces facing down, which is what bounce
+            does. It still casts the room's one shadow map: a second
+            shadow-caster in a room this size reads as two suns. */}
           <directionalLight
-            color="#ffd9b0"
-            intensity={2.2}
+            color="#8f9ec4"
+            intensity={0.42}
             position={[0.6, 6.2, 1.4]}
             castShadow
             shadow-mapSize={[2048, 2048]}
@@ -97,24 +102,31 @@ function Scene({
             <orthographicCamera attach="shadow-camera" args={[-6, 6, 6, -6, 0.1, 30]} />
           </directionalLight>
 
-          {/* Violet down the shelf wall and amber along the door wall — the two
-            colours the room is built around, from the sides they come from. */}
-          <directionalLight color="#b25cff" intensity={0.85} position={[-6.5, 2.4, 0.8]} />
-          <directionalLight color="#ff9a4d" intensity={0.7} position={[1.2, 2.0, 6.0]} />
+          {/* The two coves, as light rather than as geometry. The strips
+            themselves are emissive in the model and would glow without these —
+            and glowing without lighting the wall behind them is exactly what
+            makes a strip read as a sticker. Cyan down the shelf wall, magenta
+            along the window wall, matching `build_led_strips`. */}
+          <directionalLight color="#47dbff" intensity={0.62} position={[-6.5, 2.6, 0.4]} />
+          <directionalLight color="#ff4ab4" intensity={0.5} position={[0.4, 2.4, -6.2]} />
 
-          {/* The desk lamp: the warmest, tightest thing in the room, and a real
-            switch — turning it off changes what the room is lit by. */}
+          {/* The desk lamp, and it has to be the brightest thing in the room by
+            a long way — everything above this is cold, and without a warm
+            centre to measure them against they stop being atmosphere and become
+            a colour cast. A real switch, too: turning it off changes what the
+            room is lit by. */}
           <pointLight
             color="#ff9a42"
-            intensity={lampOn ? 12 : 0}
+            intensity={lampOn ? 30 : 0}
             distance={3.4}
             decay={2}
             position={[0.8, 1.1, 2.22]}
           />
-          {/* The floor lamp, by the shelf. */}
+          {/* The floor lamp, by the shelf, so the lounge end is not simply the
+            part of the room the desk lamp did not reach. */}
           <pointLight
             color="#ffb877"
-            intensity={9}
+            intensity={18}
             distance={3.8}
             decay={2}
             position={[-1.22, 1.44, -1.85]}
@@ -122,7 +134,7 @@ function Scene({
           {/* The monitors, cold and close. */}
           <pointLight
             color="#5a93ff"
-            intensity={7}
+            intensity={5}
             distance={2.6}
             decay={2}
             position={[0, 1.1, 2.24]}
@@ -130,7 +142,7 @@ function Scene({
           {/* City glow at the window: the coldest thing in the room. */}
           <pointLight
             color="#6f93e0"
-            intensity={6}
+            intensity={4}
             distance={4.2}
             decay={2}
             position={[2.05, 1.7, 2.42]}

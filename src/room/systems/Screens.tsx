@@ -1,12 +1,19 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { Mesh, MeshBasicMaterial, type Object3D, type Texture } from 'three';
+import {
+  Mesh,
+  MeshBasicMaterial,
+  type MeshStandardMaterial,
+  type Object3D,
+  type Texture,
+} from 'three';
 import {
   bookSpineTexture,
   certificateTexture,
   clinicalScreen,
   codeScreen,
   cvTexture,
+  keycapTexture,
   stickyTexture,
   terminalScreen,
   whiteboardTexture,
@@ -33,7 +40,24 @@ const TARGETS: Record<string, () => Texture> = {
   ix_whiteboard_face: whiteboardTexture,
   ix_sticky_notes: stickyTexture,
   ix_cv_face: cvTexture,
+  ix_keycap_legends: keycapTexture,
 };
+
+/**
+ * Painted, but not *replaced* — these keep the material the room gave them and
+ * only gain a map.
+ *
+ * Everything else here becomes `MeshBasicMaterial`, which is unlit by design: a
+ * monitor showing a document is emitting, and shading it would darken it where
+ * it is brightest. A keycap legend is the opposite. It is ink on plastic, three
+ * millimetres across, sitting on a cap that is being shaded — so making it
+ * unlit lights it fully in a room where nothing else is, and every key grows a
+ * pale rectangle that reads as a sticker rather than as printing.
+ *
+ * Mutating the existing material also keeps the lightmap, the aging masks and
+ * the roughness the build gave it, none of which a fresh material would carry.
+ */
+const LIT = new Set(['ix_keycap_legends']);
 
 /** Screens read as light sources; paper does not. */
 const EMISSIVE = new Set([
@@ -151,6 +175,25 @@ export function Screens({ root }: { root: Object3D }) {
           ? certificateTextures.get(Number(certificate[1]))
           : textures.get(key);
       if (!texture) return;
+
+      if (LIT.has(key)) {
+        const material = node.material;
+        if (!Array.isArray(material) && 'map' in material) {
+          const standard = material as MeshStandardMaterial;
+          standard.map = texture;
+          // White, because `map` multiplies `color` rather than replacing it.
+          // Left at the cap colour the two would compound and the marks would
+          // render at the square of a dark blue, which is black.
+          standard.color.setRGB(1, 1, 1);
+          standard.transparent = true;
+          // The atlas is mostly empty and the quad sits a twentieth of a
+          // millimetre off the cap, so writing depth for fully transparent
+          // texels would z-fight with the key underneath along every edge.
+          standard.depthWrite = false;
+          material.needsUpdate = true;
+        }
+        return;
+      }
 
       const previous = node.material;
       node.material = new MeshBasicMaterial({

@@ -805,3 +805,102 @@ export function bookSpineTexture(index: number) {
   // too small to read upside-down from any camera the room has.
   return finish(canvas, 'flip-v');
 }
+
+/**
+ * The keycap legends: one 15x6 atlas the whole keyboard addresses.
+ *
+ * `build_keyboard_and_props` puts a small quad on top of every cap and points
+ * its UVs at cell (column, row) through `_cell_uvs`, so this canvas is a grid
+ * and each cell is one key's face. Rows are the keyboard's rows top to bottom;
+ * columns are position within the row. Rows are shorter than fifteen keys
+ * wherever the row carries wide keys, and those trailing cells are simply never
+ * sampled.
+ *
+ * Letters rather than a photograph of a keyboard, because a keyboard seen from
+ * across a room is not read — it is *recognised*, and what makes it recognisable
+ * is the shape of the block plus the fact that the caps carry marks at all. A
+ * blank keyboard reads as a prop instantly; a legible one at this distance would
+ * only be legible if the letters were far too big.
+ *
+ * Drawn as-is, with no mirroring. That is worth stating because it was got
+ * wrong first time on an argument that sounded airtight — the quads face +Z
+ * with U along world +X, the typist looks down -Y, and a cross product says
+ * world +X lands on their left, so the legends should need flipping. They
+ * render backwards when flipped. The argument is somewhere wrong and the
+ * render is not, so this follows the render.
+ *
+ * A texture-level `mirror-u` would be the wrong tool regardless: negating U
+ * across the whole atlas maps cell 0 to cell 14, so every key would show a
+ * different key's letter. Anything an atlas needs has to happen inside a cell.
+ */
+const KEY_ROWS: readonly (readonly string[])[] = [
+  ['esc', 'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12', '⌦', '⏏'],
+  ['`', '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=', '⌫'],
+  ['⇥', 'Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P', '[', ']', '\\'],
+  ['⇪', 'A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L', ';', "'", '⏎'],
+  ['⇧', 'Z', 'X', 'C', 'V', 'B', 'N', 'M', ',', '.', '/', '⇧'],
+  ['ctrl', '⌥', '⌘', '', '⌘', '⌥', 'fn', 'ctrl'],
+];
+
+export function keycapTexture() {
+  const columns = 15;
+  const rows = KEY_ROWS.length;
+  const cell = { w: 128, h: 110 };
+
+  // Transparent, so there is no background to match.
+  //
+  // It was painted the cap's own colour on the theory that an exact match would
+  // vanish. It does not, and cannot: the quad is a different material from the
+  // cap — its own roughness, no procedural grain, no aging masks — so matching
+  // the base colour still leaves a rectangle that shades differently from the
+  // key under it, and every cap in the room grew what looked like a sticker.
+  //
+  // Drawing only the mark and letting the cap show through removes the whole
+  // class of mismatch rather than tuning it down. There is nothing to match
+  // when there is nothing there.
+  const canvas = document.createElement('canvas');
+  canvas.width = columns * cell.w;
+  canvas.height = rows * cell.h;
+  const ctx = canvas.getContext('2d')!;
+
+  for (const [row, keys] of KEY_ROWS.entries()) {
+    for (const [column, label] of keys.entries()) {
+      if (!label) continue;
+
+      const cx = (column + 0.5) * cell.w;
+      const cy = (row + 0.5) * cell.h;
+
+      ctx.save();
+      ctx.translate(cx, cy);
+      // Rotated half a turn, per cell.
+      //
+      // `_cell_uvs` already inverts V so that row 0 is the top row of the
+      // image, and the quads address U along world +X while the typist reads
+      // along -X. Those two together are a 180° turn, not a mirror, which is
+      // worth distinguishing because the two look alike on letters and not at
+      // all on digits: drawn straight, `9` came out as `6` and the brackets
+      // swapped both their shapes and their places. A mirror does neither.
+      //
+      // Applied inside the cell rather than to the texture, because negating U
+      // across a grid atlas maps cell 0 to cell 14 and every key would show a
+      // different key's letter.
+      ctx.scale(-1, -1);
+
+      // Sub-pixel legends on modifiers, full size on the alphanumerics. A real
+      // cap does the same thing for the same reason — "shift" does not fit at
+      // the size "A" is set in.
+      const long = label.length > 2;
+      ctx.font = `${long ? 500 : 600} ${long ? 34 : 52}px ${FONT_UI}`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      // Never white. Legends are printed or lasered on, and the mark takes the
+      // room's light like the plastic around it — a pure white letter on a dim
+      // keyboard is the one thing in the render that is brighter than the lamp.
+      ctx.fillStyle = 'rgba(226,232,244,0.88)';
+      ctx.fillText(label, 0, 2);
+      ctx.restore();
+    }
+  }
+
+  return finish(canvas);
+}

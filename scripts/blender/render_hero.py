@@ -51,6 +51,11 @@ sys.path.insert(0, HERE)
 VIEWS: dict[str, tuple[tuple[float, float, float], tuple[float, float, float], float, float]] = {
     "hero": ((3.05, 1.85, 1.62), (-0.60, -2.10, 0.95), 35.0, 2.8),
     "desk": ((1.15, -0.62, 1.16), (-0.30, -2.30, 0.86), 50.0, 2.0),
+    # Close on the key block, from where a typist's eyes are. Purely for QA:
+    # the legends address a grid atlas through per-cell UVs, and the failure
+    # mode of that — a mirrored glyph, a row printed in the wrong place — is
+    # invisible at any distance the room is actually seen from.
+    "keyboard": ((-0.16, -1.74, 1.16), (-0.16, -1.93, 0.80), 50.0, 0.41),
     "shelf": ((2.30, 1.05, 1.45), (-3.00, 1.05, 1.20), 50.0, 2.5),
     "lounge": ((2.55, -0.35, 1.30), (0.10, 1.70, 0.55), 35.0, 2.8),
     "window": ((2.05, -0.75, 1.68), (2.05, -2.62, 1.62), 50.0, 4.0),
@@ -161,6 +166,9 @@ SCREENS: dict[str, tuple[str, float, str]] = {
     "ix_whiteboard_face": ("whiteboard", 0.0, "flip-v"),
     "ix_sticky_notes": ("sticky", 0.0, "flip-v"),
     "ix_cv_face": ("cv", 0.0, "mirror-u"),
+    # The legend atlas is a grid, so it is drawn pre-mirrored per cell and
+    # needs no correction here — see `keycapTexture`.
+    "ix_keycap_legends": ("keycap", 0.0, "flip-v"),
 }
 
 
@@ -198,6 +206,22 @@ def paint_screens() -> int:
             print(f"[render_hero] {obj.name} wants {name}.png, which is not there")
             continue
 
+        # What the surface was made of before it was painted, so a printed
+        # legend keeps the finish of the cap it is printed on. Hardcoding a
+        # roughness here made every painted patch a slightly different material
+        # from its surroundings, which on a monitor is invisible and on a 3 mm
+        # keycap legend is a pale rectangle floating on the key.
+        previous = obj.data.materials[0] if obj.data.materials else None
+        inherited = {}
+        if previous is not None and previous.use_nodes:
+            old_bsdf = previous.node_tree.nodes.get("Principled BSDF")
+            if old_bsdf is not None:
+                inherited = {
+                    key: old_bsdf.inputs[key].default_value
+                    for key in ("Roughness", "Coat Weight", "Coat Roughness")
+                    if key in old_bsdf.inputs
+                }
+
         mat = bpy.data.materials.new(f"render_{name}")
         mat.use_nodes = True
         bsdf = mat.node_tree.nodes["Principled BSDF"]
@@ -227,8 +251,18 @@ def paint_screens() -> int:
             bsdf.inputs["Emission Strength"].default_value = emission
             mat.node_tree.links.new(tex.outputs["Color"], bsdf.inputs["Emission Color"])
         else:
-            bsdf.inputs["Roughness"].default_value = 0.62
+            bsdf.inputs["Roughness"].default_value = inherited.get("Roughness", 0.62)
+            for key, value in inherited.items():
+                if key != "Roughness":
+                    bsdf.inputs[key].default_value = value
             mat.node_tree.links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
+            # Alpha too, for atlases that are mostly empty. The keycap legends
+            # draw only the marks and let the cap show through, which is the
+            # only way a printed legend can carry the finish of the plastic it
+            # is printed on.
+            if tex.image.depth == 32:
+                mat.node_tree.links.new(tex.outputs["Alpha"], bsdf.inputs["Alpha"])
+                mat.blend_method = "BLEND"
 
         obj.data.materials.clear()
         obj.data.materials.append(mat)
@@ -278,9 +312,14 @@ def main() -> None:
     if not bake_room.ensure_cycles():
         sys.exit("Cycles could not be selected; enable it under Preferences > Add-ons.")
 
+    # Paint first, upgrade second. `paint_screens` replaces a painted surface's
+    # material outright, so running it after the upgrades threw them away — the
+    # keycap legends came out as flat rectangles a shade lighter than the caps
+    # they sit on, because the caps had the moulded-plastic coat and the quad
+    # printed on them did not.
+    print(f"[render_hero] painted {paint_screens()} screen(s) with the site's own content")
     upgraded = photoreal_overrides()
     print(f"[render_hero] upgraded {upgraded} material slot(s) beyond what the browser can draw")
-    print(f"[render_hero] painted {paint_screens()} screen(s) with the site's own content")
 
     scene = bpy.context.scene
     bake_room.configure_cycles(args.samples, force_cpu=False, exposure=0.0)
