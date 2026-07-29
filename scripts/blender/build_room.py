@@ -1683,7 +1683,7 @@ def build_laptop() -> list[bpy.types.Object]:
     # Angled as well as moved: a laptop set down beside a monitor is turned
     # toward whoever is sitting there, and the turn also puts its lid across the
     # sightline rather than edge-on to it.
-    lx, ly = -0.82, DESK_FRONT - 0.22
+    lx, ly = -0.56, DESK_FRONT - 0.33
     deck_top = DESK_TOP + 0.022
 
     base = cube("laptop_base", (0.35, 0.245, 0.012), (lx, ly, DESK_TOP + 0.006), body)
@@ -2136,7 +2136,7 @@ def build_keyboard_and_props() -> list[bpy.types.Object]:
     notebook = cube(
         "ix_notebook",
         (0.155, 0.215, 0.016),
-        (-0.44, DESK_FRONT - 0.17, DESK_TOP + 0.008),
+        (0.26, DESK_FRONT - 0.40, DESK_TOP + 0.008),
         material("notebook", "book_a", roughness=0.6),
         rotation_z=math.radians(-9),
     )
@@ -2144,7 +2144,7 @@ def build_keyboard_and_props() -> list[bpy.types.Object]:
         "ix_pencil",
         0.0045,
         0.16,
-        (-0.44, DESK_FRONT - 0.14, DESK_TOP + 0.020),
+        (0.26, DESK_FRONT - 0.37, DESK_TOP + 0.020),
         material("pencil", "sticky", roughness=0.6),
         vertices=6,
         rotation=(0, math.radians(90), math.radians(14)),
@@ -2341,7 +2341,7 @@ def build_lamp() -> list[bpy.types.Object]:
     shade(shade_obj, metal)
     parts.append(shade_obj)
 
-    bulb = cylinder("ix_lamp", 0.03, 0.03, (head[0] - 0.012, head[1] - 0.016, head[2] - 0.042), bulb_mat, vertices=12)
+    bulb = cylinder("lamp_bulb", 0.03, 0.03, (head[0] - 0.012, head[1] - 0.016, head[2] - 0.042), bulb_mat, vertices=12)
 
     # The lit inside of the shade, and the reason the lamp reads as switched on.
     #
@@ -2393,7 +2393,10 @@ def build_lamp() -> list[bpy.types.Object]:
     # under the light it is supposed to be adding.
     beam_mat = material("lamp_beam", "lampglow", roughness=1.0)
     beam_bsdf = beam_mat.node_tree.nodes["Principled BSDF"]
-    beam_bsdf.inputs["Alpha"].default_value = 0.045
+    # Lower now that the lamp is a spot: a real cone of light does most of what
+    # this cone was faking, and stacking the two gave a hotspot with a hard
+    # painted edge inside it.
+    beam_bsdf.inputs["Alpha"].default_value = 0.022
     beam_bsdf.inputs["Emission Color"].default_value = PALETTE["lampglow"]
     beam_bsdf.inputs["Emission Strength"].default_value = 1.4
     beam_mat.blend_method = "BLEND"
@@ -2409,7 +2412,14 @@ def build_lamp() -> list[bpy.types.Object]:
     shade(beam, beam_mat)
     beam.visible_shadow = False
 
-    return [join("lamp", parts), bulb, mouth, beam]
+    # The *fixture* is what answers to a click, not the bulb.
+    #
+    # `ix_lamp` used to be the 3 cm bulb up inside the shade, which is exactly
+    # where a bulb belongs and exactly where nothing can be clicked: the new
+    # occlusion check measured it at 100% hidden from the home camera. The
+    # overlay's "Desk lamp" button still worked, so the fault only showed up as
+    # the one object in the room you could not click on in the room.
+    return [join("ix_lamp", parts), bulb, mouth, beam]
 
 
 # How a book is built, and why a box is not one.
@@ -2882,7 +2892,18 @@ def build_chair_and_plant() -> list[bpy.types.Object]:
     # the keyboard's wrist rest entirely inside the chair. The armrest pads top
     # out at 0.745 against a 0.75 underside, so they pass beneath with 5 mm to
     # spare either way — it is the seat, not the arms, that sets the limit.
-    cx, cy = CHAIR_X + 0.11, DESK_FRONT + 0.50
+    # Pushed aside, not tucked in, and that is a composition decision as much
+    # as a narrative one.
+    #
+    # A chair squared up to the desk presents its back to the camera as a
+    # metre-wide silhouette across the middle of a 2.2 m desk, and everything
+    # behind it is simply unreachable — the laptop, the notebook and the pencil
+    # were all measured at 87-100% hidden, and no amount of moving them helped
+    # because the only clear space left was already full.
+    #
+    # Off to one side it covers the end of the desk instead of the middle, and
+    # it reads as a chair somebody got up from rather than a showroom.
+    cx, cy = CHAIR_X + 0.16, DESK_FRONT + 0.94
     parts = []
 
     # Seat: a control cage dished in the middle and turned up at the sides, then
@@ -3199,7 +3220,7 @@ def build_chair_and_plant() -> list[bpy.types.Object]:
     #
     # Out, across and turned: the desk opens up, and the chair reads as one
     # somebody has just got up from rather than one nobody has ever sat in.
-    chair.rotation_euler = (0, 0, math.radians(-31))
+    chair.rotation_euler = (0, 0, math.radians(-46))
 
     return [chair, build_plant(2.78, 0.35)]
 
@@ -4089,59 +4110,78 @@ def build_details() -> list[bpy.types.Object]:
 
 def build_led_strips() -> list[bpy.types.Object]:
     """
-    Cove strips along both walls, and the reason the room can be dark.
+    Strip lighting, mounted on the furniture rather than run along the walls.
 
-    In every reference for this room the light source is *in the frame*. Not a
-    lamp lighting a wall — a line of emitter running along the wall itself, with
-    its own colour, bright enough to be the brightest thing in the shot. That is
-    what lets the rest of the room fall away to almost nothing and still read:
-    the eye has something to hold, so the darkness becomes mood instead of
-    underexposure.
+    The first attempt put two long coves high on both walls. They read as being
+    on the outside of the building — the walls are 5.4 m tall so the camera
+    never sees where they stop, and a bright line with a metre of empty wall
+    above it and every object in the room well below has nothing to belong to.
+    Dropping them to 1.95 m was worse: at that height they ran straight through
+    the picture frames, across the door opening and behind the whiteboard, and a
+    light fitting that passes through a door is not a fitting at all.
 
-    Two runs, meeting at the corner: cyan down the shelf wall, magenta along the
-    window wall. Opposed colours rather than one, because a single colour is a
-    filter over the whole room and two are a room with two sides to it — and the
-    corner where they meet is the most interesting thing in the frame.
+    The references do not light walls. Every one of them lights *furniture* —
+    under a shelf, behind a monitor, beneath a desk — and the wall wash is what
+    spills off it. That is also how anyone actually installs LED tape, because
+    tape needs something to stick to and a mounting line that means something.
 
-    Each strip is geometry *and* a light. Emission alone makes a bright line
-    that illuminates nothing, which reads instantly as a sticker; the wall
-    behind it has to carry the falloff or the strip is not really there.
+    So: three runs under the bookshelf's shelves, one behind the desk, and one
+    under the desk's front edge throwing down at the floor. Each is a channel
+    with the emitter recessed into it, because bare tape is a row of dots and
+    nobody ships that; the extrusion is the heatsink and the diffuser is what
+    makes it a line.
     """
     strips: list[bpy.types.Object] = []
-    height = 2.34
 
-    # (name, palette, size, location, light colour, light size, light rotation)
-    runs = (
-        (
-            "led_cove_shelf", "cyan",
-            (0.022, 4.9, 0.016), (-3.122, 0.0, height),
-            (0.28, 0.86, 1.0), (0.10, 4.6), (0.0, math.radians(-88), 0.0),
-        ),
-        (
-            "led_cove_window", "magenta",
-            (6.2, 0.022, 0.016), (0.0, -2.522, height),
-            (1.0, 0.22, 0.72), (5.9, 0.10), (math.radians(88), 0.0, 0.0),
-        ),
-    )
+    channel_mat = material("led_channel", "dark_metal", roughness=0.42, metallic=1.0,
+                           grain="brushed")
 
-    for name, colour, size, location, light_rgb, light_size, rotation in runs:
+    def run(name, colour, size, location, light_rgb, light_size, rotation, energy):
+        """One channel, its emitter, and the light that makes the emitter mean something."""
+        along = 0 if size[0] < size[1] else 1
+        housing = list(size)
+        housing[2] = 0.020
+        housing[along] = size[along]
+        housing[1 - along] = 0.026
         strips.append(
-            cube(
-                name,
-                size,
-                location,
-                material(name, colour, roughness=0.35, emission=14.0),
-                bevel=0.003,
-            )
+            cube(f"{name}_channel", tuple(housing),
+                 (location[0], location[1], location[2] + 0.008), channel_mat, bevel=0.002)
+        )
+        strips.append(
+            cube(name, size, location,
+                 material(name, colour, roughness=0.35, emission=16.0), bevel=0.002)
         )
         bpy.ops.object.light_add(type="AREA", location=location)
         light = bpy.context.object
         light.name = f"{name}_light"
         light.data.shape = "RECTANGLE"
         light.data.size, light.data.size_y = light_size
-        light.data.energy = 85
+        light.data.energy = energy
         light.data.color = light_rgb
+        # Tape in a channel throws down and forward, not backward into the
+        # shelf it is screwed to.
+        light.data.spread = math.radians(120)
         light.rotation_euler = rotation
+
+    # Under each of the three lower shelves, lighting the books on the shelf
+    # below — which is what under-shelf lighting is *for*, and why it reads as
+    # installed rather than decorative.
+    for level in range(3):
+        z = 0.3 + level * 0.5 - 0.028
+        run(
+            f"led_shelf_{level}", "cyan",
+            (0.012, 1.78, 0.008), (-2.94, 0.95, z),
+            (0.30, 0.86, 1.0), (0.06, 1.7), (0.0, 0.0, 0.0), 22,
+        )
+
+    # Under the desk's front edge, washing the floor. This is the one that makes
+    # the desk look like it is floating, which is the single most recognisable
+    # thing in every reference photograph of a setup like this.
+    run(
+        "led_desk_under", "magenta",
+        (2.05, 0.012, 0.008), (-0.05, DESK_FRONT - 0.02, DESK_TOP - 0.075),
+        (1.0, 0.24, 0.72), (2.0, 0.06), (0.0, 0.0, 0.0), 14,
+    )
 
     return strips
 
@@ -4233,13 +4273,17 @@ def build_steam() -> list[bpy.types.Object]:
     # off a cup is a couple of millimetres across, several strands at once, and
     # it wanders much further sideways than it climbs. Thin and many reads as
     # air; thick and few reads as geometry, at any opacity.
+    #
+    # The drift is also much smaller than it was. The wisps used to span 92 mm
+    # across an 86 mm mug — the vapour was wider than the cup it came off — and
+    # a plume that broad does not read as rising, it reads as spilling.
     wisps = []
     for index, (drift_x, drift_y, height, radius) in enumerate((
-        (0.030, 0.020, 0.150, 0.0030),
-        (-0.024, 0.028, 0.118, 0.0024),
-        (0.012, -0.026, 0.172, 0.0022),
-        (-0.016, -0.020, 0.134, 0.0026),
-        (0.026, -0.010, 0.192, 0.0019),
+        (0.013, 0.009, 0.150, 0.0030),
+        (-0.010, 0.012, 0.118, 0.0024),
+        (0.005, -0.011, 0.172, 0.0022),
+        (-0.007, -0.009, 0.134, 0.0026),
+        (0.011, -0.004, 0.192, 0.0019),
     )):
         # Rising and curling: a wisp that goes straight up is a rod, and the
         # curl is the whole of what makes it read as air moving.
@@ -4262,6 +4306,22 @@ def build_steam() -> list[bpy.types.Object]:
                 vapour,
             )
         )
+        # The origin, on the mug's centre line at the liquid surface — and this
+        # is the whole reason the steam behaved the way it did.
+        #
+        # The runtime turns each wisp about Y and scales it in X and Z to make
+        # it sway and thin as it climbs, and both of those happen about the
+        # object's *origin*. A join leaves the origin wherever the first segment
+        # happened to sit, which for a curve that wanders is several centimetres
+        # off the mug's axis — so the sway was not a sway, it was the wisp being
+        # swung around a point beside the cup, and the whole plume orbited.
+        #
+        # Every other animated object in this room already had this done to it:
+        # the chair spins about its gas lift, the books tip about their spines,
+        # the keyboard slopes about its front edge. The steam was the one that
+        # was missed, and it is the one where the symptom looked like a shader
+        # or a modelling fault rather than a pivot.
+        set_origin(wisps[-1], (mug_x, mug_y, base))
     return wisps
 
 
@@ -4445,6 +4505,18 @@ def add_lighting() -> None:
     # a room whose shadows are meant to come from four lamps.
     area("ceiling_bounce", 20, 3.2, (0.15, -0.35, 2.58), (0.74, 0.76, 0.95))
 
+    # The colour the strips throw at the walls, as two soft washes.
+    #
+    # The strips are small emitters on furniture and physically cannot wash a
+    # whole wall; in the reference photographs that wash comes from tape runs
+    # far longer than these plus a camera holding the shutter open. These stand
+    # in for that, aimed from where the real strips are so the gradient falls
+    # off in the right direction.
+    area("wash_shelf", 55, 2.4, (-2.80, 0.9, 1.15), (0.30, 0.80, 1.0),
+         rotation=(0, math.radians(-72), 0))
+    area("wash_desk", 16, 2.2, (-0.05, DESK_FRONT + 0.10, 0.55), (1.0, 0.26, 0.72),
+         rotation=(math.radians(20), 0, 0))
+
     # The desk lamp, and it has to win.
     #
     # This is the one warm source in a room otherwise lit by two LED coves, two
@@ -4464,12 +4536,38 @@ def add_lighting() -> None:
     # desk, and tight: a small emitter throws a hard-edged pool with a fast
     # falloff, which is what makes it read as one lamp rather than as the room
     # being warmer over there.
-    bpy.ops.object.light_add(type="POINT", location=(0.80, DESK_BACK + 0.28, 1.10))
+    # A spot, not a point, and that is the difference between a lamp and a glow.
+    #
+    # A point light radiates into a full sphere, so it lights the wall behind
+    # the shade exactly as hard as the desk in front of it and its pool has no
+    # edge anywhere. There is then nothing in the image that says where the
+    # light came from — which is what "the source is not clear" means, and no
+    # amount of turning it down or up fixes it, because the fault is the shape
+    # of the emission and not its strength.
+    #
+    # A shade throws a cone. The cone's edge on the desk is the evidence of the
+    # fixture above it, and the reason a task lamp reads as switched on rather
+    # than as a bright patch of table. The angle is taken from the shade's own
+    # geometry rather than chosen: a mouth of radius 0.105 at 0.15 deep is about
+    # 35°, with the blend feathering the rim the way a real shade's thickness
+    # does.
+    bpy.ops.object.light_add(type="SPOT", location=(0.80, DESK_BACK + 0.28, 1.13))
     warm = bpy.context.object
     warm.name = "lamp_light"
-    warm.data.energy = 450
+    # A third of the point light's power, and brighter where it matters. All of
+    # it now goes into a cone instead of a sphere, so the desk gets more of it
+    # and the wall behind the lamp gets almost none.
+    warm.data.energy = 320
     warm.data.color = (1.0, 0.60, 0.24)
-    warm.data.shadow_soft_size = 0.035
+    warm.data.shadow_soft_size = 0.022
+    warm.data.spot_size = math.radians(84)
+    warm.data.spot_blend = 0.35
+    # The *opposite* of the beam direction, because a Blender spot emits along
+    # its local -Z while `aim` points +Z at what you give it. Handing it the
+    # direction the light should travel therefore aims the lamp at the ceiling,
+    # which is what it did: the shade was lit, the desk was not, and the fault
+    # looked like the spot being too weak rather than pointed the wrong way.
+    warm.rotation_euler = aim((0.3, 0.42, 1.0))
 
     # The second warm, across the room, so the lounge end is not simply the part
     # of the picture the lamp did not reach. Softer and broader — it is a shade
@@ -4760,7 +4858,8 @@ def main() -> None:
                   export_room.check_uniform_materials,
                   export_room.check_metalness,
                   lambda: export_room.check_uv_stretch(0, share=0.45),
-                  export_room.check_dark_fixtures):
+                  export_room.check_dark_fixtures,
+                  export_room.check_occlusion):
         for complaint in check():
             print(f"[build_room] {complaint}", file=sys.stderr)
 

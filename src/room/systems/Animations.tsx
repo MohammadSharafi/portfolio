@@ -24,6 +24,9 @@ import { useEngine } from '../engine/store';
  * with the lid's origin moved onto the hinge line so it rotates about the hinge
  * rather than about its own centre, which would swing it through the desk.
  */
+/** The emitting surfaces of the desk lamp, which the switch drives together. */
+const GLOWING = new Set(['bulb', 'lamp_mouth', 'lamp_beam']);
+
 const LID_CLOSED = 1.42;
 
 export function Animations({ root }: { root: Object3D }) {
@@ -51,9 +54,24 @@ export function Animations({ root }: { root: Object3D }) {
         const index = Number(node.name.split('_')[1] ?? 0);
         steam.push({ node, y: node.position.y, scale: node.scale.y, phase: index * 2.1 });
       }
-      if (node.name.startsWith('ix_lamp') && node instanceof Mesh) {
+      // Found by material, not by object name.
+      //
+      // This used to match `ix_lamp`, which was the bulb — until `ix_lamp`
+      // became the whole fixture so that the lamp could be clicked in the room
+      // rather than only in the overlay. Matching the name would now dim the
+      // lamp's arm and shade along with its bulb.
+      //
+      // The material is the better key anyway: what should respond to the
+      // switch is every surface that emits, and this room has three of them
+      // per lamp — the bulb, the lit disc across the shade's mouth, and the
+      // cone of air below it.
+      if (node instanceof Mesh) {
         const material = node.material;
-        if (!Array.isArray(material) && material instanceof MeshStandardMaterial) {
+        if (
+          !Array.isArray(material) &&
+          material instanceof MeshStandardMaterial &&
+          GLOWING.has(material.name)
+        ) {
           bulbs.push(material);
         }
       }
@@ -107,7 +125,13 @@ export function Animations({ root }: { root: Object3D }) {
       wisp.node.scale.y = wisp.scale * (0.55 + t * 0.9);
       const fade = Math.sin(Math.PI * Math.min(1, t * 1.05));
       wisp.node.scale.x = wisp.node.scale.z = 0.4 + fade * 0.85;
-      wisp.node.rotation.y = Math.sin(clock.current * 0.6 + wisp.phase) * 0.22;
+      // A small turn about the column's own base, now that the base is where
+      // the origin is. This used to be 0.22 rad applied about an origin several
+      // centimetres to one side of the mug, which is not a sway — it is an
+      // orbit, and it looked like one. Smaller too: the modelled curve already
+      // carries most of the wander, and the animation only has to keep it from
+      // being the same curve every frame.
+      wisp.node.rotation.y = Math.sin(clock.current * 0.6 + wisp.phase) * 0.09;
     }
 
     const lampTarget = lampOn ? 1 : 0;

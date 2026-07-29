@@ -68,7 +68,7 @@ SYSTEM_MESHES = {
     "ix_cv_face": "Screens.tsx prints the CV onto this",
     "ix_laptop_lid_body": "Animations.tsx swings the lid on this",
     "ix_chair": "Animations.tsx turns the chair by this",
-    "ix_lamp": "Animations.tsx drives the bulb's emission through this",
+    "ix_lamp": "the desk lamp's clickable fixture; its bulb is `lamp_bulb`",
     "ix_mug": "Props.tsx gives this a rigid body",
     "ix_pencil": "Props.tsx gives this a rigid body",
     "ix_mouse": "Props.tsx gives this a rigid body",
@@ -397,7 +397,7 @@ def check_stops() -> list[str]:
 
 # Lights that stand for a visible fixture, and how far from it they may sit.
 # A light representing a lamp has to be inside the lamp.
-LIGHT_FIXTURES = (("lamp_light", "ix_lamp", 0.20),)
+LIGHT_FIXTURES = (("lamp_light", "lamp_bulb", 0.20),)
 
 
 def check_dark_fixtures() -> list[str]:
@@ -916,6 +916,187 @@ def check_swallowed() -> list[str]:
                 complaints.append(f"{obj.name} is entirely inside {name} and can never be seen")
                 break
     return complaints
+
+
+# Where the site opens, in Blender coordinates.
+#
+# `HOME_STOP` in src/room/data/objects.ts is in three.js space, and the glTF
+# exporter converts Blender (x, y, z) to glTF (x, z, -y). Reversing that puts
+# the home camera here. Kept as a derived constant with the arithmetic shown,
+# because a hand-copied camera position that silently drifts from the runtime's
+# would make this check confidently wrong rather than merely absent.
+HOME_CAMERA = (6.35, 6.55, 4.70)   # three.js (6.35, 4.70, -6.55)
+HOME_TARGET = (-0.22, -0.85, 1.05)  # three.js (-0.22, 1.05, 0.85)
+
+
+# Parts that are one fixture split across several meshes.
+#
+# A monitor is a shell plus a display quad, a whiteboard is a board plus its
+# painted face, a laptop is a base plus a lid plus a screen. Each pair is one
+# object to a visitor and two to the exporter, and without this the front half
+# of a thing counts as something blocking its own back half — which reported
+# every monitor and the whiteboard as invisible while they sat in plain sight.
+_FIXTURE_SUFFIXES = ("_face", "_display", "_lid_body", "_legends")
+_FIXTURE_ALIASES = {"ix_keycap": "ix_keyboard"}
+
+
+def _fixture(name: str) -> str:
+    for suffix in _FIXTURE_SUFFIXES:
+        if name.endswith(suffix):
+            name = name[: -len(suffix)]
+            break
+    return _FIXTURE_ALIASES.get(name, name)
+
+
+def _inside_room(point) -> bool:
+    return -3.3 < point.x < 3.3 and -2.7 < point.y < 2.7 and -0.1 < point.z < 2.7
+
+
+# Geometry that exists for the bake and is never exported.
+#
+# The ceiling is here so that Cycles has something for light to bounce off, and
+# `drop_export_only` removes it immediately before the GLB is written. It is
+# also directly between the home camera and everything in the room, since the
+# camera looks down into an open box from above — so while this check runs
+# (before the drop, because the bake fingerprint needs the full scene) the
+# ceiling reported every interactive object as completely hidden.
+#
+# It is the same shape of mistake as counting a monitor's own screen as
+# something blocking the monitor: a thing that is in the scene is not
+# necessarily a thing anyone can see past.
+_INVISIBLE_TO_CAMERA = re.compile(r"^ceiling(\.\d+)?$")
+
+
+def _blocked(depsgraph, origin, point, obj) -> bool:
+    """
+    Is anything real between the camera and this point?
+
+    Marching rather than a single cast, and that is the whole of it.
+    `scene.ray_cast` returns the *first* hit and nothing else, and the first
+    thing every ray out of the home camera meets is the bake-only ceiling —
+    the camera looks down into an open box from above, so the ceiling is
+    between it and the entire room. Skipping that hit and stopping there meant
+    the check never saw what was behind it and reported every object as
+    perfectly visible, including a laptop that was not.
+
+    That is a worse failure than a wrong answer. A check that says nothing is
+    wrong is indistinguishable from a room with nothing wrong in it, which is
+    exactly why the laptop's placement was signed off twice.
+    """
+    direction = (point - origin).normalized()
+    distance = (point - origin).length
+    start = origin.copy()
+    travelled = 0.0
+
+    for _ in range(12):
+        hit, location, _, _, hit_obj, _ = bpy.context.scene.ray_cast(
+            depsgraph, start, direction
+        )
+        if not hit:
+            return False
+        reached = travelled + (location - start).length
+        # Landing at the target, within a millimetre, means nothing was in the
+        # way — everything closer has already been stepped past.
+        if reached >= distance - 0.001:
+            return False
+        if _INVISIBLE_TO_CAMERA.match(hit_obj.name) or hit_obj is obj or (
+            _fixture(hit_obj.name) == _fixture(obj.name)
+        ):
+            # Step just past this surface and carry on looking.
+            travelled = reached + 0.001
+            start = origin + direction * travelled
+            continue
+        return True
+
+    return False
+
+
+def check_occlusion(limit: float = 0.6) -> list[str]:
+    """
+    Interactive objects hidden behind something from the camera the site opens on.
+
+    This is a different failure from intersection and nothing else here looks
+    for it. `check_furniture` and `check_swallowed` both ask whether two objects
+    occupy the same space; two objects can be perfectly clear of each other in
+    the room and completely on top of each other in the frame, and only the
+    frame is ever seen.
+
+    It has cost time twice. The laptop was moved and turned once already on the
+    reasoning that it "does not collide with the chair" — which was true, and
+    irrelevant: the chair is nearer the camera with a back taller than the
+    laptop's lid, so it covered it anyway. Nothing measured that, so the fix was
+    judged by eye and the fault came back.
+
+    Rays are cast from the home camera to points spread over each object's
+    surface rather than to its centre, because an object half hidden behind a
+    chair back still has a visible half and a centre-only test would call it
+    either fine or invisible depending on which side of the edge the centre fell.
+    """
+    import mathutils
+
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    origin = mathutils.Vector(HOME_CAMERA)
+    problems = []
+
+    for obj in sorted(bpy.context.scene.objects, key=lambda o: o.name):
+        if obj.type != "MESH" or not obj.name.startswith("ix_"):
+            continue
+
+        # Sample the object's own polygons, biased to the larger ones, so the
+        # samples land where the object actually presents area to the camera.
+        #
+        # Restricted to the part of the object that is inside the room, because
+        # `ix_window` is 110 m across: it is the frame *and* the city outside
+        # it, and almost all of that city is legitimately behind a wall. Judging
+        # the window by its whole extent reports it as invisible while the frame
+        # sits in plain sight.
+        polygons = [
+            p for p in sorted(obj.data.polygons, key=lambda p: -p.area)
+            if _inside_room(obj.matrix_world @ p.center)
+        ][:60]
+        if not polygons:
+            continue
+
+        blocked = 0
+        tested = 0
+        samples = []
+        for polygon in polygons:
+            centre = obj.matrix_world @ polygon.center
+            # A polygon facing away cannot be seen even with nothing in front of
+            # it, so counting it as blocked would report every closed object as
+            # half hidden.
+            normal = (obj.matrix_world.to_3x3() @ polygon.normal).normalized()
+            if normal.dot((centre - origin).normalized()) > 0:
+                continue
+
+            # Several points per polygon, not just its centre.
+            #
+            # A laptop lid is four big quads. Sampling centres gave it three
+            # test points, one of which faced away, so it fell under the
+            # minimum and was skipped in silence — the check reported nothing
+            # wrong with an object that was almost entirely behind a chair.
+            # Coarse sampling does not produce a wrong answer, it produces no
+            # answer, which is worse because it looks like a pass.
+            samples.append(centre)
+            for index in polygon.vertices:
+                corner = obj.matrix_world @ obj.data.vertices[index].co
+                samples.append(centre.lerp(corner, 0.6))
+
+        for point in samples:
+            tested += 1
+            if _blocked(depsgraph, origin, point, obj):
+                blocked += 1
+
+        if tested < 4:
+            continue
+        share = blocked / tested
+        if share > limit:
+            problems.append(
+                f"{obj.name} is {share:.0%} hidden from the home camera — "
+                "it is clickable and cannot be seen"
+            )
+
+    return problems
 
 
 def check_buried() -> list[str]:

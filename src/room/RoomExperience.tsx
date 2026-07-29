@@ -110,17 +110,25 @@ function Scene({
           <directionalLight color="#47dbff" intensity={0.62} position={[-6.5, 2.6, 0.4]} />
           <directionalLight color="#ff4ab4" intensity={0.5} position={[0.4, 2.4, -6.2]} />
 
-          {/* The desk lamp, and it has to be the brightest thing in the room by
-            a long way — everything above this is cold, and without a warm
-            centre to measure them against they stop being atmosphere and become
-            a colour cast. A real switch, too: turning it off changes what the
-            room is lit by. */}
-          <pointLight
+          {/* The desk lamp: the brightest thing in the room by a long way,
+            because everything above this is cold and without a warm centre to
+            measure them against they stop being atmosphere and become a colour
+            cast. A real switch, too — turning it off changes what the room is
+            lit by.
+
+            A spot rather than a point, matching `add_lighting`. A point light
+            radiates into a sphere, so its pool has no edge and nothing in the
+            frame says where the light came from; a shade throws a cone, and
+            the cone's edge on the desk is the evidence of the fixture. */}
+          <spotLight
             color="#ff9a42"
-            intensity={lampOn ? 30 : 0}
+            intensity={lampOn ? 22 : 0}
             distance={3.4}
             decay={2}
-            position={[0.8, 1.1, 2.22]}
+            angle={0.61}
+            penumbra={0.35}
+            position={[0.8, 1.15, 2.22]}
+            target-position={[0.5, 0.79, 2.0]}
           />
           {/* The floor lamp, by the shelf, so the lounge end is not simply the
             part of the room the desk lamp did not reach. */}
