@@ -3087,6 +3087,7 @@ def build_lounge() -> list[bpy.types.Object]:
     # in the same place. Every cushion sinks a centimetre into what carries it.
     parts = []
     sx, sy = 0.2, 1.6
+    piping = material("sofa_piping", "chair_light", roughness=0.86, grain="fabric")
     parts.append(cube("sofa_base", (2.05, 0.86, 0.32), (sx, sy, 0.18), fabric, bevel=0.03))
     parts.append(cube("sofa_back", (2.0, 0.22, 0.56), (sx, sy + 0.38, 0.58), fabric, bevel=0.04))
     for side in (-1, 1):
@@ -3099,8 +3100,32 @@ def build_lounge() -> list[bpy.types.Object]:
     # faces bulge, which is what subdivision does to a cage and what a chamfer
     # cannot do at any radius.
     for i in range(3):
-        seat = cube(f"cushion_{i}", (0.6, 0.72, 0.17), (sx - 0.62 + i * 0.62, sy - 0.06, 0.4), fabric, bevel=0)
+        cx_seat = sx - 0.62 + i * 0.62
+        seat = cube(f"cushion_{i}", (0.6, 0.72, 0.17), (cx_seat, sy - 0.06, 0.4), fabric, bevel=0)
         parts.append(smooth(seat, 2, crease=0.28))
+
+        # Piping: the welt seam run around the edge where the top panel meets
+        # the side panel. It is the single feature that says a cushion was sewn
+        # rather than extruded — a subdivided box gives the bulge, and without
+        # the seam the bulge reads as a pillow-shaped solid.
+        #
+        # One flattened slab subdivided exactly as the cushion is, and a hair
+        # wider in plan, so it emerges around the equator as a seam.
+        #
+        # Four straight bars at the cage extents was the obvious way and it does
+        # not work: subdivision pulls a cage in hard, so the cushion's real
+        # surface sits well inside the box it was built from, and bars placed on
+        # the box hover in the air beside it. Anything meant to hug a subdivided
+        # surface has to be subdivided from the same proportions — then it
+        # shrinks by the same amount and lands where the surface actually is.
+        welt = cube(
+            f"cushion_welt_{i}",
+            (0.612, 0.734, 0.030),
+            (cx_seat, sy - 0.06, 0.402),
+            piping,
+            bevel=0,
+        )
+        parts.append(smooth(welt, 2, crease=0.28))
     for i, x in enumerate((-0.52, 0.52)):
         back = cube(f"back_cushion_{i}", (0.58, 0.2, 0.44), (sx + x, sy + 0.23, 0.63), fabric, bevel=0)
         back.rotation_euler = (0.14, 0, 0)
@@ -3130,6 +3155,18 @@ def build_lounge() -> list[bpy.types.Object]:
         dy = -0.22 if i < 2 else 0.22
         table.append(cube(f"table_leg_{i}", (0.055, 0.055, 0.35), (0.25 + dx, 0.5 + dy, 0.175), wood))
     table.append(cube("table_shelf", (1.0, 0.5, 0.028), (0.25, 0.5, 0.15), wood, bevel=0.008))
+
+    # An apron: the rail set back under the top that ties the legs together.
+    # Every real table has one and it is most of why a table reads as joinery
+    # rather than as a slab balanced on four posts — it also gives the underside
+    # of the top a shadow line instead of a flat plane.
+    for name, size, offset in (
+        ("table_apron_front", (1.07, 0.045, 0.055), (0.0, -0.255)),
+        ("table_apron_back", (1.07, 0.045, 0.055), (0.0, 0.255)),
+        ("table_apron_left", (0.045, 0.52, 0.055), (-0.515, 0.0)),
+        ("table_apron_right", (0.045, 0.52, 0.055), (0.515, 0.0)),
+    ):
+        table.append(cube(name, size, (0.25 + offset[0], 0.5 + offset[1], 0.315), wood, bevel=0.005))
     for i, key in enumerate(("book_a", "book_c", "book_d")):
         mag = cube(f"magazine_{i}", (0.3, 0.23, 0.022), (0.0, 0.5, 0.41 + i * 0.023),
                    material(f"magazine_{key}", key, roughness=0.5), bevel=0.004)
@@ -3811,6 +3848,107 @@ def build_details() -> list[bpy.types.Object]:
     return out
 
 
+def build_water_glass() -> list[bpy.types.Object]:
+    """
+    A glass of water on the side table, and the room's only real transparent
+    object.
+
+    Everything else that could have been glass — the monitors, the window, the
+    picture frames — is a flat panel where transmission would cost more than it
+    returns. A tumbler is the one place it pays: it is small, it is round, and a
+    curved transmissive surface is the single most convincing thing a renderer
+    can put in a room, because nothing else bends the light behind it.
+
+    Built as three parts, which is how a glass of water actually is: the vessel,
+    the water inside it, and the meniscus where the water climbs the wall. Left
+    as one solid it reads as a lump of acrylic.
+    """
+    # On the coffee table, not the side table. The side table has a speaker on
+    # it, and `check_swallowed` measures bounding boxes — a glass standing on
+    # that table sits inside the box the speaker stretches upward, so it reads
+    # as buried whether it is or not. The coffee table's box stops at its own
+    # top, which is both true and checkable.
+    gx, gy = 0.48, 0.63
+    top = 0.3975
+
+    glass_mat = material("tumbler", "paper", roughness=0.06)
+    bsdf = glass_mat.node_tree.nodes["Principled BSDF"]
+    bsdf.inputs["Base Color"].default_value = (0.94, 0.97, 1.0, 1.0)
+    bsdf.inputs["Transmission Weight"].default_value = 1.0
+    bsdf.inputs["IOR"].default_value = 1.52
+    bsdf.inputs["Alpha"].default_value = 0.22
+    glass_mat.blend_method = "BLEND"
+
+    water_mat = material("water", "cyan", roughness=0.04)
+    wb = water_mat.node_tree.nodes["Principled BSDF"]
+    wb.inputs["Base Color"].default_value = (0.82, 0.93, 0.98, 1.0)
+    wb.inputs["Transmission Weight"].default_value = 1.0
+    # Water, not glass. The difference between 1.33 and 1.52 is exactly the
+    # difference between the two materials, and it is visible at this size.
+    wb.inputs["IOR"].default_value = 1.333
+    wb.inputs["Alpha"].default_value = 0.30
+    water_mat.blend_method = "BLEND"
+
+    parts = [
+        cylinder("glass_wall", 0.036, 0.115, (gx, gy, top + 0.0575), glass_mat, vertices=28),
+        # Water to two thirds, because a glass filled to the brim is a prop.
+        cylinder("glass_water", 0.0335, 0.072, (gx, gy, top + 0.038), water_mat, vertices=28),
+    ]
+    # The meniscus: water climbs the wall it wets, and that bright ring at the
+    # surface is what the eye actually reads as "there is liquid in this".
+    parts.append(
+        cylinder("glass_meniscus", 0.0352, 0.004, (gx, gy, top + 0.0745), water_mat, vertices=28)
+    )
+    return parts
+
+
+def build_steam() -> list[bpy.types.Object]:
+    """
+    Steam off the mug, as three wisps.
+
+    A hot drink with nothing coming off it is a cold drink, and the room is
+    meant to read as one somebody is working in. Geometry rather than a sprite
+    because it has to survive the bake and the glTF alike, and low enough in
+    alpha that it never becomes a solid shape — steam is only ever a suggestion
+    that something is warm.
+
+    Not animated here. Adding drift is a runtime job, and the reference does
+    exactly that; this is the shape it would drift.
+    """
+    vapour = material("steam", "paper", roughness=1.0)
+    bsdf = vapour.node_tree.nodes["Principled BSDF"]
+    bsdf.inputs["Alpha"].default_value = 0.085
+    # Blender needs telling, and so does the glTF exporter, which reads this to
+    # decide between OPAQUE and BLEND.
+    vapour.blend_method = "BLEND"
+
+    mug_x, mug_y = 0.40, DESK_FRONT - 0.14
+    base = DESK_TOP + 0.082
+
+    wisps = []
+    for index, (drift_x, drift_y, height, radius) in enumerate((
+        (0.020, 0.012, 0.135, 0.0075),
+        (-0.014, 0.018, 0.108, 0.0060),
+        (0.006, -0.016, 0.156, 0.0052),
+    )):
+        # Rising and curling: a wisp that goes straight up is a rod, and the
+        # curl is the whole of what makes it read as air moving.
+        wisps.append(
+            cable(
+                f"steam_{index}",
+                [
+                    (mug_x + drift_x * 0.1, mug_y + drift_y * 0.1, base),
+                    (mug_x + drift_x * 0.6, mug_y + drift_y * 0.4, base + height * 0.38),
+                    (mug_x - drift_x * 0.3, mug_y + drift_y * 1.0, base + height * 0.72),
+                    (mug_x + drift_x * 1.4, mug_y + drift_y * 1.6, base + height),
+                ],
+                radius,
+                vapour,
+            )
+        )
+    return wisps
+
+
 def build_desk_detail() -> list[bpy.types.Object]:
     """
     The things that make a desk look worked at rather than furnished.
@@ -4225,6 +4363,8 @@ def build_all() -> None:
     build_fittings()
     build_details()
     build_desk_detail()
+    build_water_glass()
+    build_steam()
     add_lighting()
 
 

@@ -844,6 +844,22 @@ def check_furniture() -> list[str]:
     return complaints
 
 
+def _is_transmissive(obj: bpy.types.Object) -> bool:
+    """Whether any of an object's materials lets light through it."""
+    for slot in obj.material_slots:
+        mat = slot.material
+        if mat is None or not mat.use_nodes:
+            continue
+        bsdf = mat.node_tree.nodes.get("Principled BSDF")
+        if bsdf is None:
+            continue
+        if bsdf.inputs["Alpha"].default_value < 0.99:
+            return True
+        if bsdf.inputs["Transmission Weight"].default_value > 0.01:
+            return True
+    return False
+
+
 def check_swallowed() -> list[str]:
     """
     Small fittings hidden inside a piece of furniture.
@@ -871,6 +887,13 @@ def check_swallowed() -> list[str]:
         # drawer face and its carcass. Reporting those buries the one line that
         # matters under a dozen that do not.
         if obj.name.startswith("ix_"):
+            continue
+        # Transmissive things are visible through whatever contains them, and
+        # containment is the whole test here. The water in the tumbler sits
+        # inside the coffee table's bounding box — which the magazine stack
+        # stretches upward past it — and is entirely visible, through the glass
+        # it is deliberately inside. A box test cannot see that; it can be told.
+        if _is_transmissive(obj):
             continue
         stem = obj.name.split("_")[0]
         box = _world_box(obj)
