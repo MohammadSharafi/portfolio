@@ -94,9 +94,20 @@ def _height(kind: str) -> np.ndarray:
         # symmetric and gives every band the same soft shoulder on both sides,
         # which is why it reads as a pattern instead of as growth.
         across = np.linspace(0.0, 1.0, SIZE, endpoint=False)[None, :] * np.ones((SIZE, 1))
-        # Periodic, so the wandering does not break the tile.
-        wander = _noise(rng, 2.5, (1.0, 1.0)) - 0.5
-        phase = (across * 11.0 + wander * 3.2) % 1.0
+        # The wander has to stay *subordinate* to the ramp, and it is easy to
+        # overshoot. Rings are the contour lines of the phase field, so once the
+        # warp's gradient across the grain rivals the ramp's, the contours stop
+        # running as lines and close into loops — the first attempt used an
+        # isotropic warp at an amplitude near the ring count and every wooden
+        # surface came out looking like a topographic map.
+        #
+        # Two things keep it in line. The amplitude is a fraction of the ring
+        # count rather than a large part of it, and the noise is stretched so it
+        # varies slowly *across* the grain and freely *along* it — which is also
+        # what real cathedral figure does, arcing down the length of a board
+        # rather than swirling on the spot.
+        wander = _noise(rng, 2.6, (1.0, 0.4)) - 0.5
+        phase = (across * 11.0 + wander * 1.3) % 1.0
         rings = np.power(phase, 0.42)
 
         # Fibre along the length of the board, far finer than the rings.
@@ -172,7 +183,7 @@ _LOOK = {
     # Dropped from 0.30. A third of the base colour swinging either way is far
     # more contrast than any finished board has, and it turned the rings into
     # stripes you read as a pattern rather than as wood.
-    "wood": (0.15, 0.13, 0.0014),
+    "wood": (0.19, 0.14, 0.0016),
     "fabric": (0.18, 0.12, 0.0009),
     "pile": (0.22, 0.10, 0.0028),
     # Kept faint on purpose. Painted plaster barely varies, and a wall is the
