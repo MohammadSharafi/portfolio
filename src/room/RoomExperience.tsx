@@ -83,7 +83,7 @@ function Scene({
             in a room lit by two LED coves and a lamp is very little, and blue.
             It was 0.55 and warm, which filled every shadow to the same value as
             everything else and left the room with no shape in it. */}
-          <ambientLight color="#232a3a" intensity={0.16} />
+          <ambientLight color="#1d2331" intensity={0.11} />
 
           {/* Not a key any more — the overhead is off. This is the same bounce
             term from above given a direction so surfaces facing up read a
@@ -102,13 +102,45 @@ function Scene({
             <orthographicCamera attach="shadow-camera" args={[-6, 6, 6, -6, 0.1, 30]} />
           </directionalLight>
 
-          {/* The two coves, as light rather than as geometry. The strips
-            themselves are emissive in the model and would glow without these —
-            and glowing without lighting the wall behind them is exactly what
-            makes a strip read as a sticker. Cyan down the shelf wall, magenta
-            along the window wall, matching `build_led_strips`. */}
-          <directionalLight color="#47dbff" intensity={0.62} position={[-6.5, 2.6, 0.4]} />
-          <directionalLight color="#ff4ab4" intensity={0.5} position={[0.4, 2.4, -6.2]} />
+          {/* The strips, as light rather than as geometry.
+            They are emissive in the model and glow without these — and glowing
+            without lighting anything is exactly what makes a strip read as a
+            sticker stuck on the furniture. Matching `build_led_strips`: cyan
+            under the bookshelf's shelves, magenta under the desk's front edge.
+
+            Point lights placed at the runs rather than directionals, because
+            these are short strips on furniture and their whole character is
+            that the light falls off within a metre. A directional would light
+            the entire room the colour of a 30 cm strip.
+
+            The under-desk run is a *spot*, pointing straight down. A point
+            light there sits 8 cm below the desk top and radiates into a sphere,
+            so most of its output went straight up through a desk that does not
+            cast a shadow for it — the room flooded magenta and a hotspot
+            appeared on the desk surface, lit from underneath by the strip
+            beneath it. A cone only emits where a strip in a channel emits. */}
+          <pointLight
+            color="#47dbff"
+            intensity={9}
+            distance={2.4}
+            decay={2}
+            position={[-2.94, 0.8, -0.95]}
+          />
+          {/* The under-desk run, and the reason the desk looks like it is
+            floating. This is the single most recognisable thing in every
+            reference photograph of a setup like this, and the browser had the
+            emissive strip without the light, so it had the line and not the
+            effect. */}
+          <spotLight
+            color="#ff4ab4"
+            intensity={7}
+            distance={2.2}
+            decay={2}
+            angle={1.25}
+            penumbra={1}
+            position={[0.05, 0.72, 1.8]}
+            target-position={[0.05, 0, 1.8]}
+          />
 
           {/* The desk lamp: the brightest thing in the room by a long way,
             because everything above this is cold and without a warm centre to
@@ -122,13 +154,29 @@ function Scene({
             the cone's edge on the desk is the evidence of the fixture. */}
           <spotLight
             color="#ff9a42"
-            intensity={lampOn ? 22 : 0}
+            intensity={lampOn ? 19 : 0}
             distance={3.4}
             decay={2}
-            angle={0.61}
-            penumbra={0.35}
+            angle={0.68}
+            // Wide. A shade is a diffuser with thickness, not an aperture in a
+            // sheet of card, so its pool fades over a hand's width rather than
+            // stopping at a line. At 0.35 the edge was a drawn wedge.
+            penumbra={0.85}
             position={[0.8, 1.15, 2.22]}
             target-position={[0.5, 0.79, 2.0]}
+            // The lamp casts, and this is most of what was missing from the
+            // desk. Every prop on it — the mug, the pen cup, the headphones,
+            // the CV — sat in a warm pool with no shadow under it, which is the
+            // one cue that says an object is resting on a surface rather than
+            // pasted onto it. A light this close and this small throws sharp,
+            // short, high-contrast shadows, and their absence is why the desk
+            // read as flat no matter how the pool was tuned.
+            castShadow
+            shadow-mapSize={[1024, 1024]}
+            shadow-bias={-0.0004}
+            shadow-normalBias={0.012}
+            shadow-camera-near={0.15}
+            shadow-camera-far={4}
           />
           {/* The floor lamp, by the shelf, so the lounge end is not simply the
             part of the room the desk lamp did not reach. */}
@@ -204,7 +252,15 @@ function Scene({
         )}
         {/* High threshold on purpose: the room has a lot of small bright
           sources, and a lower one turns their combined bloom into fog. */}
-        <Bloom intensity={0.5} luminanceThreshold={0.88} luminanceSmoothing={0.3} mipmapBlur />
+        {/* Tighter than it was, and it had to be.
+          The strips are authored at emissive strengths of 7 to 16 so that
+          Cycles gets a real emitter to bounce light off. Three.js hands those
+          straight to the shader, so at a 0.88 threshold every strip in the room
+          sat far into the bloom's range: the monitor's backlight came out as a
+          clipped white line with a halo the size of the wall behind it, with no
+          colour left in either. A strip that blooms white is a fluorescent
+          tube. */}
+        <Bloom intensity={0.34} luminanceThreshold={0.96} luminanceSmoothing={0.22} mipmapBlur />
         {/* The room had no tone mapping at all, and it took a long time to see.
           `EffectComposer` sets `gl.toneMapping` to `NoToneMapping` on mount,
           because postprocessing expects to own the view transform itself — so

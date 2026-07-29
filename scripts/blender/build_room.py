@@ -776,6 +776,30 @@ def cylinder(
     return shade(obj, mat)
 
 
+def cone(
+    name: str,
+    radius_bottom: float,
+    radius_top: float,
+    depth: float,
+    location: tuple[float, float, float],
+    mat: bpy.types.Material,
+    *,
+    vertices: int = 12,
+    rotation: tuple[float, float, float] = (0, 0, 0),
+) -> bpy.types.Object:
+    """A tapered tube. `cylinder` with two radii, for things that are not tubes."""
+    bpy.ops.mesh.primitive_cone_add(
+        radius1=radius_bottom, radius2=radius_top, depth=depth,
+        vertices=vertices, location=location,
+    )
+    obj = bpy.context.object
+    obj.name = name
+    obj.data.name = name
+    obj.rotation_euler = rotation
+    bpy.ops.object.shade_smooth()
+    return shade(obj, mat)
+
+
 def plane(
     name: str,
     size: tuple[float, float],
@@ -3253,17 +3277,84 @@ def build_plant(px: float, py: float, *, scale: float = 1.0, base_z: float = 0.0
     parts = [
         cylinder(f"{tag}_pot", 0.17 * s, 0.3 * s, (px, py, base_z + 0.15 * s), pot_mat),
         cylinder(f"{tag}_rim", 0.185 * s, 0.05 * s, (px, py, base_z + 0.28 * s), pot_mat),
-        cylinder(f"{tag}_soil", 0.155 * s, 0.02 * s, (px, py, soil_top),
-                 material("soil", "earth", roughness=1.0, grain="pile")),
     ]
 
-    leaf_mat = material("leaf", "leaf", roughness=0.62)
+    # Soil, as a mound with lumps in it rather than a flat disc.
+    #
+    # A perfectly level circle of brown at the top of a pot is one of those
+    # details nobody names and everybody reads: soil settles unevenly, sits
+    # lower at the rim where it has been watered down the side, and has pieces
+    # of bark and grit standing proud of it.
+    soil_mat = material("soil", "earth", roughness=1.0, grain="pile")
+    mound = cylinder(f"{tag}_soil", 0.155 * s, 0.02 * s, (px, py, soil_top), soil_mat)
+    smooth(mound, 1, crease=0.4)
+    parts.append(mound)
+    for clump in range(5):
+        ca = clump / 5 * math.tau + 0.7
+        cr = (0.05 + (clump % 3) * 0.032) * s
+        parts.append(
+            cube(
+                f"{tag}_grit_{clump}",
+                (0.022 * s, 0.017 * s, 0.010 * s),
+                (px + math.cos(ca) * cr, py + math.sin(ca) * cr, soil_top + 0.008 * s),
+                soil_mat,
+                rotation_z=ca * 1.7,
+                bevel=0.002 * s,
+            )
+        )
+
+    # Three leaf tones, because a plant is not one colour. New growth at the
+    # top is lighter and yellower, mature leaves are darker, and the oldest have
+    # started to go. A single leaf colour is the second strongest sign of a
+    # procedural plant after identical leaf shapes.
+    leaf_mats = [
+        material("leaf", "leaf", roughness=0.62),
+        material("leaf_old", "leaf_dark", roughness=0.58),
+        material("leaf_new", "green", roughness=0.66),
+    ]
+    # Leaves are thin and lit from behind, and that is most of why real foliage
+    # glows at its edges. Without it a leaf shades like a painted chip of
+    # plastic no matter how well it is modelled.
+    for leaf_material in leaf_mats:
+        bsdf = leaf_material.node_tree.nodes["Principled BSDF"]
+        bsdf.inputs["Subsurface Weight"].default_value = 0.22
+        bsdf.inputs["Subsurface Radius"].default_value = (0.010, 0.022, 0.006)
     stem_mat = material("stem", "leaf_dark", roughness=0.7)
+
+    # Deterministic per-leaf variation.
+    #
+    # The old plant varied length by `i % 5` and lean by `i % 4`, which gives
+    # four or five distinct leaves repeating around the pot — and a repeat is
+    # more obvious than no variation at all, because the eye finds the period.
+    # Multiplying the index by an irrational and taking the fraction never
+    # repeats and never needs a seed stored anywhere.
+    def spread(index: int, root: float) -> float:
+        return (index * root) % 1.0
 
     for i in range(12):
         angle = i / 12 * math.tau * 2.6
-        lean = 0.28 + (i % 4) * 0.16
-        length = (0.24 + (i % 5) * 0.08) * s
+        v_len, v_wide, v_droop = (
+            spread(i, 0.6180339887),
+            spread(i, 0.4142135624),
+            spread(i, 0.7320508076),
+        )
+        lean = 0.24 + v_droop * 0.62
+        # Shorter stems and bigger leaves than before. The old ratio — a 24 cm
+        # stem carrying a 13 cm blade — gave twelve lollipops: a long bare
+        # stick with a shape on the end. On a real plant of this kind the leaf
+        # is most of the length and the stem is the part you have to look for.
+        length = (0.13 + v_len * 0.15) * s
+
+        # Where the stem comes *out of the soil*, which is not one point.
+        #
+        # Every stem used to start at the pot's exact centre, so the plant was a
+        # cone of sticks meeting at a vertex — the single clearest sign of a
+        # procedurally generated plant, and visible from across the room. Real
+        # growth comes up from a crown spread across the surface.
+        root_r = (0.028 + spread(i, 0.5236067977) * 0.055) * s
+        root_a = angle + (spread(i, 0.3027756377) - 0.5) * 1.4
+        bx = px + math.cos(root_a) * root_r
+        by = py + math.sin(root_a) * root_r
 
         # The direction the stem grows in, straight from the lean angle. The
         # centre sits at half its length along that direction and the leaf sits
@@ -3277,41 +3368,75 @@ def build_plant(px: float, py: float, *, scale: float = 1.0, base_z: float = 0.0
         # approximation with both signs inverted, every stem leaned the opposite
         # way to the leaf it carried, and the plant read as foliage hovering in
         # mid-air beside a bundle of sticks.
-        stem = cylinder(
+        # Tapered, and no two the same width. A stalk is thicker where it
+        # leaves the soil than where it carries a leaf, and a bundle of
+        # identical tubes is the other half of what made this read as generated.
+        stem = cone(
             f"{tag}_stem_{i}",
-            0.014 * s,
+            (0.0085 + v_wide * 0.0045) * s,
+            (0.0040 + v_wide * 0.0020) * s,
             length,
-            (px + dx * length / 2, py + dy * length / 2, soil_top + dz * length / 2),
+            (bx + dx * length / 2, by + dy * length / 2, soil_top + dz * length / 2),
             stem_mat,
             vertices=6,
             rotation=aim((dx, dy, dz)),
         )
         parts.append(stem)
 
-        # A leaf as a tapered blade with a droop, not a squashed sphere. The
-        # sphere gave every leaf the same fat lozenge outline from every angle,
-        # which is what made the plant read as a bundle of pebbles on sticks.
-        # Sized against the stem, not in isolation. A 20 cm blade on an 8 mm
-        # stem is what made the first version read as leaves hovering in the
-        # air beside the plant: the geometry was correct — every leaf sat
-        # exactly on its stem tip — but the stem was too slight to be read as
-        # the thing holding it up. The blade also starts slightly behind the
-        # tip so it visibly overlaps the stem rather than balancing on it.
-        leaf_len = 0.13 * s
-        leaf_wide = 0.038 * s
-        blade: list[tuple[float, float, float]] = []
-        # (fraction along the leaf, fraction of full width, how far it droops)
-        for t, w, drop in ((-0.22, 0.15, 0.0), (0.3, 1.0, -0.1), (0.62, 0.85, -0.34), (1.0, 0.0, -0.72)):
-            for sign in (-1, 1):
-                blade.append((t * leaf_len, sign * w * leaf_wide, drop * leaf_wide))
-        blade_faces = [(n, n + 1, n + 3, n + 2) for n in range(0, 6, 2)]
+        # A leaf with a midrib, a droop and a twist — three things a flat card
+        # cannot do, and between them most of what separates foliage from paper.
+        #
+        # The old blade was two rows of vertices: an outline, extruded to a
+        # thickness. An outline has one surface normal across its whole width,
+        # so the leaf shaded as a single flat value from every angle and no
+        # amount of light made it read as a leaf. A midrib gives the blade a
+        # shallow V section, so the two halves catch the light differently and
+        # a highlight runs down the centre — which is the thing the eye is
+        # actually using to identify a leaf at a distance.
+        leaf_len = (0.135 + v_len * 0.075) * s
+        leaf_wide = (0.030 + v_wide * 0.020) * s
+        # How far the tip falls, and how far the blade rolls about its own axis
+        # on the way. Both vary per leaf: a plant where every leaf droops by the
+        # same amount reads as a lampshade.
+        droop = (0.45 + v_droop * 0.85) * leaf_wide
+        twist = (v_wide - 0.5) * 0.9
+        ridge = 0.30
 
-        leaf = poly(f"{tag}_leaf_{i}", blade, blade_faces, (0, 0, 0), leaf_mat)
-        leaf.modifiers.new("Thickness", "SOLIDIFY").thickness = 0.004 * s
+        blade: list[tuple[float, float, float]] = []
+        # (fraction along the leaf, fraction of full width)
+        stations = ((-0.16, 0.20), (0.22, 0.92), (0.50, 1.0), (0.78, 0.70), (1.0, 0.0))
+        for t, w in stations:
+            # Droop accelerates toward the tip rather than running linearly —
+            # a leaf is stiff at the base where it is thick and gives at the
+            # end, so a straight taper down reads as a bent wire.
+            fall = -droop * max(0.0, t) ** 1.8
+            roll = twist * max(0.0, t)
+            half = w * leaf_wide
+            rise = ridge * leaf_wide * (1.0 - max(0.0, t)) * max(w, 0.05)
+            for side in (-1, 0, 1):
+                across = side * half
+                # Rolling the cross-section about the leaf's own axis, so the
+                # blade turns as it falls instead of staying face-up.
+                blade.append((
+                    t * leaf_len,
+                    across * math.cos(roll) - (rise if side == 0 else 0.0) * math.sin(roll),
+                    fall + across * math.sin(roll) + (rise if side == 0 else 0.0) * math.cos(roll),
+                ))
+
+        blade_faces = []
+        for row in range(len(stations) - 1):
+            base_index = row * 3
+            for column in range(2):
+                a = base_index + column
+                blade_faces.append((a, a + 1, a + 4, a + 3))
+
+        leaf = poly(f"{tag}_leaf_{i}", blade, blade_faces, (0, 0, 0),
+                    leaf_mats[i % 3 if i % 7 else 1])
+        leaf.modifiers.new("Thickness", "SOLIDIFY").thickness = 0.0022 * s
         smooth(leaf, 1, crease=0.1)
         # Stand it up along the stem, then splay it out around the pot.
         leaf.rotation_euler = (0, -math.pi / 2 + lean, angle)
-        leaf.location = (px + dx * length, py + dy * length, soil_top + dz * length)
+        leaf.location = (bx + dx * length, by + dy * length, soil_top + dz * length)
         parts.append(leaf)
 
     return join(tag, parts)
@@ -3891,7 +4016,14 @@ def build_details() -> list[bpy.types.Object]:
     # plaster reads as a fluorescent tube instead.
     out.append(
         cube("led_strip", (1.5, 0.016, 0.012), (0.0, DESK_BACK - 0.035, 1.26),
-             material("led_strip", "violet", roughness=0.4, emission=9.0), bevel=0)
+             # 3.2, not 9. A strip authored bright enough for Cycles to bounce
+             # light off is handed straight to three.js as `emissiveIntensity`,
+             # and anything far above the bloom threshold loses its colour on
+             # the way through — the monitor's violet backlight came out as a
+             # white tube with a white halo. The area light beside it in
+             # `add_lighting` is what actually lights the wall; this only has to
+             # look like the source.
+             material("led_strip", "violet", roughness=0.4, emission=3.2), bevel=0)
     )
 
     # Desk clutter.
@@ -4149,7 +4281,7 @@ def build_led_strips() -> list[bpy.types.Object]:
         )
         strips.append(
             cube(name, size, location,
-                 material(name, colour, roughness=0.35, emission=16.0), bevel=0.002)
+                 material(name, colour, roughness=0.35, emission=6.0), bevel=0.002)
         )
         bpy.ops.object.light_add(type="AREA", location=location)
         light = bpy.context.object

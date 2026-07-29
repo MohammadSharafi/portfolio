@@ -56,6 +56,9 @@ VIEWS: dict[str, tuple[tuple[float, float, float], tuple[float, float, float], f
     # mode of that — a mirrored glyph, a row printed in the wrong place — is
     # invisible at any distance the room is actually seen from.
     "keyboard": ((-0.16, -1.74, 1.16), (-0.16, -1.93, 0.80), 50.0, 0.41),
+    # The floor plant by the rug, close. Foliage is the thing in this room most
+    # likely to read as procedural, so it gets its own QA camera.
+    "plant": ((1.05, -0.55, 1.30), (2.78, 0.40, 0.50), 55.0, 2.2),
     "shelf": ((2.30, 1.05, 1.45), (-3.00, 1.05, 1.20), 50.0, 2.5),
     "lounge": ((2.55, -0.35, 1.30), (0.10, 1.70, 0.55), 35.0, 2.8),
     "window": ((2.05, -0.75, 1.68), (2.05, -2.62, 1.62), 50.0, 4.0),

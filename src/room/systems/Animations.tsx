@@ -37,7 +37,7 @@ export function Animations({ root }: { root: Object3D }) {
     // Each part keeps its own resting rotation: the lid body sits at the hinge
     // tilt, the screen at that tilt plus the rotation that stands it upright.
     const lid: Array<{ node: Object3D; base: number }> = [];
-    const bulbs: MeshStandardMaterial[] = [];
+    const bulbs: Array<{ material: MeshStandardMaterial; base: number }> = [];
     // The steam wisps, each with the pose it was modelled in, so the drift is
     // applied *around* that rather than replacing it.
     const steam: Array<{ node: Object3D; y: number; scale: number; phase: number }> = [];
@@ -72,7 +72,16 @@ export function Animations({ root }: { root: Object3D }) {
           material instanceof MeshStandardMaterial &&
           GLOWING.has(material.name)
         ) {
-          bulbs.push(material);
+          // Remember what the model authored, because the switch should scale
+          // that rather than replace it.
+          //
+          // All three used to be driven to the same 6.0. They are not the same
+          // thing: the bulb is a filament, the mouth is a lit disc across the
+          // shade's opening, and the beam is a nearly transparent cone standing
+          // in for dust in the air. Forcing one number onto all three turned
+          // the beam into a hard white wedge painted on the desk — which is
+          // exactly what it looked like.
+          bulbs.push({ material, base: material.emissiveIntensity || 1 });
         }
       }
     });
@@ -136,8 +145,10 @@ export function Animations({ root }: { root: Object3D }) {
 
     const lampTarget = lampOn ? 1 : 0;
     glow.current += (lampTarget - glow.current) * (1 - Math.exp(-6 * dt));
-    for (const material of parts.bulbs) {
-      material.emissiveIntensity = 0.05 + glow.current * 5.95;
+    for (const bulb of parts.bulbs) {
+      // A multiplier on what the model authored, so each surface keeps its own
+      // relative brightness and the switch only decides how much of it there is.
+      bulb.material.emissiveIntensity = bulb.base * (0.02 + glow.current * 0.98);
     }
   });
 
