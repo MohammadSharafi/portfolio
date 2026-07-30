@@ -53,6 +53,14 @@ const TARGETS: Record<string, () => Texture> = {
  */
 const LIT = new Set(['ix_keycap_legends']);
 
+/**
+ * How bright a monitor is against this room, as a multiplier on its canvas.
+ *
+ * Tuned at the baked path's 2.05 exposure, where the screens are competing
+ * with a bake graded for a dim room rather than with the raw canvas.
+ */
+const SCREEN_LEVEL = 0.62;
+
 /** Screens read as light sources; paper does not. */
 const EMISSIVE = new Set([
   'ix_monitor_health_display',
@@ -196,8 +204,27 @@ export function Screens({ root }: { root: Object3D }) {
       // brightness in a dark room: a glowing whiteboard, plastic-shiny
       // spines. Painted matter now takes a standard material and lives in
       // the room's light like everything else around it.
+      // A screen is unlit — it is its own light source, and shading one
+      // darkens it exactly where it is brightest. But unlit and *untone-
+      // mapped* is a different claim: it sends the canvas straight to the
+      // framebuffer with no curve over it, so at the baked path's exposure
+      // a pale terminal background clipped to flat white. From across the
+      // room that read as a bright monitor; from the desk, with the camera
+      // a hand's width from the laptop, it read as a slab of glare with no
+      // content on it at all.
+      //
+      // So screens keep their unlit shading and rejoin the room's view
+      // transform: the tone curve rolls their highlights off instead of
+      // clipping them, and the colour multiplier sets where a monitor sits
+      // against a room lit by two lamps. They are still the brightest thing
+      // in the frame; they are no longer the only thing in it.
       node.material = EMISSIVE.has(key)
-        ? new MeshBasicMaterial({ map: texture, toneMapped: false, transparent: false })
+        ? new MeshBasicMaterial({
+            map: texture,
+            toneMapped: true,
+            color: SCREEN_LEVEL,
+            transparent: false,
+          })
         : new MeshStandardMaterial({ map: texture, roughness: 0.92, metalness: 0 });
       if (!Array.isArray(previous)) previous.dispose();
       replaced.push(node);

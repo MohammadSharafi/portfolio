@@ -159,6 +159,7 @@ export function Character({ root }: { root: Object3D }) {
   const nearby = useEngine((state) => state.nearby);
   const focus = useEngine((state) => state.focus);
   const setControlled = useEngine((state) => state.setControlled);
+  const setNearGuitar = useEngine((state) => state.setNearGuitar);
 
   const groupRef = useRef<Group>(null);
   const bodyRef = useRef<RapierRigidBody>(null);
@@ -332,6 +333,16 @@ export function Character({ root }: { root: Object3D }) {
     return found;
   }, [root]);
 
+  /** Where the guitar stands, taken from the model rather than written
+   * down, so moving it in Blender moves its music with it. */
+  const guitarAt = useMemo(() => {
+    const found = root.getObjectByName('guitar');
+    if (!found) return null;
+    const at = new Vector3();
+    found.getWorldPosition(at);
+    return at;
+  }, [root]);
+
   /** Every interactable in the room, with its full 3D position — height
    * included, because reaching it is now part of the game. */
   const interactables = useMemo(() => {
@@ -368,10 +379,19 @@ export function Character({ root }: { root: Object3D }) {
         event.preventDefault();
       }
       if (key === 'e' && !useEngine.getState().focused) {
-        const target = useEngine.getState().nearby;
-        if (target) focus(target);
+        const engine = useEngine.getState();
+        // The guitar wins when the robot is standing at it: it is the one
+        // object here whose interaction is not a camera move.
+        if (engine.nearGuitar) engine.setMusicOpen(!engine.musicOpen);
+        else if (engine.nearby) focus(engine.nearby);
       }
-      if (key === 'escape' && !useEngine.getState().focused) setControlled(false);
+      if (key === 'escape' && !useEngine.getState().focused) {
+        // Escape closes the guitar before it leaves the room: the innermost
+        // thing the visitor opened is the thing they mean to close.
+        const engine = useEngine.getState();
+        if (engine.musicOpen) engine.setMusicOpen(false);
+        else setControlled(false);
+      }
     };
     const up = (event: KeyboardEvent) => keys.delete(event.key.toLowerCase());
     // Blur clears the key set: a held Space that never sees its keyup —
@@ -708,9 +728,19 @@ export function Character({ root }: { root: Object3D }) {
       }
       lookTarget.current = bestAt;
       if (best !== nearby) setNearby(best);
+
+      // The guitar leans on the floor, so its reach is generous and flat:
+      // anywhere a robot could plausibly stand and strum counts.
+      if (guitarAt) {
+        const near =
+          Math.hypot(guitarAt.x - position.current.x, guitarAt.z - position.current.z) < 0.5 &&
+          Math.abs(position.current.y - FLOOR_Y) < 0.2;
+        setNearGuitar(near);
+      }
     } else {
       lookTarget.current = null;
       if (nearby) setNearby(null);
+      setNearGuitar(false);
     }
   });
 

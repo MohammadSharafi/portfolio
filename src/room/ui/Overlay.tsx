@@ -1,7 +1,17 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useReducer, useRef, useState } from 'react';
 import { Volume2, VolumeX, X } from 'lucide-react';
 import { useEngine } from '../engine/store';
 import { characterState } from '../engine/characterState';
+import { Minimap } from './Minimap';
+import {
+  isPlaying,
+  loadTracks,
+  musicState,
+  playTrack,
+  stopMusic,
+  subscribeMusic,
+  type Track,
+} from '../engine/music';
 import { roomObjects, roomObjectById } from '../data/objects';
 import { profile } from '@/data/profile';
 import { roomAudio } from '../engine/audio';
@@ -29,6 +39,8 @@ export function Overlay() {
   const controlled = useEngine((state) => state.controlled);
   const setControlled = useEngine((state) => state.setControlled);
   const nearby = useEngine((state) => state.nearby);
+  const nearGuitar = useEngine((state) => state.nearGuitar);
+  const musicOpen = useEngine((state) => state.musicOpen);
   const nearbyObject = nearby ? roomObjectById.get(nearby) : undefined;
 
   const panelRef = useRef<HTMLDivElement>(null);
@@ -122,11 +134,21 @@ export function Overlay() {
         </button>
       ) : null}
 
+      {/* The plan, only while driving: it answers "where am I and what is
+        behind me", which is a question the follow camera creates and cannot
+        itself answer. */}
+      {controlled && !focused ? <Minimap /> : null}
       {controlled && !focused ? <FuelGauge /> : null}
+      {controlled && !focused ? <GuitarMusic /> : null}
 
       {controlled && !focused ? (
         <p className="absolute bottom-24 left-1/2 -translate-x-1/2 rounded-full bg-black/55 px-4 py-2 text-xs text-white/75 backdrop-blur-md">
-          {nearbyObject ? (
+          {nearGuitar ? (
+            <>
+              <kbd className="rounded bg-white/15 px-1.5 py-0.5 font-semibold">E</kbd>{' '}
+              {musicOpen ? 'close the guitar' : 'play the guitar'}
+            </>
+          ) : nearbyObject ? (
             <>
               <kbd className="rounded bg-white/15 px-1.5 py-0.5 font-semibold">E</kbd> inspect{' '}
               {nearbyObject.label.toLowerCase()}
@@ -291,6 +313,87 @@ function FuelGauge() {
       <div className="h-1 w-32 overflow-hidden rounded-full bg-white/15">
         <div ref={fill} className="h-full rounded-full transition-colors duration-200" />
       </div>
+    </div>
+  );
+}
+
+/**
+ * The guitar's track list.
+ *
+ * Deliberately not a web modal: no backdrop, no dimming, no dialog. It is a
+ * small lit panel that sits low in the frame like something propped against
+ * the guitar, in the same typography and the same glass as the rest of the
+ * room's furniture, and the world keeps moving behind it — the robot can
+ * still be flown while it is open, which is the whole difference between a
+ * diegetic control and a settings screen.
+ *
+ * The track list is whatever `public/music/music-manifest.json` says, so
+ * this component never learns a song's name.
+ */
+function GuitarMusic() {
+  const open = useEngine((state) => state.musicOpen);
+  const setMusicOpen = useEngine((state) => state.setMusicOpen);
+  const [, force] = useReducer((n: number) => n + 1, 0);
+  const [blocked, setBlocked] = useState(false);
+
+  useEffect(() => subscribeMusic(force), []);
+  useEffect(() => {
+    if (musicState.loading) void loadTracks();
+  }, []);
+
+  const choose = async (track: Track) => {
+    if (isPlaying(track)) {
+      stopMusic();
+      return;
+    }
+    setBlocked(!(await playTrack(track)));
+  };
+
+  if (!open) return null;
+
+  return (
+    <div className="pointer-events-auto absolute bottom-36 left-1/2 w-72 -translate-x-1/2 rounded-2xl border border-white/10 bg-black/70 p-4 backdrop-blur-md">
+      <p className="mb-3 text-[0.65rem] uppercase tracking-[0.25em] text-emerald-300/80">
+        The guitar
+      </p>
+      {musicState.tracks.length === 0 ? (
+        <p className="text-xs text-white/50">
+          {musicState.loading ? 'Looking for tracks…' : 'No tracks in /public/music yet.'}
+        </p>
+      ) : (
+        <ul className="space-y-1">
+          {musicState.tracks.slice(0, 5).map((track) => {
+            const live = isPlaying(track);
+            return (
+              <li key={track.file}>
+                <button
+                  type="button"
+                  onClick={() => void choose(track)}
+                  className={cn(
+                    'flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-sm transition-colors',
+                    live ? 'bg-emerald-400/15 text-emerald-200' : 'text-white/70 hover:bg-white/10'
+                  )}
+                >
+                  <span className="w-3 shrink-0 text-emerald-300">{live ? '▶' : ''}</span>
+                  <span className="truncate">{track.title}</span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {blocked ? (
+        <p className="mt-2 text-[0.7rem] text-amber-300/80">
+          The browser blocked playback — click once anywhere, then choose again.
+        </p>
+      ) : null}
+      <button
+        type="button"
+        onClick={() => setMusicOpen(false)}
+        className="mt-3 text-[0.7rem] text-white/40 transition-colors hover:text-white/70"
+      >
+        E or Esc to close · music keeps playing
+      </button>
     </div>
   );
 }

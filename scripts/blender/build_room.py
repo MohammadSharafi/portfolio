@@ -1890,7 +1890,14 @@ def build_laptop() -> list[bpy.types.Object]:
                          material("foot", "plastic", roughness=0.9), vertices=8)
             )
 
-    lid = cube("ix_laptop_lid_body", (0.35, 0.008, 0.235), (lx, DESK_FRONT - 0.42, DESK_TOP + 0.13), body)
+    # 6 mm, not 8, and the recline opened from 14 degrees to 19.
+    #
+    # Two small numbers that decide whether this reads as a laptop or as a
+    # slab stood on edge. A lid seen from the desk is mostly its *edge*, and
+    # 8 mm of aluminium at that scale is a plank; the recline matters for the
+    # same reason, because a screen sitting nearly vertical has no visible
+    # top face and loses the wedge silhouette that says "open laptop".
+    lid = cube("ix_laptop_lid_body", (0.35, 0.006, 0.235), (lx, DESK_FRONT - 0.42, DESK_TOP + 0.13), body)
     # A 1.5 cm bezel rather than 3 cm. Screens have got to the edge of their
     # lids since about 2018 and a fat border is the first thing that dates one.
     lid_screen = plane(
@@ -1907,8 +1914,23 @@ def build_laptop() -> list[bpy.types.Object]:
     lid_screen.select_set(True)
     bpy.ops.object.transform_apply(location=False, rotation=True, scale=False)
 
+    # A bezel around the glass, in the dark plastic every laptop uses rather
+    # than the shell's metal. Without it the screen was a bright rectangle
+    # butted straight against brushed aluminium, and from close up that reads
+    # as a picture stuck to a panel — the black surround is what makes the
+    # display sit *inside* the lid.
+    bezel = cube("laptop_bezel", (0.344, 0.004, 0.229),
+                 (lx, DESK_FRONT - 0.4175, DESK_TOP + 0.13),
+                 material("laptop_bezel", "bezel", roughness=0.62), bevel=0)
+    # The camera above the screen, which is 3 mm of geometry and the single
+    # most recognisable mark on the top bezel.
+    lens = cylinder("laptop_camera", 0.0016, 0.0016,
+                    (lx, DESK_FRONT - 0.4195, DESK_TOP + 0.2385),
+                    material("laptop_lens", "void", roughness=0.25), vertices=8,
+                    rotation=(math.radians(90), 0, 0))
+
     hinge = Vector((lx, DESK_FRONT - 0.42, DESK_TOP + 0.012))
-    for obj in (lid, lid_screen):
+    for obj in (lid, bezel, lens, lid_screen):
         # Re-origin onto the hinge line so the lid rotates about it rather than
         # about its own centre, which would swing it through the desk.
         obj.data.transform(Matrix.Translation(obj.location - hinge))
@@ -1919,8 +1941,27 @@ def build_laptop() -> list[bpy.types.Object]:
     # the mesh named ix_laptop_display never reaches the export, and the runtime
     # paints a terminal onto something that does not exist. Both share the hinge
     # as their origin, so the animation turns them together without a parent.
-    lid.rotation_euler = (math.radians(-14), 0, 0)
-    lid_screen.rotation_euler = (math.radians(-14), 0, 0)
+    for obj in (lid, bezel, lens, lid_screen):
+        obj.rotation_euler = (math.radians(-19), 0, 0)
+    # The bezel and the camera are part of the lid's shell, so they join it —
+    # only the display stays separate, because the runtime paints it.
+    lid = join("ix_laptop_lid_body", [lid, bezel, lens])
+
+    # And the display is *parented* to the lid rather than merely given the
+    # same transform.
+    #
+    # Sharing an origin and an angle is not the same as being attached. Both
+    # halves were being posed independently — by this file at build time and
+    # by the animation at run time — so the screen stayed flush with its
+    # panel only for as long as two separate pieces of code agreed about a
+    # number. A screen that has drifted off its lid is the most broken-
+    # looking thing a desk can have.
+    #
+    # Parenting makes the relationship structural: the lid is the only thing
+    # that moves, the screen goes wherever the lid goes, and no later edit
+    # can separate them by forgetting to update a second place.
+    lid_screen.parent = lid
+    lid_screen.matrix_parent_inverse = lid.matrix_world.inverted()
 
     return [lid, lid_screen, join("laptop_base", parts_base)]
 
@@ -2012,11 +2053,24 @@ def build_keyboard_and_props() -> list[bpy.types.Object]:
     for row_index, widths in enumerate(rows):
         # Rows are sculpted: the far row sits higher and the near row lower, so
         # the block dishes toward the fingers instead of being a flat plane.
-        lift = (0.0032, 0.0016, 0.0, 0.0, 0.0008, 0.0022)[row_index]
+        lift = (0.0016, 0.0008, 0.0, 0.0, 0.0004, 0.0011)[row_index]
         # Each row is also angled, not just raised. A keycap's top is tilted
         # toward the typist, and the run of those angles down the block is what
         # makes the profile recognisable from the side.
-        tilt = (0.10, 0.07, 0.02, -0.02, -0.07, -0.13)[row_index]
+        #
+        # Halved, twice over. The original spread was 13 degrees across the
+        # block — true of a sculpted board, and fine in every shot taken from
+        # standing height, where the caps are four pixels each and the run of
+        # angles reads as a profile. From the desk it reads as damage: a
+        # 12 cm robot stands almost level with the caps and sees them nearly
+        # edge-on, and at that angle 13 degrees of difference between
+        # neighbouring rows looks like keys that have been knocked askew
+        # rather than keys that were moulded that way.
+        #
+        # This is the general lesson of putting a camera on the desk: detail
+        # authored to read at three metres has to survive being read at ten
+        # centimetres, and sculpting is the first thing that does not.
+        tilt = (0.05, 0.035, 0.012, -0.012, -0.035, -0.062)[row_index]
         # Row 0 is the function row and belongs *furthest* from the typist.
         #
         # It was laid out at the largest y — the room side, which is where a
@@ -2055,12 +2109,21 @@ def build_keyboard_and_props() -> list[bpy.types.Object]:
             # The cap turns about its own middle, so its top corner travels —
             # placing the quad at the untilted height leaves it hanging off the
             # back edge of every key in the two steepest rows.
-            # Half a tenth of a millimetre above the cap's top face, which is
-            # as close as it can sit without coplanarity. It was five times
-            # that, and the gap was visible: enough parallax to shift the mark
-            # off centre at a low angle, and enough room underneath for contact
-            # darkening to draw a rectangle around it. Printing has no gap.
-            lift_h = 0.00380
+            # A quarter of a millimetre above the cap's top face.
+            #
+            # It was 0.05 mm, chosen so the print would have no visible gap,
+            # and measured from the room's own camera that was right. From
+            # the robot's camera it was not: at 10 cm from a keycap with the
+            # depth range this scene carries, 0.05 mm is inside the depth
+            # buffer's noise, and the legends z-fought their own keys —
+            # letters flickering in and out of the plastic they are printed
+            # on. Probing the geometry is what settled it, because the marks
+            # were not floating above the caps as they appeared to be; they
+            # were sunk 0.3 mm into them.
+            #
+            # A quarter of a millimetre is still nothing from across the room
+            # and is well clear of the buffer's precision up close.
+            lift_h = 0.00400
             legend = plane(
                 f"legend_{row_index}_{col}",
                 (min(span, U) * 0.58, U * 0.50),
@@ -2180,13 +2243,33 @@ def build_keyboard_and_props() -> list[bpy.types.Object]:
     # on them.
     legend_block.visible_shadow = False
 
-    # A mouse is a dome, not a disc. Subdividing a short box rounds the top and
-    # keeps the base flat on the desk, which a scaled cylinder cannot do.
-    # A mouse is a dome, not a disc. Subdividing a short box rounds the top and
-    # keeps the base flat on the desk, which a scaled cylinder cannot do.
+    # A mouse is a shape, not a lozenge.
+    #
+    # It was a subdivided box: the same width and the same height from end to
+    # end. From across the room that reads as a mouse, because a mouse is
+    # roughly mouse-sized and dark. From the desk — where something standing
+    # on the mat looks along it — it read as a bar of soap. Every real mouse
+    # narrows and drops toward the front and swells under the palm, and that
+    # taper down its length is the whole silhouette.
+    #
+    # The taper is put into the cage before it is subdivided, rather than
+    # lofted from rows or carved with a solidify. Both of those were tried:
+    # the solidify follows the domed top with a domed bottom, so the shell
+    # sank 22 mm through the desk to keep its thickness — invisible, but the
+    # mouse is a physics prop and its collision hull is built from the mesh,
+    # so it would have come to rest hovering above the surface it is meant to
+    # be sliding on. Moving four corners of a box costs nothing and leaves
+    # the base dead flat.
     mx, my = 0.15, DESK_FRONT - 0.13
-    shell = cube("ix_mouse", (0.062, 0.105, 0.032), (mx, my, DESK_TOP + 0.013), body_mat, bevel=0)
-    smooth(shell, 2, crease=0.12)
+    shell = cube("ix_mouse", (0.062, 0.105, 0.032), (mx, my, DESK_TOP + 0.016), body_mat, bevel=0)
+    for vertex in shell.data.vertices:
+        # -y is the far end, where the cable leaves and the hand does not
+        # rest: narrower across, and dropped to about a third of the height.
+        if vertex.co.y < 0:
+            vertex.co.x *= 0.56
+            if vertex.co.z > 0:
+                vertex.co.z *= 0.30
+    smooth(shell, 2, crease=0.22)
 
     # The split between the buttons, and the wheel in it.
     #
@@ -2195,9 +2278,9 @@ def build_keyboard_and_props() -> list[bpy.types.Object]:
     # always pointing at the camera. The split is a groove rather than a drawn
     # line, so it catches its own shadow.
     split = cube("mouse_split", (0.0016, 0.052, 0.004),
-                 (mx, my - 0.024, DESK_TOP + 0.0285),
+                 (mx, my - 0.022, DESK_TOP + 0.0272),
                  material("mouse_seam", "void", roughness=0.9), bevel=0)
-    wheel = cylinder("mouse_wheel", 0.0075, 0.0055, (mx, my - 0.030, DESK_TOP + 0.0295),
+    wheel = cylinder("mouse_wheel", 0.0075, 0.0055, (mx, my - 0.028, DESK_TOP + 0.0268),
                      material("mouse_wheel", "chair_dark", roughness=0.45),
                      vertices=14, rotation=(0, math.radians(90), 0))
     mouse = join("ix_mouse", [shell, split, wheel])
@@ -4545,9 +4628,78 @@ def build_details() -> list[bpy.types.Object]:
         pen.rotation_euler = (lean, lean * 0.7, 0)
         desk_bits.append(pen)
 
-    phone = cube("phone", (0.072, 0.148, 0.009), (0.60, DESK_FRONT - 0.20, DESK_TOP + 0.005), dark, bevel=0.004)
-    phone.rotation_euler = (0, 0, math.radians(-14))
-    desk_bits.append(phone)
+    # The phone, face down, as a manufactured object rather than a slab.
+    #
+    # It was one bevelled box: correct in size, correct in place, and
+    # completely mute about what it was. Lying face down it shows the eye
+    # exactly the surface that carries every mark a phone is recognised by —
+    # the camera island, its lenses, the flash — and it had none of them.
+    #
+    # Every part is placed in the phone's own frame and then carried into the
+    # room by one rotation, so the device turns as a unit and nothing can be
+    # left behind facing the wrong way. That is the difference between parts
+    # that are near each other and parts that are attached.
+    phone_x, phone_y = 0.60, DESK_FRONT - 0.20
+    phone_turn = math.radians(-14)
+    phone_top = DESK_TOP + 0.0095
+
+    def on_phone(dx: float, dy: float) -> tuple[float, float]:
+        # A point in the phone's own frame, placed in the room.
+        cos, sin = math.cos(phone_turn), math.sin(phone_turn)
+        return (phone_x + dx * cos - dy * sin, phone_y + dx * sin + dy * cos)
+
+    phone_parts: list[bpy.types.Object] = []
+    phone_parts.append(
+        cube("phone_body", (0.072, 0.148, 0.009), (phone_x, phone_y, DESK_TOP + 0.005), dark,
+             bevel=0.004)
+    )
+    # The screen, underneath: a sliver of glass at the rim is all that shows
+    # of it face down, and its absence is what made the box read as resin.
+    phone_parts.append(
+        cube("phone_screen", (0.066, 0.142, 0.0012), (phone_x, phone_y, DESK_TOP + 0.0009),
+             material("phone_glass", "screen", roughness=0.08), bevel=0)
+    )
+    # The camera island, up-facing because the phone is not.
+    island_x, island_y = on_phone(-0.019, 0.049)
+    phone_parts.append(
+        cube("phone_camera_module", (0.030, 0.030, 0.0022), (island_x, island_y, phone_top),
+             material("phone_island", "dark_metal", roughness=0.35, metallic=1.0), bevel=0.002)
+    )
+    lens_mat = material("phone_lens", "void", roughness=0.08)
+    ring_mat = material("phone_ring", "metal", roughness=0.25, metallic=1.0)
+    for index, (lens_dx, lens_dy) in enumerate(((-0.0068, 0.0068), (0.0068, -0.0068))):
+        cx, cy = on_phone(-0.019 + lens_dx, 0.049 + lens_dy)
+        phone_parts.append(
+            cylinder(f"phone_camera_lens_{index}", 0.0052, 0.0016, (cx, cy, phone_top + 0.0012),
+                     ring_mat, vertices=12)
+        )
+        phone_parts.append(
+            cylinder(f"phone_camera_glass_{index}", 0.0036, 0.0018, (cx, cy, phone_top + 0.0016),
+                     lens_mat, vertices=12)
+        )
+    flash_x, flash_y = on_phone(-0.0055, 0.0405)
+    phone_parts.append(
+        cylinder("phone_flash", 0.0026, 0.0014, (flash_x, flash_y, phone_top + 0.0010),
+                 material("phone_flash", "pages", roughness=0.3), vertices=10)
+    )
+    # Buttons on the long edge and the port on the short one, attached to the
+    # body's faces rather than hovering beside them.
+    for index, along in enumerate((0.030, 0.008, -0.008)):
+        bx, by = on_phone(0.0365, along)
+        phone_parts.append(
+            cube(f"phone_button_{index}", (0.0022, 0.016 if index == 0 else 0.011, 0.0035),
+                 (bx, by, DESK_TOP + 0.005),
+                 material("phone_button", "metal", roughness=0.35, metallic=1.0),
+                 rotation_z=phone_turn, bevel=0.0008)
+        )
+    port_x, port_y = on_phone(0.0, -0.0735)
+    phone_parts.append(
+        cube("phone_port", (0.0085, 0.0018, 0.0022), (port_x, port_y, DESK_TOP + 0.0048),
+             material("phone_port", "void", roughness=0.9), rotation_z=phone_turn, bevel=0)
+    )
+    for part in phone_parts:
+        part.rotation_euler = (0, 0, phone_turn)
+    desk_bits.append(join("phone", phone_parts))
 
     # Splayed, not stacked. Three sheets at 4-5 degree steps about one centre
     # is a fan a magician spread; paper put down twice while working slides,
@@ -5176,7 +5328,12 @@ def add_lighting() -> None:
     world.use_nodes = True
     background = world.node_tree.nodes["Background"]
     background.inputs["Color"].default_value = (0.09, 0.10, 0.16, 1.0)
-    background.inputs["Strength"].default_value = 0.08
+    # 0.11, not 0.08. The room reads as night either way, but at 0.08 the
+    # corners the practicals cannot reach fell below what the tone curve can
+    # separate — black with a surface in it, which is a texture nobody sees.
+    # A fill, not a light: still about a stop under the darkest thing the eye
+    # is meant to read.
+    background.inputs["Strength"].default_value = 0.11
 
     def area(name, energy, size, location, colour, rotation=(0, 0, 0)):
         bpy.ops.object.light_add(type="AREA", location=location)

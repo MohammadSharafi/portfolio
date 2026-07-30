@@ -34,6 +34,10 @@ interface EngineState extends SaveState {
   controlled: boolean;
   /** The interactable the robot is standing next to, if any. */
   nearby: ObjectId | null;
+  /** True while the robot is within reach of the guitar. */
+  nearGuitar: boolean;
+  /** True while the guitar's track list is open. */
+  musicOpen: boolean;
   /** Drives the window's outside world and the room's ambient colour. */
   timeOfDay: 'day' | 'dusk' | 'night';
   muted: boolean;
@@ -43,6 +47,8 @@ interface EngineState extends SaveState {
   setPhase: (phase: Phase) => void;
   setControlled: (value: boolean) => void;
   setNearby: (id: ObjectId | null) => void;
+  setNearGuitar: (value: boolean) => void;
+  setMusicOpen: (value: boolean) => void;
   focus: (id: ObjectId) => void;
   unfocus: () => void;
   hover: (id: ObjectId | null) => void;
@@ -70,6 +76,8 @@ export const useEngine = create<EngineState>()(
       lampOn: true,
       controlled: false,
       nearby: null,
+      nearGuitar: false,
+      musicOpen: false,
       timeOfDay: 'night',
       muted: true,
       progress: 0,
@@ -80,6 +88,11 @@ export const useEngine = create<EngineState>()(
       setNearby: (id) => {
         if (get().nearby !== id) set({ nearby: id });
       },
+      setNearGuitar: (value) => {
+        if (get().nearGuitar !== value)
+          set({ nearGuitar: value, musicOpen: value && get().musicOpen });
+      },
+      setMusicOpen: (value) => set({ musicOpen: value }),
 
       focus: (id) => {
         const { discovered } = get();

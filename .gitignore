@@ -59,3 +59,6 @@ scripts/blender/room-bake.png
 scripts/blender/renders/
 scripts/blender/room-bake.exr
 scripts/blender/screens/
+
+# Full-length source audio; the room ships the trimmed cuts in public/music.
+music-source/

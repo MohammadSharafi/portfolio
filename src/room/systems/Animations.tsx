@@ -57,9 +57,10 @@ export function Animations({ root }: { root: Object3D }) {
     const windMaterials: MeshStandardMaterial[] = [];
 
     root.traverse((node) => {
-      // The lid body and its screen are separate objects sharing the hinge as
-      // their origin, so both turn.
-      if (node.name.startsWith('ix_laptop_lid') || node.name.startsWith('ix_laptop_display')) {
+      // The lid only. The display is parented to it in the model now, so it
+      // inherits the swing — turning it here as well would rotate it twice
+      // and tear the screen off the panel it is fixed to.
+      if (node.name.startsWith('ix_laptop_lid')) {
         lid.push({ node, base: node.rotation.x });
       }
       // The curtains: same wind, opposite anchoring. Foliage is pinned at

@@ -110,7 +110,7 @@ function Scene({
             in a room lit by two LED coves and a lamp is very little, and blue.
             It was 0.55 and warm, which filled every shadow to the same value as
             everything else and left the room with no shape in it. */}
-          <ambientLight color="#1d2331" intensity={0.11} />
+          <ambientLight color="#1d2331" intensity={0.15} />
 
           {/* The poor man's global illumination. A hemisphere light with a
             warm ground and a cool sky is what one bounce off this room's
@@ -119,7 +119,12 @@ function Scene({
             purpose: its job is to tie the practicals into one room, put a
             breath of warmth on the undersides the lamps cannot reach, and
             stop any object reading as lit by its own private source. */}
-          <hemisphereLight args={['#232a3d', '#503823', 0.28]} />
+          {/* Lifted from 0.28 to 0.40. The bounce is what keeps the corners
+            the practicals never reach from going to flat black — readable,
+            not lit. Raising the directional or the practicals instead would
+            have cost the night its contrast; a hemisphere adds floor and
+            leaves every highlight where it was. */}
+          <hemisphereLight args={['#232a3d', '#503823', 0.4]} />
 
           {/* Not a key any more — the overhead is off. This is the same bounce
             term from above given a direction so surfaces facing up read a
@@ -488,6 +493,13 @@ export function RoomExperience() {
         camera={{
           fov: 34,
           near: 0.1,
+          // 200, and it stays there. Tightening this to 24 to buy depth
+          // precision for the keycap legends looked reasonable and broke the
+          // room: the city outside the window and the sky occluder sit far
+          // beyond the walls, so the far plane cut through the scene and the
+          // depth-based passes had the ground pulled out from under them.
+          // The legends were fixed properly instead, by giving them a
+          // quarter-millimetre of real clearance in the model.
           far: 200,
           // Close to HOME_STOP, so the first frame the visitor sees is roughly
           // where the rig is about to ease it to rather than a jump.
