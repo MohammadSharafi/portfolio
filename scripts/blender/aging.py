@@ -63,6 +63,25 @@ FLOOR_CLEAR = (0.05, 0.28)
 # holds none.
 DUST_FALLOFF = 2.0
 
+# Where hands actually land, as soft spheres in world space. The height plateau
+# above says "somewhere a person could reach"; these say "the six places this
+# person reaches every day" — the keyboard, the desk's leaning edge, the chair,
+# the sofa's near arm, the door handle, the coffee table. Wear concentrates in
+# them, and dust is wiped out of them, which is the difference between a mask
+# that says "used" and one that says "weathered evenly like a cliff face".
+TOUCH_ZONES = (
+    ((0.15, -1.95, 0.80), 0.50),   # keyboard and mouse
+    ((-0.45, -1.80, 0.79), 0.40),  # desk front edge, where forearms lean
+    ((0.45, -0.81, 0.62), 0.50),   # chair seat and arms
+    ((-0.75, 1.55, 0.55), 0.45),   # sofa's near arm
+    ((-2.27, -2.50, 1.02), 0.28),  # door handle
+    ((0.25, 0.50, 0.40), 0.62),    # coffee table top
+)
+
+# Moisture: the slight permanent darkening where mopping and humidity live,
+# in the first hand-span above the floor.
+MOISTURE_BAND = (0.02, 0.14)
+
 
 def _math(tree, operation: str, value=None, *, clamp: bool = False, location=(0, 0)):
     node = tree.nodes.new("ShaderNodeMath")
@@ -83,6 +102,39 @@ def _range(tree, from_min, from_max, *, location=(0, 0)):
     node.inputs["From Max"].default_value = from_max
     node.location = location
     return node
+
+
+def _zone(tree, position_socket, centre, radius, *, location=(0, 0)):
+    """1.0 inside a soft world-space sphere, 0.0 outside it."""
+    offset = tree.nodes.new("ShaderNodeVectorMath")
+    offset.operation = "SUBTRACT"
+    offset.inputs[1].default_value = centre
+    offset.location = location
+    tree.links.new(position_socket, offset.inputs[0])
+    distance = tree.nodes.new("ShaderNodeVectorMath")
+    distance.operation = "LENGTH"
+    distance.location = (location[0] + 170, location[1])
+    tree.links.new(offset.outputs["Vector"], distance.inputs[0])
+    inside = _range(tree, radius * 0.55, radius, location=(location[0] + 340, location[1]))
+    inside.inputs["To Min"].default_value = 1.0
+    inside.inputs["To Max"].default_value = 0.0
+    tree.links.new(distance.outputs["Value"], inside.inputs["Value"])
+    return inside.outputs["Result"]
+
+
+def _noise(tree, position_socket, scale, out_min, out_max, *, location=(0, 0)):
+    """World-space fractal noise remapped to a multiplier band."""
+    noise = tree.nodes.new("ShaderNodeTexNoise")
+    noise.inputs["Scale"].default_value = scale
+    noise.inputs["Detail"].default_value = 4.0
+    noise.inputs["Roughness"].default_value = 0.55
+    noise.location = location
+    tree.links.new(position_socket, noise.inputs["Vector"])
+    band = _range(tree, 0.0, 1.0, location=(location[0] + 200, location[1]))
+    band.inputs["To Min"].default_value = out_min
+    band.inputs["To Max"].default_value = out_max
+    tree.links.new(noise.outputs["Fac"], band.inputs["Value"])
+    return band.outputs["Result"]
 
 
 def mask_material() -> bpy.types.Material:
@@ -180,15 +232,101 @@ def mask_material() -> bpy.types.Material:
     tree.links.new(reachable_low.outputs["Result"], reach.inputs[0])
     tree.links.new(reachable_high.outputs["Result"], reach.inputs[1])
 
-    worn = _math(tree, "MULTIPLY", location=(-240, 520))
-    tree.links.new(convex.outputs["Value"], worn.inputs[0])
-    tree.links.new(reach.outputs["Value"], worn.inputs[1])
+    # --- the touch zones ----------------------------------------------------
+    # A soft union of the places hands land daily. Wear concentrates here;
+    # dust is wiped from here.
+    zone_sockets = [
+        _zone(tree, geometry.outputs["Position"], centre, radius,
+              location=(-2200, 900 + index * 220))
+        for index, (centre, radius) in enumerate(TOUCH_ZONES)
+    ]
+    zones = zone_sockets[0]
+    for index, socket in enumerate(zone_sockets[1:]):
+        union = _math(tree, "MAXIMUM", location=(-1500, 900 + index * 120))
+        tree.links.new(zones, union.inputs[0])
+        tree.links.new(socket, union.inputs[1])
+        zones = union.outputs["Value"]
+
+    # Background reach is scaled down so the zones dominate: a chair arm wears
+    # through its finish years before the bookshelf's mid-rail does.
+    ambient_reach = _math(tree, "MULTIPLY", 0.45, location=(-600, 200))
+    tree.links.new(reach.outputs["Value"], ambient_reach.inputs[0])
+    touch = _math(tree, "MAXIMUM", location=(-420, 240))
+    tree.links.new(ambient_reach.outputs["Value"], touch.inputs[0])
+    tree.links.new(zones, touch.inputs[1])
+
+    # --- world-space variation ----------------------------------------------
+    # The single loudest procedural tell is uniformity: real wear waxes and
+    # wanes across a surface for reasons nobody can reconstruct. Low-frequency
+    # world noise modulates both channels, and a sparse high-threshold band
+    # adds the occasional isolated blotch — a stain with no visible cause,
+    # which is what most real stains are.
+    wear_var = _noise(tree, geometry.outputs["Position"], 0.55, 0.72, 1.22,
+                      location=(-2200, -700))
+    dust_var = _noise(tree, geometry.outputs["Position"], 2.2, 0.78, 1.18,
+                      location=(-2200, -950))
+    blotch_noise = tree.nodes.new("ShaderNodeTexNoise")
+    blotch_noise.inputs["Scale"].default_value = 1.4
+    blotch_noise.inputs["Detail"].default_value = 3.0
+    blotch_noise.location = (-2200, -1200)
+    tree.links.new(geometry.outputs["Position"], blotch_noise.inputs["Vector"])
+    blotch_band = _range(tree, 0.67, 0.72, location=(-2000, -1200))
+    tree.links.new(blotch_noise.outputs["Fac"], blotch_band.inputs["Value"])
+    # Gated by the same up-facing and floor terms as the dust it rides with.
+    # Ungated, the blotches landed on vertical plaster and every wall in the
+    # room grew pale clouds — a stain has to have somewhere to settle *from*.
+    blotch_settled = _math(tree, "MULTIPLY", location=(-1900, -1350))
+    tree.links.new(blotch_band.outputs["Result"], blotch_settled.inputs[0])
+    tree.links.new(settled.outputs["Value"], blotch_settled.inputs[1])
+    blotch = _math(tree, "MULTIPLY", 0.15, location=(-1800, -1200))
+    tree.links.new(blotch_settled.outputs["Value"], blotch.inputs[0])
+
+    worn_flat = _math(tree, "MULTIPLY", location=(-240, 520))
+    tree.links.new(convex.outputs["Value"], worn_flat.inputs[0])
+    tree.links.new(touch.outputs["Value"], worn_flat.inputs[1])
+    worn = _math(tree, "MULTIPLY", clamp=True, location=(-100, 520))
+    tree.links.new(worn_flat.outputs["Value"], worn.inputs[0])
+    tree.links.new(wear_var, worn.inputs[1])
+
+    # Dust: varied by the noise, wiped where hands live, plus the blotches
+    # (which are dirt, so they ride the dust channel and inherit its tinting).
+    swept = _math(tree, "MULTIPLY", 0.85, location=(-420, -60))
+    tree.links.new(zones, swept.inputs[0])
+    keep = _math(tree, "SUBTRACT", location=(-300, -120))
+    keep.inputs[0].default_value = 1.0
+    tree.links.new(swept.outputs["Value"], keep.inputs[1])
+    dust_wiped = _math(tree, "MULTIPLY", location=(-180, -180))
+    tree.links.new(exposed.outputs["Value"], dust_wiped.inputs[0])
+    tree.links.new(keep.outputs["Value"], dust_wiped.inputs[1])
+    dust_varied = _math(tree, "MULTIPLY", location=(-60, -180))
+    tree.links.new(dust_wiped.outputs["Value"], dust_varied.inputs[0])
+    tree.links.new(dust_var, dust_varied.inputs[1])
+    dust_final = _math(tree, "ADD", clamp=True, location=(60, -180))
+    tree.links.new(dust_varied.outputs["Value"], dust_final.inputs[0])
+    tree.links.new(blotch.outputs["Value"], dust_final.inputs[1])
+
+    # --- moisture -----------------------------------------------------------
+    # The hand-span above the floor lives a slightly darker life: mop water,
+    # humidity, shoe scuffs. Carried in the occlusion channel, which the
+    # runtime already reads as ambient dirt.
+    floor_band = _range(tree, *MOISTURE_BAND, location=(-950, 460))
+    floor_band.inputs["To Min"].default_value = 1.0
+    floor_band.inputs["To Max"].default_value = 0.0
+    tree.links.new(position.outputs["Z"], floor_band.inputs["Value"])
+    damp = _math(tree, "MULTIPLY", 0.30, location=(-780, 460))
+    tree.links.new(floor_band.outputs["Result"], damp.inputs[0])
+    dry = _math(tree, "SUBTRACT", location=(-600, 460))
+    dry.inputs[0].default_value = 1.0
+    tree.links.new(damp.outputs["Value"], dry.inputs[1])
+    ao_damp = _math(tree, "MULTIPLY", location=(-420, 400))
+    tree.links.new(occlusion.outputs["AO"], ao_damp.inputs[0])
+    tree.links.new(dry.outputs["Value"], ao_damp.inputs[1])
 
     # --- pack and emit ------------------------------------------------------
     combine = tree.nodes.new("ShaderNodeCombineColor")
     combine.location = (0, 200)
-    tree.links.new(occlusion.outputs["AO"], combine.inputs["Red"])
-    tree.links.new(exposed.outputs["Value"], combine.inputs["Green"])
+    tree.links.new(ao_damp.outputs["Value"], combine.inputs["Red"])
+    tree.links.new(dust_final.outputs["Value"], combine.inputs["Green"])
     tree.links.new(worn.outputs["Value"], combine.inputs["Blue"])
 
     # Emission, because an EMIT bake writes shader output straight to the image

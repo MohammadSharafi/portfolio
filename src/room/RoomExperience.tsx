@@ -1,7 +1,15 @@
 import { Suspense, useState } from 'react';
 import { Canvas, useThree } from '@react-three/fiber';
 import { AdaptiveDpr, Preload } from '@react-three/drei';
-import { ChromaticAberration, EffectComposer, Bloom, N8AO, Noise, ToneMapping, Vignette } from '@react-three/postprocessing';
+import {
+  ChromaticAberration,
+  EffectComposer,
+  Bloom,
+  N8AO,
+  Noise,
+  ToneMapping,
+  Vignette,
+} from '@react-three/postprocessing';
 import { ToneMappingMode } from 'postprocessing';
 import { ACESFilmicToneMapping, type Object3D } from 'three';
 import { Physics } from '@react-three/rapier';
@@ -301,12 +309,17 @@ function Scene({
             reference photos show exactly that) instead of burning white at
             zero distance. The down-spot above is now just the soft pool on
             the rug and the soft shadows the furniture casts out of it. */}
+          {/* Lower and a touch dimmer: at shade height this light printed
+            its own hot patch on one side of the cloth — a lamp shade must be
+            lit from inside itself, not from a point floating beside it. At
+            chest height it feeds the sofa and the pole and leaves the shade
+            to its own glow. */}
           <pointLight
             color="#ffa763"
-            intensity={4}
+            intensity={3.4}
             distance={3.4}
             decay={2}
-            position={[-0.96, 1.30, -1.78]}
+            position={[-0.96, 1.12, -1.78]}
           />
           {/* The strip controller's red standby LED under the desk's front
             lip, as a light and not only as an emissive chip. Tiny throw on

@@ -48,8 +48,37 @@ const DUST_COLOUR = 'vec3( 0.60, 0.575, 0.535 )';
  * up close is not subtle, it is absent. Tuned at the distance the room is
  * actually viewed from.
  */
-export const DUST_AMOUNT = 0.72;
-export const WEAR_AMOUNT = 1.0;
+export const DUST_AMOUNT = 0.42;
+export const WEAR_AMOUNT = 0.6;
+
+/**
+ * Materials the mask never touches.
+ *
+ * The walls, because a blotch-gating bug in one bake put dust clouds on them
+ * and the fix revealed the truer point: painted plaster in a lived-in flat is
+ * repainted, not left to mottle, and the room reads cleaner with the walls
+ * kept clean. The sofa, because its fabric already carries weave, welts and
+ * cushion shading — aging on top pushed it from "used" to "neglected".
+ */
+export const UNAGED = new Set([
+  'wall',
+  'wall_accent',
+  'sofa_fabric',
+  'sofa_piping',
+  'throw',
+  'scatter',
+  // The door and its architrave: the wood grain and panel shadows already
+  // carry the surface, and the mask's wear on the panel edges read as
+  // scuffed paint on what should be a maintained interior door.
+  'door',
+  'door_trim',
+  // The drawer stack: its faces are small and edge-dense, so the wear mask
+  // striped every edge at once and the unit read as battered rather than
+  // opened daily. The pulls keep their metal; the boxes go clean.
+  'drawer',
+  'drawer_face',
+  'drawer_box',
+]);
 
 /** The GLSL spliced in after the material has resolved its own maps. */
 const AGING_FRAGMENT = /* glsl */ `
@@ -132,6 +161,7 @@ export function applyAging(
   aging: Texture,
   { occlusion }: { occlusion: number }
 ) {
+  if (UNAGED.has(material.name)) return;
   material.aoMap = aging;
   material.aoMapIntensity = occlusion;
 

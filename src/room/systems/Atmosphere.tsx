@@ -90,7 +90,7 @@ const VERTEX = /* glsl */ `
 
     vec4 mv = modelViewMatrix * vec4(p, 1.0);
     gl_Position = projectionMatrix * mv;
-    gl_PointSize = uPixelRatio * (0.8 + hash(aSeed * 17.9) * 1.9) * (30.0 / max(1.0, -mv.z));
+    gl_PointSize = uPixelRatio * (0.45 + hash(aSeed * 17.9) * 1.05) * (30.0 / max(1.0, -mv.z));
   }
 `;
 
@@ -101,7 +101,7 @@ const FRAGMENT = /* glsl */ `
   void main() {
     float d = length(gl_PointCoord - 0.5);
     if (d > 0.5) discard;
-    float alpha = (1.0 - smoothstep(0.1, 0.5, d)) * vGlow * 0.20;
+    float alpha = (1.0 - smoothstep(0.1, 0.5, d)) * vGlow * 0.17;
     if (alpha < 0.002) discard;
     gl_FragColor = vec4(uColor, alpha);
   }

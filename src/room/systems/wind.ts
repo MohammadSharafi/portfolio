@@ -35,7 +35,7 @@ export function updateWind(time: number): void {
 
   // Perlin sampled along one axis with distinct y-offsets is three
   // independent non-repeating signals from one noise instance.
-  const base = 0.30 + noise.noise(time * 0.05, 0.0, 0.0) * 0.15;
+  const base = 0.3 + noise.noise(time * 0.05, 0.0, 0.0) * 0.15;
   const gustBand = noise.noise(time * 0.008, 7.3, 0.0);
   // Gusts only when the slow band crests, so they arrive in bouts with calm
   // between them rather than as a steady chop.

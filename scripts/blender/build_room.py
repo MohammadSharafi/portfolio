@@ -3032,20 +3032,99 @@ def build_window() -> list[bpy.types.Object]:
         cube("win_right", (0.09, 0.1, 1.3), (2.75, -2.53, 1.7), frame_mat),
         cube("win_mullion", (0.03, 0.06, 1.25), (2.05, -2.53, 1.7), frame_mat),
     ]
-    # A sill, and no glass.
-    #
-    # There was a tinted pane here, and it cost the view. It started as a mirror
-    # — roughness 0.05, metallic 0.1 — which reflected the lit room back at the
-    # camera hard enough that the window read as a solid blue panel with nothing
-    # behind it. Roughing it off and dropping the alpha to seven percent got the
-    # skyline back but left everything beyond it washed pale blue, which is the
-    # opposite of what a city at night should look like.
-    #
-    # An aperture with nothing in it reads as glass perfectly well at this
-    # scale, and it lets the one thing the window exists to show come through
-    # undimmed.
     parts.append(cube("win_sill", (1.6, 0.22, 0.06), (2.05, -2.46, 1.08), frame_mat))
+
+    # Glass, on the second attempt — the first pane was removed with a note
+    # explaining why: as a mirror it reflected the room back as a solid blue
+    # panel, and as a low-alpha sheet it washed the skyline pale, because
+    # normal alpha blending scales the *reflections* down with the same factor
+    # that lets the background through. Transmission glass unties those two:
+    # the skyline passes through at full strength while the fresnel
+    # reflections of the room stay whole, brightening toward grazing angles
+    # the way a night window actually does. The lacquer grain puts smudge into
+    # the roughness, so the reflections streak instead of mirroring cleanly.
+    glass_mat = material("window_glass", "paper", roughness=0.04, grain="lacquer")
+    glass_bsdf = glass_mat.node_tree.nodes["Principled BSDF"]
+    glass_bsdf.inputs["Transmission Weight"].default_value = 1.0
+    glass_bsdf.inputs["IOR"].default_value = 1.45
+    for pane_name, pane_x, pane_w in (("win_glass_l", 1.71, 0.63), ("win_glass_r", 2.39, 0.63)):
+        pane = cube(pane_name, (pane_w, 0.006, 1.12), (pane_x, -2.51, 1.7), glass_mat, bevel=0)
+        # The light through the window must not be stopped by its own glass:
+        # Cycles would attenuate the city glow and the runtime would darken
+        # the sill for nothing.
+        pane.visible_shadow = False
+        parts.append(pane)
     return [join("window_frame", parts)]
+
+
+def build_curtains() -> list[bpy.types.Object]:
+    """
+    Two sheer panels on a rail, drawn to the window's sides.
+
+    The wind system finally gets its witness at the window: dust drifts and
+    leaves sway, but nothing at the opening explained the draught. The drape
+    is procedural rather than cloth-simulated — layered folds whose amplitude
+    grows toward the free hem, with the hem kicked a few centimetres into the
+    room the way a curtain by a cracked window hangs. A headless cloth sim
+    would buy marginally better folds at the cost of a nondeterministic build
+    and collision tuning nobody can watch; the runtime supplies the motion by
+    bending the mesh in the vertex shader, pinned at the rail exactly as a
+    sim would pin it.
+
+    Gathered to the sides on purpose: the window exists to show the skyline,
+    and a panel across the glass would spend the best surface in the room on
+    a rectangle of gauze.
+    """
+    rail_mat = material("curtain_rail", "dark_metal", roughness=0.4, metallic=1.0, grain="brushed")
+    sheer = material("curtain", "paper", roughness=0.92, grain="fabric")
+    sheer_bsdf = sheer.node_tree.nodes["Principled BSDF"]
+    sheer_bsdf.inputs["Alpha"].default_value = 0.34
+    sheer.blend_method = "BLEND"
+
+    out = [
+        cylinder("curtain_rail", 0.012, 1.64, (2.05, -2.395, 2.38), rail_mat,
+                 vertices=12, rotation=(0, math.radians(90), 0)),
+        cylinder("rail_finial_l", 0.022, 0.03, (1.22, -2.395, 2.38), rail_mat,
+                 vertices=10, rotation=(0, math.radians(90), 0)),
+        cylinder("rail_finial_r", 0.022, 0.03, (2.88, -2.395, 2.38), rail_mat,
+                 vertices=10, rotation=(0, math.radians(90), 0)),
+    ]
+    for bracket_x in (1.35, 2.75):
+        out.append(cube(f"rail_bracket_{bracket_x}", (0.02, 0.05, 0.016),
+                        (bracket_x, -2.42, 2.39), rail_mat, bevel=0.002))
+
+    drop = 1.34
+    for name, cx, phase in (("curtain_l", 1.50, 0.0), ("curtain_r", 2.60, 2.2)):
+        verts: list[tuple[float, float, float]] = []
+        nx, nz = 21, 11
+        width = 0.46
+        for iz in range(nz):
+            t = iz / (nz - 1)  # 0 at the rail, 1 at the hem.
+            for ix in range(nx):
+                u = ix / (nx - 1) - 0.5
+                x = u * width
+                # Folds: two incommensurate frequencies plus a slow drift, all
+                # scaled up toward the hem — gathered fabric hangs nearly flat
+                # at its rings and deepens as it falls.
+                fold = (
+                    math.sin(u * 19.0 + phase) * 0.020
+                    + math.sin(u * 8.3 + phase * 2.0 + t * 1.5) * 0.014
+                    + math.sin(u * 33.0 + t * 4.0 + phase) * 0.006
+                ) * (0.25 + 0.75 * t)
+                # The hem drifts into the room: the window is ajar and the
+                # sheer spends its life leaning away from it.
+                sweep = t * t * 0.055
+                verts.append((x, fold + sweep, -t * drop))
+        faces = [
+            (iz * nx + ix, iz * nx + ix + 1, (iz + 1) * nx + ix + 1, (iz + 1) * nx + ix)
+            for iz in range(nz - 1)
+            for ix in range(nx - 1)
+        ]
+        # Origin at the rail, so the runtime's pinned-top bend has its pivot
+        # where the rings are.
+        panel = poly(name, verts, faces, (cx, -2.40, 2.36), sheer)
+        out.append(panel)
+    return out
 
 
 def build_certificates() -> list[bpy.types.Object]:
@@ -3898,10 +3977,10 @@ def build_lounge() -> list[bpy.types.Object]:
             material(
                 "lamp_shade",
                 "pages",
-                roughness=0.85,
-                emission=0.95,
+                roughness=0.88,
+                emission=0.92,
                 emission_key="lampglow",
-                grain="paper",
+                grain="fabric",
             ),
         )
     )
@@ -4757,16 +4836,22 @@ def build_led_strips() -> list[bpy.types.Object]:
         light.data.spread = math.radians(120)
         light.rotation_euler = rotation
 
-    # Under each of the three lower shelves, lighting the books on the shelf
+    # Under every shelf and the capping board, lighting the books on the row
     # below — which is what under-shelf lighting is *for*, and why it reads as
-    # installed rather than decorative.
-    for level in range(3):
+    # installed rather than decorative. It was the lower three only, and the
+    # top two rows sat in the dark above their own glowing case.
+    for level in range(4):
         z = 0.3 + level * 0.5 - 0.028
         run(
             f"led_shelf_{level}", "cyan",
             (0.012, 1.78, 0.008), (-2.94, 0.95, z),
             (0.30, 0.86, 1.0), (0.06, 1.7), (0.0, 0.0, 0.0), 22,
         )
+    run(
+        "led_shelf_top", "cyan",
+        (0.012, 1.78, 0.008), (-2.94, 0.95, 2.132),
+        (0.30, 0.86, 1.0), (0.06, 1.7), (0.0, 0.0, 0.0), 22,
+    )
 
     # Under the desk's front edge, washing the floor. This is the one that makes
     # the desk look like it is floating, which is the single most recognisable
@@ -5191,7 +5276,7 @@ def add_lighting() -> None:
     bpy.ops.object.light_add(type="POINT", location=(-1.22, 1.85, 1.44))
     floor_lamp = bpy.context.object
     floor_lamp.name = "floor_lamp_light"
-    floor_lamp.data.energy = 240
+    floor_lamp.data.energy = 330
     floor_lamp.data.color = (1.0, 0.68, 0.38)
     floor_lamp.data.shadow_soft_size = 0.16
 
@@ -5409,6 +5494,7 @@ def build_all() -> None:
     build_certificates()
     build_chair_and_plant()
     build_lounge()
+    build_curtains()
     build_door()
     build_fittings()
     build_details()

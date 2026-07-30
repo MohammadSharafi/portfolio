@@ -1,12 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
-import {
-  Mesh,
-  MeshBasicMaterial,
-  MeshStandardMaterial,
-  type Object3D,
-  type Texture,
-} from 'three';
+import { Mesh, MeshBasicMaterial, MeshStandardMaterial, type Object3D, type Texture } from 'three';
 import {
   bookSpineTexture,
   certificateTexture,

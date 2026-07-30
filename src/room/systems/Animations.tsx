@@ -62,6 +62,45 @@ export function Animations({ root }: { root: Object3D }) {
       if (node.name.startsWith('ix_laptop_lid') || node.name.startsWith('ix_laptop_display')) {
         lid.push({ node, base: node.rotation.x });
       }
+      // The curtains: same wind, opposite anchoring. Foliage is pinned at
+      // the soil and bends upward; a curtain is pinned at its rail and the
+      // free hem below rides the draught, with a small fast flutter living
+      // only near the bottom edge.
+      if (node instanceof Mesh && /^curtain_[lr]/.test(node.name)) {
+        const material = node.material;
+        if (
+          !Array.isArray(material) &&
+          material instanceof MeshStandardMaterial &&
+          !material.userData.windPatched
+        ) {
+          material.userData.windPatched = true;
+          material.onBeforeCompile = (shader) => {
+            shader.uniforms.uWindTime = WIND_TIME;
+            shader.uniforms.uWindVec = WIND_VEC;
+            shader.vertexShader = shader.vertexShader
+              .replace(
+                '#include <common>',
+                '#include <common>\nuniform float uWindTime;\nuniform vec3 uWindVec;'
+              )
+              .replace(
+                '#include <begin_vertex>',
+                `#include <begin_vertex>
+                {
+                  float drop = pow(max(-transformed.y, 0.0), 1.3);
+                  vec4 worldSeed = modelMatrix * vec4(transformed, 1.0);
+                  float phase = worldSeed.x * 6.1;
+                  float bend = drop * uWindVec.z * 1.9;
+                  transformed.x += uWindVec.x * bend * (0.5 + 0.5 * sin(uWindTime * 0.6 + phase));
+                  transformed.z += uWindVec.y * bend * (0.5 + 0.5 * sin(uWindTime * 0.52 + phase + 0.8))
+                                 + sin(uWindTime * 2.3 + phase * 2.7) * drop * uWindVec.z * 0.22;
+                }`
+              );
+          };
+          material.customProgramCacheKey = () => 'wind-curtain';
+          material.needsUpdate = true;
+          windMaterials.push(material);
+        }
+      }
       if (node instanceof Mesh && /^plant_\d+_leaves/.test(node.name)) {
         const material = node.material;
         if (
@@ -117,6 +156,22 @@ export function Animations({ root }: { root: Object3D }) {
       // cone of air below it.
       if (node instanceof Mesh) {
         const material = node.material;
+        // The floor lamp's shade glows *through* its fabric, so the glow has
+        // to carry the weave: with a flat emissive the threads only showed
+        // where outside light grazed the cloth, which is one side — a smooth
+        // even glow everywhere else and a hot textured patch near the fill
+        // light. Backlit cloth is darkest exactly on its threads, and
+        // reusing the weave map as the emissive map is that fact.
+        if (
+          !Array.isArray(material) &&
+          material instanceof MeshStandardMaterial &&
+          material.name === 'lamp_shade' &&
+          material.map &&
+          !material.emissiveMap
+        ) {
+          material.emissiveMap = material.map;
+          material.needsUpdate = true;
+        }
         if (
           !Array.isArray(material) &&
           material instanceof MeshStandardMaterial &&

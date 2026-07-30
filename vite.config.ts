@@ -174,7 +174,9 @@ export default defineConfig({
     },
   },
   server: {
-    port: 3000,
+    // 3000 by preference, but nothing here depends on the number — the dev
+    // harness hands out a PORT when 3000 is taken by another project.
+    port: Number(process.env.PORT) || 3000,
     open: true,
   },
   test: {
