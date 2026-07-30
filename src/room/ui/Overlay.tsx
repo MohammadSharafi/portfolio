@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { Volume2, VolumeX, X } from 'lucide-react';
 import { useEngine } from '../engine/store';
+import { characterState } from '../engine/characterState';
 import { roomObjects, roomObjectById } from '../data/objects';
 import { profile } from '@/data/profile';
 import { roomAudio } from '../engine/audio';
@@ -121,6 +122,8 @@ export function Overlay() {
         </button>
       ) : null}
 
+      {controlled && !focused ? <FuelGauge /> : null}
+
       {controlled && !focused ? (
         <p className="absolute bottom-24 left-1/2 -translate-x-1/2 rounded-full bg-black/55 px-4 py-2 text-xs text-white/75 backdrop-blur-md">
           {nearbyObject ? (
@@ -129,7 +132,7 @@ export function Overlay() {
               {nearbyObject.label.toLowerCase()}
             </>
           ) : (
-            'W to walk · A / D to turn · S to back up · Shift to hurry · Esc to stop'
+            'W to move · A / D to turn · mouse to look · hold Space to fly · Esc to stop'
           )}
         </p>
       ) : null}
@@ -250,6 +253,44 @@ export function Overlay() {
           <p className="mt-4 text-[11px] text-white/35">Press Esc to step back</p>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * The thruster gauge.
+ *
+ * Driven straight from `characterState` on an animation frame rather than
+ * through React: fuel changes every frame, and a store value that re-renders
+ * the overlay sixty times a second would cost more than the whole flight
+ * system. The bar writes its own width and colour and nothing above it
+ * re-renders at all.
+ */
+function FuelGauge() {
+  const fill = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let frame = 0;
+    const tick = () => {
+      const bar = fill.current;
+      if (bar) {
+        const fuel = characterState.fuel;
+        bar.style.width = `${Math.max(0, Math.min(1, fuel)) * 100}%`;
+        // Amber under a third, so running dry is something you see coming
+        // rather than something that happens to you.
+        bar.style.backgroundColor = fuel < 0.34 ? '#ffb648' : '#2ff5c8';
+      }
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, []);
+
+  return (
+    <div className="absolute bottom-32 left-1/2 -translate-x-1/2">
+      <div className="h-1 w-32 overflow-hidden rounded-full bg-white/15">
+        <div ref={fill} className="h-full rounded-full transition-colors duration-200" />
+      </div>
     </div>
   );
 }
