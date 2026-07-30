@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { Mesh, MeshStandardMaterial, type Object3D } from 'three';
+import { Mesh, MeshStandardMaterial, Vector3, type Object3D } from 'three';
 import { useEngine } from '../engine/store';
+import { wind } from './wind';
+
+// Shared by every wind-patched foliage material; written once per frame.
+const WIND_TIME = { value: 0 };
+const WIND_VEC = { value: new Vector3(-0.94, -0.34, 0.05) };
 
 /**
  * The room's moving parts.
@@ -24,8 +29,10 @@ import { useEngine } from '../engine/store';
  * with the lid's origin moved onto the hinge line so it rotates about the hinge
  * rather than about its own centre, which would swing it through the desk.
  */
-/** The emitting surfaces of the desk lamp, which the switch drives together. */
-const GLOWING = new Set(['bulb', 'lamp_mouth', 'lamp_beam']);
+/** The emitting surfaces of the desk lamp, which the switch drives together.
+ * No `lamp_beam` any more — the translucent cone was removed from the model
+ * after its surface kept drawing bright arcs where it crossed the props. */
+const GLOWING = new Set(['bulb', 'lamp_mouth']);
 
 const LID_CLOSED = 1.42;
 
@@ -41,12 +48,55 @@ export function Animations({ root }: { root: Object3D }) {
     // The steam wisps, each with the pose it was modelled in, so the drift is
     // applied *around* that rather than replacing it.
     const steam: Array<{ node: Object3D; y: number; scale: number; phase: number }> = [];
+    // The foliage materials, patched so the wind bends every stem and leaf
+    // in the vertex shader. Rotating the foliage object was the first
+    // version, and it moved the plant the way a toy moves: one rigid piece.
+    // The deformation below scales with each vertex's height above the soil
+    // crown (the foliage objects' origin), so motion propagates from stem to
+    // tip and the tall leaves ride further than the low ones.
+    const windMaterials: MeshStandardMaterial[] = [];
 
     root.traverse((node) => {
       // The lid body and its screen are separate objects sharing the hinge as
       // their origin, so both turn.
       if (node.name.startsWith('ix_laptop_lid') || node.name.startsWith('ix_laptop_display')) {
         lid.push({ node, base: node.rotation.x });
+      }
+      if (node instanceof Mesh && /^plant_\d+_leaves/.test(node.name)) {
+        const material = node.material;
+        if (
+          !Array.isArray(material) &&
+          material instanceof MeshStandardMaterial &&
+          !material.userData.windPatched
+        ) {
+          material.userData.windPatched = true;
+          material.onBeforeCompile = (shader) => {
+            shader.uniforms.uWindTime = WIND_TIME;
+            shader.uniforms.uWindVec = WIND_VEC;
+            shader.vertexShader = shader.vertexShader
+              .replace(
+                '#include <common>',
+                '#include <common>\nuniform float uWindTime;\nuniform vec3 uWindVec;'
+              )
+              .replace(
+                '#include <begin_vertex>',
+                `#include <begin_vertex>
+                {
+                  float lift = pow(max(transformed.y, 0.0), 1.4);
+                  vec4 worldSeed = modelMatrix * vec4(transformed, 1.0);
+                  float phase = worldSeed.x * 2.7 + worldSeed.z * 3.3;
+                  float bend = lift * uWindVec.z;
+                  transformed.x += uWindVec.x * bend * (0.55 + 0.45 * sin(uWindTime * 1.25 + phase))
+                                 + sin(uWindTime * 0.83 + phase * 1.9) * bend * 0.3;
+                  transformed.z += uWindVec.y * bend * (0.55 + 0.45 * sin(uWindTime * 1.05 + phase + 1.3))
+                                 + cos(uWindTime * 0.67 + phase) * bend * 0.3;
+                }`
+              );
+          };
+          material.customProgramCacheKey = () => 'wind-foliage';
+          material.needsUpdate = true;
+          windMaterials.push(material);
+        }
       }
       if (node.name.startsWith('steam_')) {
         // The phase is derived from the wisp's index rather than random, so the
@@ -86,7 +136,7 @@ export function Animations({ root }: { root: Object3D }) {
       }
     });
 
-    return { lid, bulbs, steam };
+    return { lid, bulbs, steam, windMaterials };
   }, [root]);
 
   // The lid rests open, which is how the model is authored.
@@ -142,6 +192,12 @@ export function Animations({ root }: { root: Object3D }) {
       // being the same curve every frame.
       wisp.node.rotation.y = Math.sin(clock.current * 0.6 + wisp.phase) * 0.09;
     }
+
+    // Feed the shared wind field into the foliage shaders. The uniforms are
+    // module-level objects every patched material points at, so this is two
+    // writes per frame however many plants the room grows.
+    WIND_TIME.value = clock.current;
+    WIND_VEC.value.set(wind.x, wind.z, 0.03 + wind.strength * 0.075);
 
     const lampTarget = lampOn ? 1 : 0;
     glow.current += (lampTarget - glow.current) * (1 - Math.exp(-6 * dt));

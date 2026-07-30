@@ -1,7 +1,7 @@
 import { Suspense, useState } from 'react';
-import { Canvas } from '@react-three/fiber';
+import { Canvas, useThree } from '@react-three/fiber';
 import { AdaptiveDpr, Preload } from '@react-three/drei';
-import { EffectComposer, Bloom, N8AO, ToneMapping, Vignette } from '@react-three/postprocessing';
+import { ChromaticAberration, EffectComposer, Bloom, N8AO, Noise, ToneMapping, Vignette } from '@react-three/postprocessing';
 import { ToneMappingMode } from 'postprocessing';
 import { ACESFilmicToneMapping, type Object3D } from 'three';
 import { Physics } from '@react-three/rapier';
@@ -11,6 +11,7 @@ import { SceneEnvironment } from './systems/SceneEnvironment';
 import { Screens } from './systems/Screens';
 import { Props } from './systems/Props';
 import { Animations } from './systems/Animations';
+import { Atmosphere } from './systems/Atmosphere';
 import { Overlay } from './ui/Overlay';
 import { useRoomAsset } from './engine/useRoomAsset';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
@@ -23,6 +24,22 @@ import { useEngine } from './engine/store';
  * engine store, so this file stays a list of what exists rather than becoming
  * the place all the wiring accumulates.
  */
+/**
+ * The camera's exposure, chosen per lighting path.
+ *
+ * The bake is a physically honest picture of a dim room, and printed at the
+ * fallback's 1.25 it reads as a dark rectangle with furniture implied in it —
+ * the same finding as the wide Cycles preview. A photographer in this room
+ * would simply hold the shutter open longer; this is that decision. The
+ * fallback keeps its own grade: its lights were tuned at 1.25 and pushing
+ * them through 2.05 would clip every warm core in the frame.
+ */
+function Exposure({ baked }: { baked: boolean }) {
+  const gl = useThree((state) => state.gl);
+  gl.toneMappingExposure = baked ? 2.05 : 1.25;
+  return null;
+}
+
 function Scene({
   url,
   lightmap,
@@ -42,6 +59,7 @@ function Scene({
   return (
     <>
       <CameraRig reducedMotion={reducedMotion} />
+      <Exposure baked={baked} />
 
       {/* The environment is the one thing a lightmap cannot replace.
         A lightmap is *diffuse* irradiance, and three.js spends it on
@@ -85,6 +103,15 @@ function Scene({
             everything else and left the room with no shape in it. */}
           <ambientLight color="#1d2331" intensity={0.11} />
 
+          {/* The poor man's global illumination. A hemisphere light with a
+            warm ground and a cool sky is what one bounce off this room's
+            surfaces actually sums to — lamplight coming back up off the rug
+            and boards, window-blue coming down off the ceiling. It is dim on
+            purpose: its job is to tie the practicals into one room, put a
+            breath of warmth on the undersides the lamps cannot reach, and
+            stop any object reading as lit by its own private source. */}
+          <hemisphereLight args={['#232a3d', '#503823', 0.28]} />
+
           {/* Not a key any more — the overhead is off. This is the same bounce
             term from above given a direction so surfaces facing up read a
             little brighter than surfaces facing down, which is what bounce
@@ -119,27 +146,56 @@ function Scene({
             cast a shadow for it — the room flooded magenta and a hotspot
             appeared on the desk surface, lit from underneath by the strip
             beneath it. A cone only emits where a strip in a channel emits. */}
-          <pointLight
+          {/* 6.5, down from 9. At 9 the pale books on the lit shelves clipped
+            to white where the strip's throw and its emissive glow stacked —
+            the shelf close-up was a row of glowing erasers.
+
+            A shadow-casting spot into the case, not a point. What made the
+            desk lamp read as real was never its colour — it was that the mug
+            and the headphones *blocked* it, and the shelf light blocked
+            nothing: every book was lit as if the ones beside it were not
+            there. Aimed at the case, full penumbra, the books now shade each
+            other and the shelves shade the wall behind them. */}
+          <spotLight
             color="#47dbff"
-            intensity={9}
-            distance={2.4}
+            intensity={4.2}
+            distance={1.3}
             decay={2}
-            position={[-2.94, 0.8, -0.95]}
+            angle={1.15}
+            penumbra={1}
+            position={[-2.72, 0.9, -0.95]}
+            target-position={[-3.3, 0.5, -0.95]}
+            castShadow
+            shadow-mapSize={[1024, 1024]}
+            shadow-bias={-0.0004}
+            shadow-normalBias={0.015}
+            shadow-camera-near={0.1}
+            shadow-camera-far={3}
           />
           {/* The under-desk run, and the reason the desk looks like it is
             floating. This is the single most recognisable thing in every
             reference photograph of a setup like this, and the browser had the
             emissive strip without the light, so it had the line and not the
-            effect. */}
+            effect.
+
+            Casting, so the desk's legs, the bin and the chair base print
+            magenta-edged shadows on the boards instead of hovering in an
+            even wash. */}
           <spotLight
             color="#ff4ab4"
-            intensity={7}
-            distance={2.2}
+            intensity={2.2}
+            distance={0.9}
             decay={2}
-            angle={1.25}
+            angle={1.35}
             penumbra={1}
-            position={[0.05, 0.72, 1.8]}
-            target-position={[0.05, 0, 1.8]}
+            position={[0.05, 0.7, 2.05]}
+            target-position={[0.05, 0, 2.05]}
+            castShadow
+            shadow-mapSize={[1024, 1024]}
+            shadow-bias={-0.0004}
+            shadow-normalBias={0.015}
+            shadow-camera-near={0.1}
+            shadow-camera-far={2.5}
           />
 
           {/* The desk lamp: the brightest thing in the room by a long way,
@@ -152,18 +208,31 @@ function Scene({
             radiates into a sphere, so its pool has no edge and nothing in the
             frame says where the light came from; a shade throws a cone, and
             the cone's edge on the desk is the evidence of the fixture. */}
+          {/* 16, down from 19. With the spot now starting at the shade's
+            mouth it sits ~10 cm closer to the desk than it used to, and the
+            inverse-square term turned that into a scorched core: the mug and
+            the headphones clipped to white where the pool was brightest. */}
           <spotLight
             color="#ff9a42"
-            intensity={lampOn ? 19 : 0}
+            intensity={lampOn ? 17 : 0}
             distance={3.4}
             decay={2}
-            angle={0.68}
-            // Wide. A shade is a diffuser with thickness, not an aperture in a
-            // sheet of card, so its pool fades over a hand's width rather than
-            // stopping at a line. At 0.35 the edge was a drawn wedge.
-            penumbra={0.85}
-            position={[0.8, 1.15, 2.22]}
-            target-position={[0.5, 0.79, 2.0]}
+            angle={0.74}
+            // Full penumbra. A shade is a diffuser with thickness, not an
+            // aperture in a sheet of card, so its pool has no line anywhere —
+            // brightness just arrives on the desk and fades out. At 0.85
+            // there was still a readable rim, and a rim is what makes a pool
+            // look projected onto the table instead of falling on it.
+            penumbra={1}
+            // At the shade's *mouth*, on the shade's own axis — Blender aims
+            // the cone along (0.3, -0.42, 1.0) in build_lamp, so the light
+            // leaves along (-0.3, +0.42, -1.0), which in glTF space is
+            // (-0.267, -0.889, -0.373). The spot used to sit up at the head
+            // aiming on a much shallower line, so the cone visibly started
+            // above the fixture and its pool sat off the shade's axis: the
+            // head faced one way and the light fell the other.
+            position={[0.785, 1.06, 2.2]}
+            target-position={[0.7, 0.79, 2.09]}
             // The lamp casts, and this is most of what was missing from the
             // desk. Every prop on it — the mug, the pen cup, the headphones,
             // the CV — sat in a warm pool with no shadow under it, which is the
@@ -180,28 +249,117 @@ function Scene({
           />
           {/* The floor lamp, by the shelf, so the lounge end is not simply the
             part of the room the desk lamp did not reach. */}
-          <pointLight
-            color="#ffb877"
-            intensity={18}
-            distance={3.8}
+          {/* The floor lamp, in two parts, because one point light was doing
+            two different jobs badly.
+
+            The casting cone is the lamp the eye believes: a wide, fully
+            feathered spot dropping from the shade, so the sofa's arm, the
+            coffee table and the speaker all print soft shadows on the rug the
+            way the mug does under the desk lamp. That blocking is the whole
+            reason the desk lamp reads as real, and the lounge had none of it.
+
+            The dim point is what a paper shade also does — leak a little
+            light in every direction. No shadows on it: it exists to keep the
+            shelf end and the wall from going black, and at this intensity it
+            cannot flatten the cone's shadows. Together they replace the old
+            single 15-intensity point that lit everything and shadowed
+            nothing, and blew the shade white from its own outside. */}
+          {/* From the shade's mouth (the cone opens downward, so the light
+            starts at its bottom edge, not its centre), and at 0.92 rad the
+            pool on the rug has a visible gradient — at 1.15 the cone was so
+            wide the lounge read as evenly lit and nothing said a lamp was
+            doing it. */}
+          {/* Warmer than the desk lamp's throw, not cooler — a paper shade
+            over a tungsten bulb is the warmest source a room like this has.
+            And *off the pole's axis*, tilted a few degrees: with the origin
+            exactly on the axis the pole ran down the hottest line of the
+            cone and bleached white along its whole length, which is the
+            glowing-stick artefact the screenshots kept showing. From 12 cm
+            aside, the pole catches a warm graze at the top and falls off,
+            which is what a pole under a shade actually does. */}
+          <spotLight
+            color="#ffa763"
+            intensity={9}
+            distance={4.2}
             decay={2}
-            position={[-1.22, 1.44, -1.85]}
+            angle={1.15}
+            penumbra={1}
+            position={[-1.22, 1.42, -1.85]}
+            target-position={[-1.22, 0, -1.85]}
+            castShadow
+            shadow-mapSize={[1024, 1024]}
+            shadow-bias={-0.0004}
+            shadow-normalBias={0.015}
+            shadow-camera-near={0.2}
+            shadow-camera-far={4.5}
           />
-          {/* The monitors, cold and close. */}
+          {/* The radial term is the lamp. A fabric shade glows in every
+            direction, and it is this light — not the down-cone — that puts
+            the warm gradient on the sofa's near arm and cushions, brightest
+            where they face the shade and falling away around the curve. Held
+            15 cm off the pole so the metal catches a warm graze (the
+            reference photos show exactly that) instead of burning white at
+            zero distance. The down-spot above is now just the soft pool on
+            the rug and the soft shadows the furniture casts out of it. */}
           <pointLight
+            color="#ffa763"
+            intensity={4}
+            distance={3.4}
+            decay={2}
+            position={[-0.96, 1.30, -1.78]}
+          />
+          {/* The strip controller's red standby LED under the desk's front
+            lip, as a light and not only as an emissive chip. Tiny throw on
+            purpose: a pilot LED tints half a metre of board and nothing
+            else — but it sits on the one under-desk surface the room's
+            cameras actually see, so the red point and its faint pool read
+            from the chair view. */}
+          {/* No light for the standby LED any more — the emissive chip in the
+            model is the indicator. Even at 0.45 the throw painted one red
+            corner on the drawer unit, and a pilot lamp that paints furniture
+            is a darkroom bulb. */}
+          {/* The monitors, cold and close — and *forward*. As a point light
+            this shone through its own monitors (nothing here casts for it)
+            and painted a two-metre radial bloom on the wall behind them,
+            far brighter than two screens could ever throw backwards. Screens
+            emit where they face: a cone at the keyboard and the sitter, and
+            the wall stays out of it entirely. */}
+          <spotLight
             color="#5a93ff"
             intensity={5}
             distance={2.6}
             decay={2}
-            position={[0, 1.1, 2.24]}
+            angle={1.1}
+            penumbra={1}
+            position={[0, 1.15, 2.1]}
+            target-position={[0, 0.55, 1.3]}
           />
-          {/* City glow at the window: the coldest thing in the room. */}
+          {/* What the light bar actually does to the wall: a short, contained
+            wash dropping from the bar, gone within a metre. This replaces the
+            wall's share of the old radial glow with one that visibly belongs
+            to the fixture above it. */}
+          <spotLight
+            color="#8f7bff"
+            intensity={3}
+            distance={1.6}
+            decay={2}
+            angle={1.0}
+            penumbra={1}
+            position={[0, 1.26, 2.45]}
+            target-position={[0, 0.85, 2.54]}
+          />
+          {/* City glow at the window: the coldest thing in the room. Pulled
+            40 cm off the glass, because at z=2.42 it sat exactly on the
+            window's centre mullion — a light source zero millimetres from a
+            painted bar turns it into a white-hot sabre, which is precisely
+            what the window photo showed. Off the plane, the frame is lit
+            like the rest of the sill instead of from inside itself. */}
           <pointLight
             color="#6f93e0"
-            intensity={4}
+            intensity={3.5}
             distance={4.2}
             decay={2}
-            position={[2.05, 1.7, 2.42]}
+            position={[2.05, 1.62, 1.98]}
           />
         </>
       )}
@@ -213,6 +371,10 @@ function Scene({
         intensity={intensity}
         onReady={setRoot}
       />
+
+      {/* Dust in the air, lit by whatever the room is lit by. Mounted on
+        both paths — the bake owns surfaces, never the air. */}
+      <Atmosphere />
 
       {root ? <Screens root={root} /> : null}
       {root ? <Animations root={root} /> : null}
@@ -275,8 +437,16 @@ function Scene({
           browser's exposure to `tonemap.py` — the two could not have agreed,
           because one end was not applying a curve. */}
         <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
-        {/* After the curve, deliberately. A vignette is a lens artefact, and a
-          lens darkens the image it forms rather than the light entering it. */}
+        {/* The lens's own faults, applied after the curve where a lens
+          applies them. A rendered image with none of them is *too* clean —
+          every real photograph of a room like this carries a breath of grain
+          and a fringe of colour at its high-contrast edges, and their absence
+          is one of the quiet tells of CG. Both are set well below the level
+          of being seen; they are felt as texture. */}
+        <ChromaticAberration offset={[0.0005, 0.0003]} />
+        <Noise premultiply opacity={0.055} />
+        {/* A vignette is a lens artefact, and a lens darkens the image it
+          forms rather than the light entering it. */}
         <Vignette eskil={false} offset={0.28} darkness={0.72} />
       </EffectComposer>
 

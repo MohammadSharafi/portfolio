@@ -21,14 +21,24 @@ both are 1/f noise, one is stretched a hundred times further along one axis.
 from __future__ import annotations
 
 import math
+import zlib
 
 import numpy as np
 
-# 256 is not a compromise. These are surface break-up, not detail anyone reads:
-# they tile every half metre, so a 256 px map lands around 500 texels/m, finer
-# than the bake atlas resolves and finer than the room is ever seen at. Doubling
-# it would quadruple the bytes on the wire for nothing visible.
+# 256 by default, 512 for the two surfaces the camera stops park in front of.
+#
+# 256 lands around 500 texels/m, which is fine for everything seen at room
+# scale and visibly soft on the chair back and the desk top, both of which fill
+# the frame at the notebook stop. But resolution is paid for per kind *and per
+# roughness bucket* — noise PNGs barely compress, and raising everything to 512
+# put five megabytes on a nine-megabyte model, measured. So the default stays
+# 256 and only wood and fabric, the close-up substances, carry the detail.
 SIZE = 256
+DETAIL = {"wood": 512, "fabric": 512}
+
+
+def _size(kind: str) -> int:
+    return DETAIL.get(kind, SIZE)
 
 # How many metres one tile of the texture covers. Every mesh's UVs are scaled to
 # this at export, so a desk and a mug show grain at the same physical size —
@@ -37,7 +47,7 @@ SIZE = 256
 TILE_METRES = 0.5
 
 
-def _noise(rng: np.random.Generator, beta: float, stretch: tuple[float, float]) -> np.ndarray:
+def _noise(rng: np.random.Generator, beta: float, stretch: tuple[float, float], size: int = SIZE) -> np.ndarray:
     """
     Tiling fractal noise, shaped in the frequency domain.
 
@@ -45,12 +55,12 @@ def _noise(rng: np.random.Generator, beta: float, stretch: tuple[float, float]) 
     cloudy. `stretch` scales the frequency axes, so (40, 1) makes long fibres
     running along U.
     """
-    fx = np.fft.fftfreq(SIZE)[:, None] * stretch[0]
-    fy = np.fft.fftfreq(SIZE)[None, :] * stretch[1]
+    fx = np.fft.fftfreq(size)[:, None] * stretch[0]
+    fy = np.fft.fftfreq(size)[None, :] * stretch[1]
     radius = np.sqrt(fx * fx + fy * fy)
     radius[0, 0] = 1.0  # The DC term carries the mean; it is zeroed below.
 
-    spectrum = rng.normal(size=(SIZE, SIZE)) + 1j * rng.normal(size=(SIZE, SIZE))
+    spectrum = rng.normal(size=(size, size)) + 1j * rng.normal(size=(size, size))
     spectrum /= radius**beta
     spectrum[0, 0] = 0.0
 
@@ -59,10 +69,10 @@ def _noise(rng: np.random.Generator, beta: float, stretch: tuple[float, float]) 
     return (field - field.min()) / (span if span else 1.0)
 
 
-def _weave(over: int) -> np.ndarray:
+def _weave(over: int, size: int = SIZE) -> np.ndarray:
     """A woven over-and-under, for upholstery. `over` is threads per tile."""
-    u = np.linspace(0, 2 * math.pi * over, SIZE, endpoint=False)[:, None]
-    v = np.linspace(0, 2 * math.pi * over, SIZE, endpoint=False)[None, :]
+    u = np.linspace(0, 2 * math.pi * over, size, endpoint=False)[:, None]
+    v = np.linspace(0, 2 * math.pi * over, size, endpoint=False)[None, :]
     warp = np.sin(u) * 0.5 + 0.5
     weft = np.sin(v) * 0.5 + 0.5
     # Alternating squares take the warp or the weft, which is what makes a
@@ -73,7 +83,10 @@ def _weave(over: int) -> np.ndarray:
 
 def _height(kind: str) -> np.ndarray:
     """The height field a surface's whole appearance is derived from, 0..1."""
-    rng = np.random.default_rng(abs(hash(kind)) % (2**32))
+    # crc32, not hash(): str hashing is salted per interpreter, so every export
+    # rolled new noise and no two GLBs were ever byte-identical.
+    rng = np.random.default_rng(zlib.crc32(kind.encode()))
+    size = _size(kind)
 
     if kind == "wood":
         # Growth rings.
@@ -93,7 +106,7 @@ def _height(kind: str) -> np.ndarray:
         # that darkens gradually; latewood is a narrow hard line. A sine is
         # symmetric and gives every band the same soft shoulder on both sides,
         # which is why it reads as a pattern instead of as growth.
-        across = np.linspace(0.0, 1.0, SIZE, endpoint=False)[None, :] * np.ones((SIZE, 1))
+        across = np.linspace(0.0, 1.0, size, endpoint=False)[None, :] * np.ones((size, 1))
         # The wander has to stay *subordinate* to the ramp, and it is easy to
         # overshoot. Rings are the contour lines of the phase field, so once the
         # warp's gradient across the grain rivals the ramp's, the contours stop
@@ -106,26 +119,27 @@ def _height(kind: str) -> np.ndarray:
         # varies slowly *across* the grain and freely *along* it — which is also
         # what real cathedral figure does, arcing down the length of a board
         # rather than swirling on the spot.
-        wander = _noise(rng, 2.6, (1.0, 0.4)) - 0.5
+        wander = _noise(rng, 2.6, (1.0, 0.4), size=size) - 0.5
         phase = (across * 11.0 + wander * 1.3) % 1.0
         rings = np.power(phase, 0.42)
 
         # Fibre along the length of the board, far finer than the rings.
-        fibre = _noise(rng, 1.0, (1.0, 85.0))
+        fibre = _noise(rng, 1.0, (1.0, 85.0), size=size)
         # Open pores: short dark flecks lying along the grain. Small, and the
         # thing that stops a board looking like a painted gradient.
-        pores = np.where(_noise(rng, 0.7, (1.0, 24.0)) < 0.2, -0.14, 0.0)
+        pores = np.where(_noise(rng, 0.7, (1.0, 24.0), size=size) < 0.2, -0.14, 0.0)
         return np.clip(rings * 0.7 + fibre * 0.3 + pores, 0, 1)
 
     if kind == "fabric":
-        # 64 threads to the tile is about 8 mm each, which is as fine as a
-        # 256 px map covering half a metre can resolve without the weave
-        # turning to mush. At 34 it read as a garden trellis.
-        return np.clip(_weave(64) * 0.6 + _noise(rng, 1.3, (1.0, 1.0)) * 0.4, 0, 1)
+        # 96 threads to the tile is about 5 mm each — upholstery rather than
+        # sacking. The count is bounded by the map: each thread needs ~5 px to
+        # keep its over-and-under, which 512 px affords and 256 px did not (64
+        # was that ceiling, and at 34 it read as a garden trellis).
+        return np.clip(_weave(96, size) * 0.6 + _noise(rng, 1.3, (1.0, 1.0), size=size) * 0.4, 0, 1)
 
     if kind == "pile":
         # Carpet: short fibres, high contrast, laid one way.
-        return np.clip(_noise(rng, 0.9, (1.0, 3.2)) * 1.25 - 0.12, 0, 1)
+        return np.clip(_noise(rng, 0.9, (1.0, 3.2), size=size) * 1.25 - 0.12, 0, 1)
 
     if kind == "plaster":
         # Fine tooth, deliberately not cloud. A wall is 17 m² and the map tiles
@@ -134,14 +148,14 @@ def _height(kind: str) -> np.ndarray:
         # soft 1/f^2.6 mottle and the walls came out stamped with rows of
         # identical comma-shaped smudges. Grain this fine has no shape to
         # recognise, so the repeat disappears.
-        return np.clip(_noise(rng, 1.05, (1.0, 1.0)) * 0.85 + _noise(rng, 0.7, (1.0, 1.0)) * 0.15, 0, 1)
+        return np.clip(_noise(rng, 1.05, (1.0, 1.0), size=size) * 0.85 + _noise(rng, 0.7, (1.0, 1.0), size=size) * 0.15, 0, 1)
 
     if kind == "brushed":
         # Scratches running one way, almost no variation across them.
-        return np.clip(_noise(rng, 1.0, (1.0, 220.0)), 0, 1)
+        return np.clip(_noise(rng, 1.0, (1.0, 220.0), size=size), 0, 1)
 
     if kind == "paper":
-        return np.clip(_noise(rng, 1.2, (1.0, 1.0)) * 0.5 + 0.25, 0, 1)
+        return np.clip(_noise(rng, 1.2, (1.0, 1.0), size=size) * 0.5 + 0.25, 0, 1)
 
     # --- micro-surfaces -----------------------------------------------------
     #
@@ -157,34 +171,37 @@ def _height(kind: str) -> np.ndarray:
     if kind == "plastic":
         # Injection moulding: very fine isotropic tooth, plus the faint
         # low-frequency swirl left by the flow of the melt across the tool.
-        return np.clip(_noise(rng, 1.5, (1.0, 1.0)) * 0.7 + _noise(rng, 2.6, (1.0, 1.0)) * 0.3, 0, 1)
+        return np.clip(_noise(rng, 1.5, (1.0, 1.0), size=size) * 0.7 + _noise(rng, 2.6, (1.0, 1.0), size=size) * 0.3, 0, 1)
 
     if kind == "metal":
         # Machined and handled, rather than deliberately brushed. Mostly
         # isotropic, with a slight bias along one axis from tooling.
-        return np.clip(_noise(rng, 0.95, (1.0, 6.0)) * 0.65 + _noise(rng, 1.6, (1.0, 1.0)) * 0.35, 0, 1)
+        return np.clip(_noise(rng, 0.95, (1.0, 6.0), size=size) * 0.65 + _noise(rng, 1.6, (1.0, 1.0), size=size) * 0.35, 0, 1)
 
     if kind == "lacquer":
         # Orange peel. A sprayed clear coat never levels perfectly flat, and the
         # gentle undulation left behind is why a real gloss reflection wobbles
         # slightly and a rendered one is a mirror.
-        return np.clip(_noise(rng, 2.7, (1.0, 1.0)), 0, 1)
+        return np.clip(_noise(rng, 2.7, (1.0, 1.0), size=size), 0, 1)
 
     if kind == "rubber":
-        return np.clip(_noise(rng, 1.15, (1.0, 1.0)) * 0.8 + 0.1, 0, 1)
+        return np.clip(_noise(rng, 1.15, (1.0, 1.0), size=size) * 0.8 + 0.1, 0, 1)
 
-    return np.full((SIZE, SIZE), 0.5)
+    return np.full((size, size), 0.5)
 
 
 # Per surface: how far the albedo swings either side of the material colour, how
 # far the roughness swings, and how deep the bump reads in metres. A single flat
 # albedo is the thing that most reliably makes a rendered room look rendered.
 _LOOK = {
-    # Dropped from 0.30. A third of the base colour swinging either way is far
-    # more contrast than any finished board has, and it turned the rings into
-    # stripes you read as a pattern rather than as wood.
-    "wood": (0.19, 0.14, 0.0016),
-    "fabric": (0.18, 0.12, 0.0009),
+    # Albedo dropped from 0.30. A third of the base colour swinging either way
+    # is far more contrast than any finished board has, and it turned the rings
+    # into stripes you read as a pattern rather than as wood. The roughness
+    # swing went the other way — up — because under the lamp's grazing light a
+    # board's grain is mostly visible as sheen breaking across the rings, and
+    # at 0.14 the desk top returned one even highlight and read as laminate.
+    "wood": (0.19, 0.20, 0.0020),
+    "fabric": (0.18, 0.12, 0.0012),
     "pile": (0.22, 0.10, 0.0028),
     # Kept faint on purpose. Painted plaster barely varies, and a wall is the
     # largest and flattest thing in the room — whatever is put on it is seen
@@ -244,12 +261,12 @@ def normal(kind: str) -> np.ndarray:
     depth = _LOOK.get(kind, (0.0, 0.0, 0.0))[2]
     height = _height(kind)
     # Slope in texels converted to slope in metres.
-    scale = depth * SIZE / TILE_METRES
+    scale = depth * height.shape[0] / TILE_METRES
     dx = (np.roll(height, -1, axis=0) - np.roll(height, 1, axis=0)) * 0.5 * scale
     dy = (np.roll(height, -1, axis=1) - np.roll(height, 1, axis=1)) * 0.5 * scale
 
     length = np.sqrt(dx * dx + dy * dy + 1.0)
-    out = np.empty((SIZE, SIZE, 3))
+    out = np.empty((*height.shape, 3))
     out[..., 0] = (-dx / length) * 0.5 + 0.5
     out[..., 1] = (-dy / length) * 0.5 + 0.5
     out[..., 2] = (1.0 / length) * 0.5 + 0.5

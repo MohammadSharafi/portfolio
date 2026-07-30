@@ -764,7 +764,11 @@ export function bookSpineTexture(index: number) {
   const W = 192;
   const H = 768;
 
-  const palette = ['#2f5fd0', '#7c3aed', '#0f766e', '#c2410c', '#9d174d', '#0369a1'];
+  // Ink-and-cloth tones, not web brand colours. The first palette was six
+  // saturated UI hexes, and under the shelf's cyan wash the row rendered as
+  // toy blocks — real publishers print spines in dyes that have some grey in
+  // them, and that grey is what lets the titles read as objects.
+  const palette = ['#31517f', '#5b4a78', '#3d6459', '#8a4f2d', '#7c3f55', '#33607f'];
   const base = palette[index % palette.length]!;
   const { canvas, ctx } = surface(W, H, base);
 

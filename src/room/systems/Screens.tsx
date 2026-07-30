@@ -3,7 +3,7 @@ import { useFrame } from '@react-three/fiber';
 import {
   Mesh,
   MeshBasicMaterial,
-  type MeshStandardMaterial,
+  MeshStandardMaterial,
   type Object3D,
   type Texture,
 } from 'three';
@@ -196,11 +196,15 @@ export function Screens({ root }: { root: Object3D }) {
       }
 
       const previous = node.material;
-      node.material = new MeshBasicMaterial({
-        map: texture,
-        toneMapped: !EMISSIVE.has(key),
-        transparent: false,
-      });
+      // Screens emit; paper does not. A monitor is right to be unlit — it is
+      // its own light source — but the whiteboard, the CV, the notes and the
+      // book spines were unlit too, so they rendered at full canvas
+      // brightness in a dark room: a glowing whiteboard, plastic-shiny
+      // spines. Painted matter now takes a standard material and lives in
+      // the room's light like everything else around it.
+      node.material = EMISSIVE.has(key)
+        ? new MeshBasicMaterial({ map: texture, toneMapped: false, transparent: false })
+        : new MeshStandardMaterial({ map: texture, roughness: 0.92, metalness: 0 });
       if (!Array.isArray(previous)) previous.dispose();
       replaced.push(node);
     });
