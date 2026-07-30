@@ -172,6 +172,22 @@ def build() -> bpy.types.Object:
     parts.append(attach(
         build_room.cylinder("bot_pack_port", 0.0035, 0.006, (0.009, 0.026, 0.080), glow,
                             vertices=10, rotation=(math.radians(90), 0, 0)), torso))
+    # Twin pistons bracing the pack against the waist — the hydraulic read
+    # every small robot needs, and the first thing visible from behind the
+    # follow camera.
+    for sx in (-0.010, 0.010):
+        parts.append(attach(
+            build_room.cylinder(f"bot_piston_{sx}", 0.0016, 0.020, (sx, 0.0195, 0.063), shell,
+                                vertices=8, rotation=(math.radians(14), 0, 0)), torso))
+    # A belly plate under the chest light, and two status pips beside it.
+    parts.append(attach(
+        build_room.cube("bot_belly", (0.036, 0.004, 0.010), (0, -0.0165, 0.063), dark, bevel=0.002), torso))
+    for i, sx in enumerate((-0.012, 0.012)):
+        parts.append(attach(
+            build_room.cylinder(f"bot_status_{i}", 0.0018, 0.0024, (sx, -0.0185, 0.0635),
+                                paint(f"bot_status_c_{i}", ((1.0, 0.62, 0.2, 1.0), MINT)[i],
+                                      roughness=0.3, emission=7.0),
+                                vertices=8, rotation=(math.radians(90), 0, 0)), torso))
 
     # ---------------------------------------------------------------- head
     # A third of total height, per the plan. Realistic proportions vanish at
@@ -204,6 +220,10 @@ def build() -> bpy.types.Object:
                                 vertices=12, rotation=(0, math.radians(90), 0)), head))
         parts.append(attach(screw(f"bot_ear_screw_{sx}", (sx * 1.06, 0.002, 0.117), axis="x"), head))
     parts.append(attach(build_room.cube("bot_crown_seam", (0.044, 0.040, 0.0018), (0, 0, 0.130), dark, bevel=0), head))
+    # A brow shade over the visor: it deepens the recess, and at speed the
+    # head reads as leaning into the run rather than staring.
+    parts.append(attach(
+        build_room.cube("bot_brow", (0.038, 0.006, 0.0032), (0, -0.019, 0.1285), shell, bevel=0.001), head))
 
     antenna = build_room.cylinder("bot_antenna", 0.0012, 0.026, (0.012, 0.010, 0.147), dark, vertices=6)
     antenna.rotation_euler = (0.16, -0.10, 0)
@@ -221,6 +241,12 @@ def build() -> bpy.types.Object:
         )
         hinge(shoulder, (sx * 0.024, 0, 0.086), torso)
         parts.append(shoulder)
+        # A pauldron cap over the joint. Bare hinge cylinders read as pins;
+        # a cap reads as armour, and it is the widest point of the
+        # silhouette from behind.
+        parts.append(attach(
+            build_room.cube(f"bot_pauldron_{side}", (0.010, 0.014, 0.008), (sx * 0.0315, 0, 0.089),
+                            shell, bevel=0.003), shoulder))
 
         upper = build_room.cube(f"bot_arm_{side}", (0.011, 0.011, 0.024), (sx * 0.030, 0, 0.074), shell, bevel=0.003)
         hinge(upper, (sx * 0.030, 0, 0.086), shoulder)
@@ -237,6 +263,9 @@ def build() -> bpy.types.Object:
         hinge(fore, (sx * 0.030, 0, 0.062), elbow)
         parts.append(fore)
         parts.append(attach(screw(f"bot_fore_screw_{side}", (sx * 0.0355, 0, 0.055), axis="x"), fore))
+        parts.append(attach(
+            build_room.cylinder(f"bot_wrist_{side}", 0.0062, 0.0024, (sx * 0.030, 0, 0.0415), dark,
+                                vertices=10), fore))
 
         # A three-fingered gripper. It has no hands in the carrying sense — the
         # plan's whole shoulder-charge mechanic depends on that — but it needs
@@ -277,9 +306,26 @@ def build() -> bpy.types.Object:
         # Feet with a tread. The character spends its life on floorboards, a
         # rug's pile and a desk mat, and the sole is the part of it closest to
         # every one of those surfaces.
+        # A knee cap on the joint's front, and a piston bracing the calf.
+        parts.append(attach(
+            build_room.cube(f"bot_kneecap_{side}", (0.0095, 0.004, 0.008), (sx * 0.014, -0.0085, 0.020),
+                            shell, bevel=0.002), knee))
+        parts.append(attach(
+            build_room.cylinder(f"bot_calf_piston_{side}", 0.0014, 0.014, (sx * 0.014, 0.0075, 0.013),
+                                dark, vertices=8, rotation=(math.radians(10), 0, 0)), shin))
+        # A plate over the hip joint, mirroring the pauldron.
+        parts.append(attach(
+            build_room.cube(f"bot_hipplate_{side}", (0.006, 0.012, 0.010), (sx * 0.0205, 0, 0.040),
+                            shell, bevel=0.002), hip))
+
         foot = build_room.cube(f"bot_foot_{side}", (0.015, 0.024, 0.005), (sx * 0.014, -0.003, 0.0035), dark, bevel=0.002)
         hinge(foot, (sx * 0.014, 0, 0.005), shin)
         parts.append(foot)
+        # A toe bumper: the foot's leading edge, and the part that sells a
+        # step when the foot flexes.
+        parts.append(attach(
+            build_room.cube(f"bot_toe_{side}", (0.0135, 0.004, 0.0042), (sx * 0.014, -0.0155, 0.0042),
+                            shell, bevel=0.0015), foot))
         for i in range(4):
             parts.append(attach(
                 build_room.cube(f"bot_tread_{side}_{i}", (0.015, 0.0030, 0.0022),

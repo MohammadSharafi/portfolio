@@ -25,6 +25,10 @@ export function Overlay() {
   const toggleLamp = useEngine((state) => state.toggleLamp);
   const muted = useEngine((state) => state.muted);
   const toggleMuted = useEngine((state) => state.toggleMuted);
+  const controlled = useEngine((state) => state.controlled);
+  const setControlled = useEngine((state) => state.setControlled);
+  const nearby = useEngine((state) => state.nearby);
+  const nearbyObject = nearby ? roomObjectById.get(nearby) : undefined;
 
   const panelRef = useRef<HTMLDivElement>(null);
   const returnTo = useRef<HTMLButtonElement | null>(null);
@@ -102,6 +106,33 @@ export function Overlay() {
       >
         Read it instead
       </a>
+
+      {/* The game layer's front door. The robot idles on the desk either
+        way; this hands it the keyboard. Hidden while a panel is open — the
+        panel owns the keys then. */}
+      {!focused ? (
+        <button
+          type="button"
+          onClick={() => setControlled(!controlled)}
+          aria-pressed={controlled}
+          className="pointer-events-auto absolute left-4 top-16 rounded-full bg-black/55 px-3.5 py-2 text-xs font-medium text-white/70 backdrop-blur-md transition-colors hover:text-white"
+        >
+          {controlled ? 'Stop walking' : 'Walk the room'}
+        </button>
+      ) : null}
+
+      {controlled && !focused ? (
+        <p className="absolute bottom-24 left-1/2 -translate-x-1/2 rounded-full bg-black/55 px-4 py-2 text-xs text-white/75 backdrop-blur-md">
+          {nearbyObject ? (
+            <>
+              <kbd className="rounded bg-white/15 px-1.5 py-0.5 font-semibold">E</kbd> inspect{' '}
+              {nearbyObject.label.toLowerCase()}
+            </>
+          ) : (
+            'W to walk · A / D to turn · S to back up · Shift to hurry · Esc to stop'
+          )}
+        </p>
+      ) : null}
 
       <button
         type="button"

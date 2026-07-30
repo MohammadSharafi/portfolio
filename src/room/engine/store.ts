@@ -30,6 +30,10 @@ interface EngineState extends SaveState {
   hovered: ObjectId | null;
   /** Desk lamp, which genuinely changes the room's lighting. */
   lampOn: boolean;
+  /** True while the visitor is driving the desk robot. */
+  controlled: boolean;
+  /** The interactable the robot is standing next to, if any. */
+  nearby: ObjectId | null;
   /** Drives the window's outside world and the room's ambient colour. */
   timeOfDay: 'day' | 'dusk' | 'night';
   muted: boolean;
@@ -37,6 +41,8 @@ interface EngineState extends SaveState {
   progress: number;
 
   setPhase: (phase: Phase) => void;
+  setControlled: (value: boolean) => void;
+  setNearby: (id: ObjectId | null) => void;
   focus: (id: ObjectId) => void;
   unfocus: () => void;
   hover: (id: ObjectId | null) => void;
@@ -62,11 +68,18 @@ export const useEngine = create<EngineState>()(
       focused: null,
       hovered: null,
       lampOn: true,
+      controlled: false,
+      nearby: null,
       timeOfDay: 'night',
       muted: true,
       progress: 0,
 
       setPhase: (phase) => set({ phase }),
+
+      setControlled: (value) => set({ controlled: value, nearby: value ? get().nearby : null }),
+      setNearby: (id) => {
+        if (get().nearby !== id) set({ nearby: id });
+      },
 
       focus: (id) => {
         const { discovered } = get();

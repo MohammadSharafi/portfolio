@@ -20,6 +20,7 @@ import { Screens } from './systems/Screens';
 import { Props } from './systems/Props';
 import { Animations } from './systems/Animations';
 import { Atmosphere } from './systems/Atmosphere';
+import { Character } from './systems/Character';
 import { Overlay } from './ui/Overlay';
 import { useRoomAsset } from './engine/useRoomAsset';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
@@ -397,6 +398,10 @@ function Scene({
         is asking us not to produce. */}
       <Physics gravity={[0, -9.81, 0]} paused={reducedMotion} timeStep="vary">
         {root ? <Props root={root} /> : null}
+        {/* The robot lives inside the physics world so its capsule can shove
+          the props; visually it is driven directly, so it still walks when
+          reduced motion pauses the solver. */}
+        {root ? <Character root={root} /> : null}
       </Physics>
 
       <EffectComposer enableNormalPass={false}>

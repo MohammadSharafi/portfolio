@@ -3,6 +3,7 @@ import { useFrame, useThree } from '@react-three/fiber';
 import { Vector3 } from 'three';
 import { useEngine } from './store';
 import { HOME_STOP, roomObjectById, type CameraStop } from '../data/objects';
+import { characterState } from './characterState';
 
 /**
  * Camera manager.
@@ -20,6 +21,7 @@ import { HOME_STOP, roomObjectById, type CameraStop } from '../data/objects';
 export function CameraRig({ reducedMotion }: { reducedMotion: boolean }) {
   const camera = useThree((state) => state.camera);
   const focused = useEngine((state) => state.focused);
+  const controlled = useEngine((state) => state.controlled);
 
   const position = useRef(new Vector3(...HOME_STOP.position));
   const target = useRef(new Vector3(...HOME_STOP.target));
@@ -30,6 +32,7 @@ export function CameraRig({ reducedMotion }: { reducedMotion: boolean }) {
   const drift = useRef({ x: 0, y: 0 });
 
   useEffect(() => {
+    if (controlled && !focused) return;
     const stop: CameraStop = focused ? (roomObjectById.get(focused)?.stop ?? HOME_STOP) : HOME_STOP;
     goalPosition.current.set(...stop.position);
     goalTarget.current.set(...stop.target);
@@ -37,7 +40,7 @@ export function CameraRig({ reducedMotion }: { reducedMotion: boolean }) {
     // Converting it to a rate keeps the smoothing frame-rate independent while
     // still letting a lean-in be quicker than a trip across the room.
     rate.current = 3.2 / (stop.duration ?? 1.4);
-  }, [focused]);
+  }, [focused, controlled]);
 
   useEffect(() => {
     if (reducedMotion) return;
@@ -51,6 +54,28 @@ export function CameraRig({ reducedMotion }: { reducedMotion: boolean }) {
 
   useFrame((_, delta) => {
     const dt = Math.min(0.05, delta);
+
+    // Driving the robot retargets the rig rather than replacing it: the goal
+    // becomes a shoulder position behind the machine, and the same easing
+    // that flies the camera between stops carries it there and keeps it
+    // glued. Focusing an object mid-walk hands the goal back to that
+    // object's authored stop — one camera, never a cut in either direction.
+    if (controlled && !focused) {
+      const back = 0.42;
+      const up = 0.24;
+      goalPosition.current.set(
+        characterState.position.x - Math.sin(characterState.heading) * back,
+        characterState.position.y + up,
+        characterState.position.z - Math.cos(characterState.heading) * back
+      );
+      goalTarget.current.set(
+        characterState.position.x + Math.sin(characterState.heading) * 0.2,
+        characterState.position.y + 0.09,
+        characterState.position.z + Math.cos(characterState.heading) * 0.2
+      );
+      rate.current = 4.2;
+    }
+
     const k = 1 - Math.exp(-rate.current * dt);
 
     position.current.lerp(goalPosition.current, k);
