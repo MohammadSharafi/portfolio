@@ -28,7 +28,14 @@ import sys
 import bpy
 from mathutils import Vector
 
-ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+HERE = os.path.dirname(os.path.abspath(__file__))
+# Blender does not put the running script's directory on `sys.path`, so a
+# sibling module is not importable without this. `build_room` and `bake_room`
+# both do the same for the same reason.
+if HERE not in sys.path:
+    sys.path.insert(0, HERE)
+
+ROOT = os.path.normpath(os.path.join(HERE, "..", ".."))
 BLEND = os.path.join(ROOT, "assets", "room.blend")
 OUT_GLB = os.path.join(ROOT, "public", "models", "room.glb")
 REGISTRY = os.path.join(ROOT, "src", "room", "data", "objects.ts")
@@ -1184,6 +1191,35 @@ def main() -> None:
     added = ensure_uvs()
     if added:
         print(f"[export_room] added a UV layer to {added} mesh(es) that had none")
+
+    # The bake-only geometry goes before the GLB is written, and this script
+    # has to do it as well as `build_room` does.
+    #
+    # `build_room --blend` drops the ceiling on its way to writing its own GLB,
+    # but it saves `room.blend` *before* that — correctly, because the bake
+    # needs the ceiling there to bounce light off. This script opens that blend
+    # and, until now, exported everything in it. The room shipped with a 6.4 ×
+    # 5.2 m lid over it, and since the establishing camera looks down into an
+    # open box from above, the first thing a visitor saw was the underside of a
+    # ceiling with the room hidden behind it.
+    #
+    # It went unnoticed for as long as it did because the previous `room.blend`
+    # on disk predated the ceiling entirely, so this path had never once been
+    # asked to remove anything. Rebuilding the blend from source is what
+    # surfaced it.
+    #
+    # Deliberately after `validate` and before the export: the fingerprint that
+    # ties a bake to a model is written by `build_room` from the full scene, so
+    # nothing here may touch it — dropping geometry after stamping keeps the
+    # lightmap valid, and dropping it before would invalidate every bake.
+    # Imported here rather than at the top, mirroring how `build_room` imports
+    # this module: the two need each other and a pair of module-level imports
+    # would be a cycle.
+    import build_room
+
+    dropped = build_room.drop_export_only()
+    if dropped:
+        print(f"[export_room] {dropped} bake-only object(s) kept out of the GLB")
 
     os.makedirs(os.path.dirname(OUT_GLB), exist_ok=True)
     bpy.ops.export_scene.gltf(

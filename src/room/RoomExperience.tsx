@@ -48,7 +48,11 @@ import { quality } from './engine/quality';
  */
 function Exposure({ baked }: { baked: boolean }) {
   const gl = useThree((state) => state.gl);
-  gl.toneMappingExposure = baked ? 2.05 : 1.25;
+  // Lifted from 2.05 / 1.25. The room is a night scene and it should stay one,
+  // but "night" was costing more legibility than it was buying atmosphere —
+  // whole corners were below what the tone curve can separate, and a portfolio
+  // whose contents are hard to make out has spent its mood badly.
+  gl.toneMappingExposure = baked ? 2.35 : 1.5;
   return null;
 }
 
@@ -228,7 +232,7 @@ function Scene({
             in a room lit by two LED coves and a lamp is very little, and blue.
             It was 0.55 and warm, which filled every shadow to the same value as
             everything else and left the room with no shape in it. */}
-          <ambientLight color="#1d2331" intensity={0.15} />
+          <ambientLight color="#1d2331" intensity={0.22} />
 
           {/* The poor man's global illumination. A hemisphere light with a
             warm ground and a cool sky is what one bounce off this room's
@@ -242,7 +246,7 @@ function Scene({
             not lit. Raising the directional or the practicals instead would
             have cost the night its contrast; a hemisphere adds floor and
             leaves every highlight where it was. */}
-          <hemisphereLight args={['#232a3d', '#503823', 0.4]} />
+          <hemisphereLight args={['#232a3d', '#503823', 0.58]} />
 
           {/* Not a key any more — the overhead is off. This is the same bounce
             term from above given a direction so surfaces facing up read a

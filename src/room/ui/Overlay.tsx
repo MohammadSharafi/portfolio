@@ -1,5 +1,5 @@
 import { useEffect, useReducer, useRef, useState } from 'react';
-import { Volume2, VolumeX, X } from 'lucide-react';
+import { Square, Volume2, VolumeX, X } from 'lucide-react';
 import { useEngine } from '../engine/store';
 import { characterState } from '../engine/characterState';
 import { Minimap } from './Minimap';
@@ -168,19 +168,7 @@ export function Overlay() {
           {!controlled ? <Guide /> : null}
           <MessageNote />
 
-          <button
-            type="button"
-            onClick={toggleMuted}
-            aria-pressed={!muted}
-            className="pointer-events-auto absolute right-4 top-4 rounded-full bg-black/55 p-2.5 text-white/70 backdrop-blur-md transition-colors hover:text-white"
-            aria-label={muted ? 'Turn room sound on' : 'Turn room sound off'}
-          >
-            {muted ? (
-              <VolumeX className="size-4" aria-hidden="true" />
-            ) : (
-              <Volume2 className="size-4" aria-hidden="true" />
-            )}
-          </button>
+          <SoundControl muted={muted} toggleMuted={toggleMuted} />
         </>
       )}
 
@@ -266,6 +254,78 @@ export function Overlay() {
         </div>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * The one sound control, top right.
+ *
+ * This replaces a permanent mute button that sat in the corner doing one job.
+ * The corner is the right place for sound and the wrong place for a switch
+ * nobody touches: room tone is off by default, so for most visitors that
+ * button was a speaker icon with a slash through it and nothing to say.
+ *
+ * What the corner is *for* is whatever is making noise. Once the guitar is
+ * playing, the visitor has a real question — what is this, and how do I stop
+ * it — and until now the only answer was to walk the robot back across the
+ * room to the guitar and press E, because the track list is only reachable
+ * from beside it. So while music is playing this becomes a transport: the
+ * title, and a control that stops it. When nothing is playing it falls back to
+ * the room-tone toggle, which still has to exist — a page that can make sound
+ * with no visible way to silence it is a page people close.
+ */
+function SoundControl({ muted, toggleMuted }: { muted: boolean; toggleMuted: () => void }) {
+  const [, force] = useReducer((n: number) => n + 1, 0);
+  useEffect(() => subscribeMusic(force), []);
+
+  const playing = musicState.playing;
+
+  if (playing) {
+    return (
+      <div className="pointer-events-auto absolute right-4 top-4 flex items-center gap-2 rounded-full bg-black/60 py-1.5 pl-3 pr-1.5 backdrop-blur-md">
+        {/* Three bars that only move while the audio does — the cheapest
+          possible "this is the thing making the noise". */}
+        <span className="flex h-3.5 items-end gap-0.5" aria-hidden="true">
+          {[0, 1, 2].map((bar) => (
+            <span
+              key={bar}
+              className="w-0.5 rounded-full bg-emerald-300"
+              style={{
+                height: '100%',
+                animation: `room-eq 900ms ease-in-out ${bar * 140}ms infinite alternate`,
+              }}
+            />
+          ))}
+        </span>
+        <span className="max-w-[9rem] truncate text-xs font-medium text-white/85">
+          {playing.title}
+        </span>
+        <button
+          type="button"
+          onClick={() => stopMusic()}
+          className="rounded-full p-1.5 text-white/60 transition-colors hover:bg-white/10 hover:text-white"
+          aria-label={`Stop ${playing.title}`}
+        >
+          <Square className="size-3.5" aria-hidden="true" />
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={toggleMuted}
+      aria-pressed={!muted}
+      className="pointer-events-auto absolute right-4 top-4 rounded-full bg-black/55 p-2.5 text-white/70 backdrop-blur-md transition-colors hover:text-white"
+      aria-label={muted ? 'Turn room sound on' : 'Turn room sound off'}
+    >
+      {muted ? (
+        <VolumeX className="size-4" aria-hidden="true" />
+      ) : (
+        <Volume2 className="size-4" aria-hidden="true" />
+      )}
+    </button>
   );
 }
 

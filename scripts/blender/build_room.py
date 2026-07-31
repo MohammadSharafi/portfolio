@@ -1962,8 +1962,23 @@ def build_laptop() -> list[bpy.types.Object]:
     # Parenting makes the relationship structural: the lid is the only thing
     # that moves, the screen goes wherever the lid goes, and no later edit
     # can separate them by forgetting to update a second place.
+    #
+    # The local matrix is computed and assigned rather than left to
+    # `matrix_parent_inverse`, and that distinction is the whole fix. Blender
+    # keeps a parent-inverse matrix alongside the child's own transform so that
+    # parenting an object does not move it; glTF has no such concept, and the
+    # exporter writes the child's local transform and silently discards the
+    # inverse. The screen therefore shipped sitting exactly on the lid's hinge
+    # origin — attached, rotating correctly, and in the wrong place, which is
+    # precisely the "the parts are separated" the room was showing.
+    #
+    # Composing the local transform by hand survives the export because there
+    # is nothing left for the exporter to drop: after this, `matrix_local` is
+    # the truth and the parent inverse is identity.
+    world_before = lid_screen.matrix_world.copy()
     lid_screen.parent = lid
-    lid_screen.matrix_parent_inverse = lid.matrix_world.inverted()
+    lid_screen.matrix_parent_inverse.identity()
+    lid_screen.matrix_local = lid.matrix_world.inverted() @ world_before
 
     # The base carries the prefix too. It did not, and the consequence was
     # invisible in every screenshot and obvious the moment anyone used the
@@ -5236,33 +5251,61 @@ def build_desk_detail() -> list[bpy.types.Object]:
         props.append(pen)
 
     # --- phone, face up and slightly askew ----------------------------------
-    phone = cube("desk_phone", (0.072, 0.148, 0.009), (-0.86, -1.90, deck + 0.005), dark, bevel=0.004)
-    phone.rotation_euler = (0.0, 0.0, math.radians(-14.0))
-    props.append(phone)
+    #
+    # Built in the phone's own frame and joined into one object, which it was
+    # not before and which is the whole bug. Every part used to be created at a
+    # world coordinate and appended to `props` separately: five loose objects
+    # that only looked like a phone from the one angle they were authored at.
+    # Worse, the two lens rings never received the body's 14° turn — their
+    # offsets were added in world axes — so as the phone rotated they slid off
+    # the camera island and sat on the bare back of the case.
+    #
+    # `on_phone` rotates an offset out of the phone's frame into the room's, so
+    # the parts are placed relative to *the phone* and the whole assembly turns
+    # as one piece. Same helper, same reasoning as the desk phone.
+    phone_x, phone_y = -0.86, -1.90
+    phone_turn = math.radians(-14.0)
+
+    def on_phone(dx: float, dy: float) -> tuple[float, float]:
+        cos, sin = math.cos(phone_turn), math.sin(phone_turn)
+        return (phone_x + dx * cos - dy * sin, phone_y + dx * sin + dy * cos)
+
+    phone_parts: list[bpy.types.Object] = []
+
+    body = cube("dp_body", (0.072, 0.148, 0.009), (phone_x, phone_y, deck + 0.005), dark, bevel=0.004)
+    body.rotation_euler = (0.0, 0.0, phone_turn)
+    phone_parts.append(body)
+
     screen = cube(
-        "desk_phone_screen",
+        "dp_screen",
         (0.064, 0.138, 0.001),
-        (-0.86, -1.90, deck + 0.0102),
+        (phone_x, phone_y, deck + 0.0102),
         material("phone_screen", "screen", roughness=0.16),
         bevel=0,
     )
-    screen.rotation_euler = phone.rotation_euler
-    props.append(screen)
+    screen.rotation_euler = (0.0, 0.0, phone_turn)
+    phone_parts.append(screen)
 
     # The camera island. It is the one feature that identifies a black rectangle
     # as a phone rather than a coaster, and it is on the face pointing up.
-    island = cube("desk_phone_camera", (0.026, 0.026, 0.0022),
-                  (-0.886, -1.848, deck + 0.0102),
-                  material("phone_island", "bezel", roughness=0.3), bevel=0.003)
-    island.rotation_euler = phone.rotation_euler
-    props.append(island)
+    island_x, island_y = on_phone(-0.026, 0.052)
+    island = cube(
+        "dp_island", (0.026, 0.026, 0.0022), (island_x, island_y, deck + 0.0102),
+        material("phone_island", "bezel", roughness=0.3), bevel=0.003,
+    )
+    island.rotation_euler = (0.0, 0.0, phone_turn)
+    phone_parts.append(island)
+
     for index, (ox, oy) in enumerate(((-0.0055, 0.0055), (0.0055, -0.0055))):
-        lens = cylinder(
-            f"desk_phone_lens_{index}", 0.0048, 0.0016,
-            (-0.886 + ox, -1.848 + oy, deck + 0.0118),
-            material("phone_lens", "void", roughness=0.12), vertices=12,
+        lens_x, lens_y = on_phone(-0.026 + ox, 0.052 + oy)
+        phone_parts.append(
+            cylinder(
+                f"dp_lens_{index}", 0.0048, 0.0016, (lens_x, lens_y, deck + 0.0118),
+                material("phone_lens", "void", roughness=0.12), vertices=12,
+            )
         )
-        props.append(lens)
+
+    props.append(join("desk_phone", phone_parts))
 
     # --- a plant that could live on a desk ----------------------------------
     # `build_plant` is a floor plant; at desk scale it would be a tree. This is
@@ -5344,12 +5387,13 @@ def add_lighting() -> None:
     world.use_nodes = True
     background = world.node_tree.nodes["Background"]
     background.inputs["Color"].default_value = (0.09, 0.10, 0.16, 1.0)
-    # 0.11, not 0.08. The room reads as night either way, but at 0.08 the
-    # corners the practicals cannot reach fell below what the tone curve can
-    # separate — black with a surface in it, which is a texture nobody sees.
-    # A fill, not a light: still about a stop under the darkest thing the eye
-    # is meant to read.
-    background.inputs["Strength"].default_value = 0.11
+    # 0.15, up from 0.11 and originally 0.08. The room reads as night at any of
+    # these, but each raise has been for the same reason: the corners the
+    # practicals cannot reach kept falling below what the tone curve can
+    # separate, which renders as black with a surface in it — a texture nobody
+    # sees and geometry nobody knows is there. A fill, not a light: still well
+    # under the darkest thing the eye is meant to read.
+    background.inputs["Strength"].default_value = 0.15
 
     def area(name, energy, size, location, colour, rotation=(0, 0, 0)):
         bpy.ops.object.light_add(type="AREA", location=location)

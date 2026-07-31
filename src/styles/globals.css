@@ -321,3 +321,17 @@
     display: none !important;
   }
 }
+
+/* The equaliser bars on the sound control. Kept in CSS rather than driven from
+   JavaScript because it is decoration that must never cost a frame: three
+   elements animating their own height on the compositor, versus a
+   requestAnimationFrame loop writing styles sixty times a second to say
+   "audio is still playing". */
+@keyframes room-eq {
+  from {
+    height: 25%;
+  }
+  to {
+    height: 100%;
+  }
+}

@@ -19,6 +19,7 @@ import {
 import { useEngine } from '../engine/store';
 import { characterState } from '../engine/characterState';
 import { aimLook, resetLook, splitLook } from '../engine/lookControl';
+import { roomAudio } from '../engine/audio';
 import type { ObjectId } from '../data/objects';
 
 /**
@@ -77,9 +78,15 @@ const CIRCLES = [
   { x: 0.75, z: -0.72, r: 0.05 },
 ];
 
-/** Metres per second, scaled from a human walk by the 0.12 m body. */
-const WALK_SPEED = 0.14;
-const RUN_SPEED = 0.28;
+/** Metres per second, scaled from a human walk by the 0.12 m body.
+ *
+ * Raised from 0.14/0.28. The original figures were derived honestly — they are
+ * a human gait divided by the robot's height — and they were wrong for the
+ * room anyway. A visitor is not living at robot scale; they are crossing a six
+ * metre room to get somewhere, and a physically faithful 0.14 m/s makes that a
+ * forty-second walk. Scale realism lost to the thing it was serving. */
+const WALK_SPEED = 0.2;
+const RUN_SPEED = 0.44;
 const BACK_SPEED = 0.07;
 const TURN_SPEED = 3.4;
 /** The view angles live in `lookControl`: the pointer aims them, the camera
@@ -104,8 +111,8 @@ const HEAD_CLEAR = 0.2;
  * snapping between altitudes. Rise and fall are both clamped: unclamped,
  * a long hold reads as a rocket and a long fall as a dropped stone.
  */
-const THRUST_ACCEL = 6.4;
-const RISE_CLAMP = 0.78;
+const THRUST_ACCEL = 8.2;
+const RISE_CLAMP = 1.05;
 const FALL_CLAMP = 1.1;
 /** The ceiling, in world metres — high enough to put the whole room in
  * play: the desk at 0.79, the shelf's capping board at 2.18, the picture
@@ -123,8 +130,10 @@ const FUEL_REFILL = 2.6;
 /** Below this the thrusters will not relight — no sputtering on fumes. */
 const FUEL_RELIGHT = 0.22;
 /** Air speed, as a multiple of ground speed. A jetpack that crawls is a
- * lift; holding thrust and forward should genuinely fly the room. */
-const AIR_CONTROL = 1.45;
+ * lift; holding thrust and forward should genuinely fly the room — and at 1.45
+ * on top of the old walk speed it still crawled. Flight is now clearly the
+ * fast way to travel, which is what makes the fuel budget a decision. */
+const AIR_CONTROL = 2.1;
 
 /** How close counts as "standing at" an interactable, in metres. */
 const REACH = 0.3;
@@ -566,6 +575,9 @@ export function Character({ root }: { root: Object3D }) {
     if (position.current.y <= support) {
       if (!grounded.current && verticalSpeed.current < -0.35) {
         landing.current = Math.min(0.24, -verticalSpeed.current * 0.22);
+        // Touchdown, and only a real one: a drop slow enough not to bend the
+        // knees does not deserve a thump either.
+        roomAudio.play('land');
       }
       position.current.y = support;
       verticalSpeed.current = 0;
@@ -577,8 +589,25 @@ export function Character({ root }: { root: Object3D }) {
     landing.current = Math.max(0, landing.current - dt);
 
     // --- gait ------------------------------------------------------------
+    const gaitBefore = gaitPhase.current;
     gaitPhase.current += (speed.current / WALK_SPEED) * dt * 7.0;
     idleClock.current += dt;
+
+    // A footstep on each half-cycle of the gait, which is where a foot is
+    // actually down — derived from the same phase that swings the legs rather
+    // than from a timer, so the sound cannot drift out of step with the
+    // animation however the speed changes. Silent in the air, and silent below
+    // a crawl, where the legs are barely moving.
+    if (grounded.current && Math.abs(speed.current) > WALK_SPEED * 0.25) {
+      if (Math.floor(gaitBefore / Math.PI) !== Math.floor(gaitPhase.current / Math.PI)) {
+        roomAudio.play('step');
+      }
+    }
+
+    // The thrusters, as a continuous voice tracking the throttle the flight
+    // system is already computing. `thrust` is eased, so this needs no
+    // smoothing of its own.
+    roomAudio.setThrust(grounded.current ? 0 : thrust.current);
     const stride = grounded.current
       ? MathUtils.clamp(Math.abs(speed.current) / WALK_SPEED, 0, 2)
       : 0;

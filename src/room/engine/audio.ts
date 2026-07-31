@@ -13,13 +13,22 @@
  * load just to leave it suspended wastes a thread on every page view.
  */
 
-export type Cue = 'key' | 'knock' | 'switch' | 'lid' | 'open';
+export type Cue = 'key' | 'knock' | 'switch' | 'lid' | 'open' | 'step' | 'land';
 
 class RoomAudio {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
   private fan: { source: AudioBufferSourceNode; gain: GainNode } | null = null;
   private noise: AudioBuffer | null = null;
+  /** The thruster: one continuous voice whose level is driven by the flight
+   *  system, rather than a cue fired repeatedly. */
+  private thrust: {
+    source: AudioBufferSourceNode;
+    gain: GainNode;
+    filter: BiquadFilterNode;
+    tone: OscillatorNode;
+    toneGain: GainNode;
+  } | null = null;
 
   /** Lazily builds the graph. Safe to call repeatedly. */
   private ensure(): AudioContext | null {
@@ -116,11 +125,21 @@ class RoomAudio {
       switch: { type: 'bandpass', freq: 1500, peak: 0.55, decay: 0.05 },
       lid: { type: 'lowpass', freq: 480, peak: 0.35, decay: 0.3 },
       open: { type: 'bandpass', freq: 700, peak: 0.3, decay: 0.22 },
+      // A 12 cm machine on floorboards. Small, light and hard — high and very
+      // short, nothing like a boot. The pitch is jittered on every hit in
+      // `play`, because two identical footsteps in a row is the single most
+      // recognisable tell of a game with three footstep samples.
+      step: { type: 'bandpass', freq: 1700, peak: 0.16, decay: 0.045 },
+      // Both feet at once plus the weight behind them: lower, louder, longer.
+      land: { type: 'lowpass', freq: 620, peak: 0.4, decay: 0.16 },
     };
 
     const { type, freq, peak, decay } = shape[cue];
     filter.type = type;
-    filter.frequency.value = freq;
+    // Footsteps get a random ±12% on the filter, which is what stops a walk
+    // cycle sounding like a metronome. Everything else is a discrete event the
+    // ear does not compare against its neighbour.
+    filter.frequency.value = cue === 'step' ? freq * (0.88 + Math.random() * 0.24) : freq;
     filter.Q.value = cue === 'knock' ? 0.8 : 2.4;
 
     gain.gain.setValueAtTime(0, now);
@@ -132,8 +151,76 @@ class RoomAudio {
     source.start(now, Math.random() * 0.5, decay + 0.05);
   }
 
+  /**
+   * The thrusters, as one continuous voice.
+   *
+   * Deliberately not a cue fired every frame. A jet is a *sustained* sound
+   * whose character changes with throttle, and retriggering a burst at 60 Hz
+   * produces a buzz at 60 Hz — the rate becomes the pitch, which is the
+   * classic way engine audio gives itself away.
+   *
+   * Two layers, because filtered noise alone reads as wind rather than as a
+   * machine: a band of noise for the roar, and a low sawtooth for the body of
+   * it. Both are started once and left running at zero gain; `setThrust`
+   * only moves gains and frequencies, so there is no allocation on the audio
+   * thread while flying.
+   *
+   * `level` is 0 to 1 — the flight system's own throttle.
+   */
+  setThrust(level: number) {
+    const ctx = this.ctx;
+    if (!ctx || !this.master || !this.noise) return;
+    const amount = Math.max(0, Math.min(1, level));
+
+    if (!this.thrust) {
+      // Nothing to start up for silence; wait until the thrusters first light.
+      if (amount <= 0.001) return;
+
+      const source = ctx.createBufferSource();
+      source.buffer = this.noise;
+      source.loop = true;
+
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'bandpass';
+      filter.frequency.value = 620;
+      filter.Q.value = 0.9;
+
+      const gain = ctx.createGain();
+      gain.gain.value = 0;
+
+      const tone = ctx.createOscillator();
+      tone.type = 'sawtooth';
+      tone.frequency.value = 92;
+      const toneGain = ctx.createGain();
+      toneGain.gain.value = 0;
+
+      source.connect(filter).connect(gain).connect(this.master);
+      tone.connect(toneGain).connect(this.master);
+      source.start();
+      tone.start();
+
+      this.thrust = { source, gain, filter, tone, toneGain };
+    }
+
+    const { gain, filter, tone, toneGain } = this.thrust;
+    const now = ctx.currentTime;
+    // Short time constants: a thruster has to feel wired to the key, and the
+    // ear reads any lag here as the sound belonging to something else.
+    gain.gain.setTargetAtTime(amount * 0.075, now, 0.05);
+    toneGain.gain.setTargetAtTime(amount * 0.022, now, 0.05);
+    // Opening the band and lifting the fundamental with throttle is what makes
+    // it read as *more* thrust rather than merely louder thrust.
+    filter.frequency.setTargetAtTime(520 + amount * 700, now, 0.08);
+    tone.frequency.setTargetAtTime(78 + amount * 46, now, 0.08);
+  }
+
   dispose() {
     this.stopFan();
+    if (this.thrust) {
+      this.thrust.source.stop();
+      this.thrust.tone.stop();
+      this.thrust = null;
+    }
     void this.ctx?.close();
     this.ctx = null;
     this.master = null;
