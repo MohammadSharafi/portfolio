@@ -1212,6 +1212,24 @@ def main() -> None:
     # ties a bake to a model is written by `build_room` from the full scene, so
     # nothing here may touch it — dropping geometry after stamping keeps the
     # lightmap valid, and dropping it before would invalidate every bake.
+    # The stamp that ties a bake to a model, written from this scene.
+    #
+    # It has to happen here, and it has to happen *before* the drop. The stamp
+    # used to be written only by a full `build_room` run — but `--blend` saves
+    # the blend and exits without writing one, so anybody who rebuilt the blend
+    # and then exported was shipping a model described by a fingerprint taken
+    # from some earlier scene. The runtime compares the two and quietly refuses
+    # the lightmap when they disagree, which looks exactly like a room that was
+    # never baked: no error, no warning, just flat lighting and a wasted hour of
+    # Cycles.
+    #
+    # Before the drop, because `bake_room` computes its own copy from the blend
+    # with the bake-only geometry still in it. Taking the fingerprint after
+    # removing the ceiling would produce a number the bake can never reproduce,
+    # and every bake would look stale the moment it finished.
+    stamp = write_geometry_stamp(os.path.join(ROOT, "public", "models", "room-geometry.json"))
+    print(f"[export_room] geometry {stamp[:12]}…")
+
     # Imported here rather than at the top, mirroring how `build_room` imports
     # this module: the two need each other and a pair of module-level imports
     # would be a cycle.
