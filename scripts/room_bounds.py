@@ -20,6 +20,7 @@ import argparse
 import json
 import re
 import struct
+import subprocess
 import sys
 from pathlib import Path
 
@@ -242,8 +243,28 @@ def main() -> int:
     found = collect(gltf)
 
     if args.ts:
-        out = Path(__file__).resolve().parent.parent / "src" / "room" / "data" / "objectBounds.ts"
+        root = Path(__file__).resolve().parent.parent
+        out = root / "src" / "room" / "data" / "objectBounds.ts"
         out.write_text(emit_ts(found))
+
+        # Hand it to Prettier rather than trying to emit Prettier's exact
+        # output from Python. `npm run format:check` runs in CI and treats a
+        # generated file no differently from a written one, so a generator that
+        # formats by hand is a generator whose next small change breaks the
+        # build for a reason that has nothing to do with the room. Best-effort:
+        # if node_modules is not installed, the file is still correct, just
+        # unformatted.
+        try:
+            subprocess.run(
+                ["npx", "prettier", "--write", str(out)],
+                cwd=root,
+                check=True,
+                capture_output=True,
+                timeout=120,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            print(f"note: could not run prettier ({exc}); run it yourself", file=sys.stderr)
+
         print(f"wrote {out} ({len(found)} objects)")
         return 0
 
