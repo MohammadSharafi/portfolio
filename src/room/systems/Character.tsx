@@ -71,7 +71,12 @@ const CIRCLES = [
   { x: 2.78, z: -0.35, r: 0.2 }, // plant pot
   { x: 1.34, z: 1.92, r: 0.16 }, // bin
   { x: 0.45, z: 0.81, r: 0.28 }, // chair base star
-  { x: 2.95, z: -0.6, r: 0.22 }, // guitar and stand
+  // The guitar, at where it actually is. This sat at (2.95, -0.6) — the far
+  // side of the room from the instrument — so it was a phantom the robot
+  // bumped into in open floor while the real guitar could be walked through.
+  // The interaction never noticed, because it reads the position out of the
+  // model; only the collision and the map were working from the wrong number.
+  { x: -2.86, z: -2.3, r: 0.24 }, // guitar and stand
   { x: -0.25, z: -0.28, r: 0.05 }, // coffee table legs …
   { x: 0.75, z: -0.28, r: 0.05 },
   { x: -0.25, z: -0.72, r: 0.05 },

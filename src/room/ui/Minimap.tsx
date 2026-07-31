@@ -79,7 +79,7 @@ const POSTS: readonly { x: number; z: number; r: number }[] = [
 /** Places worth walking to. No text — the legend below names the nearest one,
  *  which is the only one the visitor needs named. */
 const MARKS: readonly { x: number; z: number; label: string; accent?: boolean }[] = [
-  { x: 2.95, z: -0.6, label: 'Guitar', accent: true },
+  { x: -2.86, z: -2.3, label: 'Guitar', accent: true },
   { x: 0, z: 2.3, label: 'The desk' },
   { x: -3.0, z: 0.9, label: 'Bookshelf' },
   { x: -3.05, z: 1.35, label: 'Whiteboard' },
