@@ -1,4 +1,4 @@
-import { Suspense, useState } from 'react';
+import { Suspense, useState, type ReactElement } from 'react';
 import { Canvas, useThree } from '@react-three/fiber';
 import { AdaptiveDpr, Preload } from '@react-three/drei';
 import {
@@ -21,10 +21,13 @@ import { Props } from './systems/Props';
 import { Animations } from './systems/Animations';
 import { Atmosphere } from './systems/Atmosphere';
 import { Character } from './systems/Character';
+import { Markers } from './systems/Markers';
 import { Overlay } from './ui/Overlay';
+import { Loading } from './ui/Loading';
 import { useRoomAsset } from './engine/useRoomAsset';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
 import { useEngine } from './engine/store';
+import { quality } from './engine/quality';
 
 /**
  * Scene manager: composes the room, its rig and its UI.
@@ -49,6 +52,120 @@ function Exposure({ baked }: { baked: boolean }) {
   return null;
 }
 
+/**
+ * The lens, and what of it this machine can afford.
+ *
+ * Built as an array rather than as conditional JSX children because
+ * `EffectComposer` types its children as elements and introspects them on
+ * mount — `{cond ? <Effect/> : null}` puts a null in that list and neither the
+ * types nor the runtime accept it.
+ *
+ * The ordering is the ordering of a real camera: occlusion and bloom belong to
+ * the scene and run before the view transform; grain, fringing and vignette
+ * are faults of the glass and the sensor and run after it. Tone mapping in the
+ * middle is the film.
+ */
+function Post({ baked }: { baked: boolean }) {
+  const settings = quality();
+  const effects: ReactElement[] = [];
+
+  /* Ambient occlusion at two very different scales, because the two paths are
+     missing two different things.
+
+     Unbaked, there is no occlusion at all: direct light plus an environment
+     gives no contact shadow, so every object floats a little because the
+     crease where it meets the floor is exactly as bright as the floor. That
+     wants a wide radius doing the whole job.
+
+     Baked, the lightmap has already resolved occlusion by path tracing it, and
+     a second wide pass would darken every corner twice — which is why this
+     used to be switched off entirely. But a 4096 atlas spread over an entire
+     room lands somewhere near a centimetre per texel, and contact darkening
+     lives below that: the millimetre of shadow where a chair castor touches
+     the floor, where a book meets a shelf, where the bin sits on the boards.
+     The lightmap cannot resolve it and the eye reads its absence as objects
+     hovering.
+
+     So the baked path gets a *small* radius at low strength — fine contact
+     only, leaving every larger occlusion to the bake that already did it
+     properly. Dropped entirely on the low tier: it is a screen-space pass over
+     every pixel, and losing realism is the right trade against losing frames. */
+  if (settings.ao) {
+    effects.push(
+      baked ? (
+        <N8AO
+          key="ao"
+          aoRadius={0.12}
+          intensity={1.1}
+          distanceFalloff={0.35}
+          quality="medium"
+          halfRes
+        />
+      ) : (
+        <N8AO
+          key="ao"
+          aoRadius={0.55}
+          intensity={2.4}
+          distanceFalloff={0.8}
+          quality="medium"
+          halfRes
+        />
+      )
+    );
+  }
+
+  /* High threshold on purpose: the room has a lot of small bright sources, and
+     a lower one turns their combined bloom into fog.
+
+     Tighter than it was, and it had to be. The strips are authored at emissive
+     strengths of 7 to 16 so that Cycles gets a real emitter to bounce light
+     off. Three.js hands those straight to the shader, so at a 0.88 threshold
+     every strip in the room sat far into the bloom's range: the monitor's
+     backlight came out as a clipped white line with a halo the size of the
+     wall behind it, with no colour left in either. A strip that blooms white
+     is a fluorescent tube. */
+  effects.push(
+    <Bloom
+      key="bloom"
+      intensity={0.34}
+      luminanceThreshold={0.96}
+      luminanceSmoothing={0.22}
+      mipmapBlur={settings.bloomMipmap}
+    />
+  );
+
+  /* The room had no tone mapping at all, and it took a long time to see.
+     `EffectComposer` sets `gl.toneMapping` to `NoToneMapping` on mount,
+     because postprocessing expects to own the view transform itself — so the
+     `ACESFilmicToneMapping` set on the renderer was overwritten before it ever
+     drew a frame, and `toneMappingExposure` moved nothing. The scene was
+     rendering linear and being written out with only the sRGB transfer over
+     it. That is most of why the room read as flat and lifeless no matter what
+     the lighting did: no shoulder, so anything above 1.0 clipped instead of
+     rolling off, and no toe, so the shadows had no separation left in them. */
+  effects.push(<ToneMapping key="tone" mode={ToneMappingMode.ACES_FILMIC} />);
+
+  /* The lens's own faults, applied after the curve where a lens applies them.
+     A rendered image with none of them is *too* clean — every real photograph
+     of a room like this carries a breath of grain and a fringe of colour at
+     its high-contrast edges, and their absence is one of the quiet tells of
+     CG. Both are set well below the level of being seen; they are felt as
+     texture. Three full-screen passes for that, so they are the first thing a
+     weaker machine gives up. */
+  if (settings.lensArtefacts) {
+    effects.push(<ChromaticAberration key="fringe" offset={[0.0005, 0.0003]} />);
+    effects.push(<Noise key="grain" premultiply opacity={0.055} />);
+  }
+
+  /* A vignette is a lens artefact, and a lens darkens the image it forms
+     rather than the light entering it. Kept at every tier: one cheap multiply,
+     and without it the frame's edges lift and it stops reading as a
+     photograph. */
+  effects.push(<Vignette key="vignette" eskil={false} offset={0.28} darkness={0.72} />);
+
+  return <EffectComposer enableNormalPass={false}>{effects}</EffectComposer>;
+}
+
 function Scene({
   url,
   lightmap,
@@ -64,6 +181,7 @@ function Scene({
   const reducedMotion = useReducedMotion();
   const [root, setRoot] = useState<Object3D | null>(null);
   const lampOn = useEngine((state) => state.lampOn);
+  const settings = quality();
 
   return (
     <>
@@ -131,12 +249,20 @@ function Scene({
             little brighter than surfaces facing down, which is what bounce
             does. It still casts the room's one shadow map: a second
             shadow-caster in a room this size reads as two suns. */}
+          {/* Shadow casters are ranked, not toggled as a group. A shadow map
+            is a full re-render of the scene from the light's point of view —
+            by far the most expensive thing on the unbaked path — so a weaker
+            machine keeps the ones that carry the room's shape and drops the
+            ones that only refine it. The desk lamp is rank 1 because its
+            shadows are what make the desk read as a surface objects rest on;
+            the under-desk strip is rank 5 because it edges shadows that are
+            already there. See `quality.ts`. */}
           <directionalLight
             color="#8f9ec4"
             intensity={0.42}
             position={[0.6, 6.2, 1.4]}
-            castShadow
-            shadow-mapSize={[2048, 2048]}
+            castShadow={settings.shadowCasters >= 2}
+            shadow-mapSize={[settings.shadowMap * 2, settings.shadowMap * 2]}
             shadow-bias={-0.0006}
             shadow-normalBias={0.02}
           >
@@ -179,8 +305,8 @@ function Scene({
             penumbra={1}
             position={[-2.72, 0.9, -0.95]}
             target-position={[-3.3, 0.5, -0.95]}
-            castShadow
-            shadow-mapSize={[1024, 1024]}
+            castShadow={settings.shadowCasters >= 4}
+            shadow-mapSize={[settings.shadowMap, settings.shadowMap]}
             shadow-bias={-0.0004}
             shadow-normalBias={0.015}
             shadow-camera-near={0.1}
@@ -204,8 +330,8 @@ function Scene({
             penumbra={1}
             position={[0.05, 0.7, 2.05]}
             target-position={[0.05, 0, 2.05]}
-            castShadow
-            shadow-mapSize={[1024, 1024]}
+            castShadow={settings.shadowCasters >= 5}
+            shadow-mapSize={[settings.shadowMap, settings.shadowMap]}
             shadow-bias={-0.0004}
             shadow-normalBias={0.015}
             shadow-camera-near={0.1}
@@ -255,7 +381,7 @@ function Scene({
             // short, high-contrast shadows, and their absence is why the desk
             // read as flat no matter how the pool was tuned.
             castShadow
-            shadow-mapSize={[1024, 1024]}
+            shadow-mapSize={[settings.shadowMap, settings.shadowMap]}
             shadow-bias={-0.0004}
             shadow-normalBias={0.012}
             shadow-camera-near={0.15}
@@ -300,8 +426,8 @@ function Scene({
             penumbra={1}
             position={[-1.22, 1.42, -1.85]}
             target-position={[-1.22, 0, -1.85]}
-            castShadow
-            shadow-mapSize={[1024, 1024]}
+            castShadow={settings.shadowCasters >= 3}
+            shadow-mapSize={[settings.shadowMap, settings.shadowMap]}
             shadow-bias={-0.0004}
             shadow-normalBias={0.015}
             shadow-camera-near={0.2}
@@ -398,6 +524,11 @@ function Scene({
       {root ? <Screens root={root} /> : null}
       {root ? <Animations root={root} /> : null}
 
+      {/* The labels that say the furniture can be clicked. In the scene, so
+        they carry the room's perspective and parallax rather than floating
+        over it as chrome. */}
+      <Markers />
+
       {/* Physics runs paused under reduced motion: objects tumbling of their
         own accord is exactly the kind of unrequested movement the preference
         is asking us not to produce. */}
@@ -409,69 +540,7 @@ function Scene({
         {root ? <Character root={root} /> : null}
       </Physics>
 
-      <EffectComposer enableNormalPass={false}>
-        {/* Ambient occlusion at two very different scales, because the two
-          paths are missing two different things.
-
-          Unbaked, there is no occlusion at all: direct light plus an
-          environment gives no contact shadow, so every object floats a little
-          because the crease where it meets the floor is exactly as bright as
-          the floor. That wants a wide radius doing the whole job.
-
-          Baked, the lightmap has already resolved occlusion by path tracing
-          it, and a second wide pass would darken every corner twice — which is
-          why this used to be switched off entirely. But a 4096 atlas spread
-          over an entire room lands somewhere near a centimetre per texel, and
-          contact darkening lives below that: the millimetre of shadow where a
-          chair castor touches the floor, where a book meets a shelf, where the
-          bin sits on the boards. The lightmap cannot resolve it and the eye
-          reads its absence as objects hovering.
-
-          So the baked path gets a *small* radius at low strength — fine
-          contact only, leaving every larger occlusion to the bake that already
-          did it properly. */}
-        {baked ? (
-          <N8AO aoRadius={0.12} intensity={1.1} distanceFalloff={0.35} quality="medium" halfRes />
-        ) : (
-          <N8AO aoRadius={0.55} intensity={2.4} distanceFalloff={0.8} quality="medium" halfRes />
-        )}
-        {/* High threshold on purpose: the room has a lot of small bright
-          sources, and a lower one turns their combined bloom into fog. */}
-        {/* Tighter than it was, and it had to be.
-          The strips are authored at emissive strengths of 7 to 16 so that
-          Cycles gets a real emitter to bounce light off. Three.js hands those
-          straight to the shader, so at a 0.88 threshold every strip in the room
-          sat far into the bloom's range: the monitor's backlight came out as a
-          clipped white line with a halo the size of the wall behind it, with no
-          colour left in either. A strip that blooms white is a fluorescent
-          tube. */}
-        <Bloom intensity={0.34} luminanceThreshold={0.96} luminanceSmoothing={0.22} mipmapBlur />
-        {/* The room had no tone mapping at all, and it took a long time to see.
-          `EffectComposer` sets `gl.toneMapping` to `NoToneMapping` on mount,
-          because postprocessing expects to own the view transform itself — so
-          the `ACESFilmicToneMapping` set on the renderer below was overwritten
-          before it ever drew a frame, and `toneMappingExposure` moved nothing.
-          The scene was rendering linear and being written out with only the
-          sRGB transfer over it.
-          That is most of why the room read as flat and lifeless no matter what
-          the lighting did. There was no shoulder, so anything above 1.0 clipped
-          instead of rolling off, and no toe, so the shadows had no separation
-          left in them. It also invalidated the whole argument for matching the
-          browser's exposure to `tonemap.py` — the two could not have agreed,
-          because one end was not applying a curve. */}
-        <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
-        {/* The lens's own faults, applied after the curve where a lens
-          applies them. A rendered image with none of them is *too* clean —
-          every real photograph of a room like this carries a breath of grain
-          and a fringe of colour at its high-contrast edges, and their absence
-          is one of the quiet tells of CG. Both are set well below the level
-          of being seen; they are felt as texture. */}
-        <ChromaticAberration offset={[0.0005, 0.0003]} />
-        <Noise premultiply opacity={0.055} />
-        {/* A vignette is a lens artefact, and a lens darkens the image it
-          forms rather than the light entering it. */}
-        <Vignette eskil={false} offset={0.28} darkness={0.72} />
-      </EffectComposer>
+      <Post baked={baked} />
 
       <AdaptiveDpr pixelated />
       <Preload all />
@@ -481,6 +550,7 @@ function Scene({
 
 export function RoomExperience() {
   const asset = useRoomAsset();
+  const settings = quality();
 
   return (
     <div className="fixed inset-0 bg-[#05070c]">
@@ -488,8 +558,11 @@ export function RoomExperience() {
         // Decorative: everything it renders is also a button in the overlay.
         aria-hidden="true"
         shadows={asset.lightmap === null}
-        dpr={[1, 2]}
-        gl={{ antialias: true, powerPreference: 'high-performance' }}
+        // The single biggest lever in the whole renderer: cost scales with the
+        // square of this, so a 2× ratio is four times the fragment work of a
+        // 1× one. Tiered rather than fixed — see `quality.ts`.
+        dpr={settings.dpr}
+        gl={{ antialias: settings.antialias, powerPreference: 'high-performance' }}
         camera={{
           fov: 34,
           near: 0.1,
@@ -536,6 +609,9 @@ export function RoomExperience() {
         </Suspense>
       </Canvas>
 
+      {/* Outside the canvas on purpose: it has to be readable while the canvas
+        is still a black rectangle, which is most of the wait. */}
+      <Loading />
       <Overlay />
     </div>
   );

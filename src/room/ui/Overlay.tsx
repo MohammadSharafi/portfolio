@@ -3,6 +3,9 @@ import { Volume2, VolumeX, X } from 'lucide-react';
 import { useEngine } from '../engine/store';
 import { characterState } from '../engine/characterState';
 import { Minimap } from './Minimap';
+import { RoomIndex } from './RoomIndex';
+import { Guide, GuideButton } from './Guide';
+import { MessageNote } from './MessageNote';
 import {
   isPlaying,
   loadTracks,
@@ -22,15 +25,19 @@ import { cn } from '@/lib/utils';
  *
  * The canvas itself is `aria-hidden` and has no tab stops, so this is not a
  * convenience layer — it is the only way the room is reachable without a mouse.
- * Every object in the registry gets a real button here whether or not it is on
- * screen, which also means the whole room is in the document for a crawler and
- * a screen reader rather than locked inside a WebGL context.
+ * Every object in the registry gets a real button in the index whether or not
+ * it is on screen, which also means the whole room is in the document for a
+ * crawler and a screen reader rather than locked inside a WebGL context.
+ *
+ * The chrome is deliberately thin and corner-bound. It used to include a rail
+ * of fifteen pills pinned across the bottom of the frame at all times; that
+ * has become `RoomIndex`, which says the same things with more context and
+ * only when asked. What is left on screen unprompted is a mute toggle, the way
+ * into the room's two modes, and — while driving — the plan and the fuel.
  */
 export function Overlay() {
   const focused = useEngine((state) => state.focused);
   const hovered = useEngine((state) => state.hovered);
-  const discovered = useEngine((state) => state.discovered);
-  const focus = useEngine((state) => state.focus);
   const unfocus = useEngine((state) => state.unfocus);
   const lampOn = useEngine((state) => state.lampOn);
   const toggleLamp = useEngine((state) => state.toggleLamp);
@@ -41,6 +48,9 @@ export function Overlay() {
   const nearby = useEngine((state) => state.nearby);
   const nearGuitar = useEngine((state) => state.nearGuitar);
   const musicOpen = useEngine((state) => state.musicOpen);
+  const entered = useEngine((state) => state.entered);
+  const messageOpen = useEngine((state) => state.messageOpen);
+  const setMessageOpen = useEngine((state) => state.setMessageOpen);
   const nearbyObject = nearby ? roomObjectById.get(nearby) : undefined;
 
   const panelRef = useRef<HTMLDivElement>(null);
@@ -85,11 +95,8 @@ export function Overlay() {
         <h1>{profile.name}</h1>
         <p>{profile.tagline}</p>
         <p>
-          {profile.availability}. Based in {profile.location} ({profile.timezone}).
-        </p>
-        <p>
-          This page is an interactive 3D workspace. <a href="?text=1">Open the written version</a>{' '}
-          for the same information as a document.
+          {profile.availability}. Based in {profile.location} ({profile.timezone}). Email{' '}
+          <a href={`mailto:${profile.email}`}>{profile.email}</a>.
         </p>
         {roomObjects.map((entry) => (
           <section key={entry.id}>
@@ -107,102 +114,75 @@ export function Overlay() {
         ))}
       </div>
 
-      <p className="absolute left-1/2 top-6 -translate-x-1/2 text-xs uppercase tracking-[0.25em] text-white/45">
-        {hovered ? (roomObjectById.get(hovered)?.hint ?? '') : 'Click anything in the room'}
-      </p>
+      {/* Nothing but the door until the visitor has stepped in. Chrome over a
+        loading screen is chrome over nothing. */}
+      {!entered ? null : (
+        <>
+          <p className="absolute left-1/2 top-6 -translate-x-1/2 text-xs uppercase tracking-[0.25em] text-white/45">
+            {hovered ? (roomObjectById.get(hovered)?.hint ?? '') : 'Click anything in the room'}
+          </p>
 
-      {/* The object list. Doubles as the keyboard path and as the "what is
-        there to find" affordance, so nothing depends on hunting with a mouse. */}
-      <a
-        href="?text=1"
-        className="pointer-events-auto absolute left-4 top-4 rounded-full bg-black/55 px-3.5 py-2 text-xs font-medium text-white/70 backdrop-blur-md transition-colors hover:text-white"
-      >
-        Read it instead
-      </a>
+          {/* Top-left: the two ways in, and the way to ask what this is. */}
+          {!focused ? (
+            <div className="absolute left-4 top-4 flex flex-col items-start gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setControlled(!controlled)}
+                  aria-pressed={controlled}
+                  className="pointer-events-auto rounded-full bg-black/55 px-3.5 py-2 text-xs font-medium text-white/70 backdrop-blur-md transition-colors hover:text-white"
+                >
+                  {controlled ? 'Stop walking' : 'Walk the room'}
+                </button>
+                <GuideButton />
+              </div>
+              {!controlled ? <RoomIndex /> : null}
+            </div>
+          ) : null}
 
-      {/* The game layer's front door. The robot idles on the desk either
-        way; this hands it the keyboard. Hidden while a panel is open — the
-        panel owns the keys then. */}
-      {!focused ? (
-        <button
-          type="button"
-          onClick={() => setControlled(!controlled)}
-          aria-pressed={controlled}
-          className="pointer-events-auto absolute left-4 top-16 rounded-full bg-black/55 px-3.5 py-2 text-xs font-medium text-white/70 backdrop-blur-md transition-colors hover:text-white"
-        >
-          {controlled ? 'Stop walking' : 'Walk the room'}
-        </button>
-      ) : null}
+          {/* The plan, only while driving: it answers "where am I and what is
+            behind me", which is a question the follow camera creates and cannot
+            itself answer. */}
+          {controlled && !focused ? <Minimap /> : null}
+          {controlled && !focused ? <FuelGauge /> : null}
+          {controlled && !focused ? <GuitarMusic /> : null}
 
-      {/* The plan, only while driving: it answers "where am I and what is
-        behind me", which is a question the follow camera creates and cannot
-        itself answer. */}
-      {controlled && !focused ? <Minimap /> : null}
-      {controlled && !focused ? <FuelGauge /> : null}
-      {controlled && !focused ? <GuitarMusic /> : null}
+          {controlled && !focused ? (
+            <p className="absolute bottom-24 left-1/2 -translate-x-1/2 rounded-full bg-black/55 px-4 py-2 text-xs text-white/75 backdrop-blur-md">
+              {nearGuitar ? (
+                <>
+                  <kbd className="rounded bg-white/15 px-1.5 py-0.5 font-semibold">E</kbd>{' '}
+                  {musicOpen ? 'close the guitar' : 'play the guitar'}
+                </>
+              ) : nearbyObject ? (
+                <>
+                  <kbd className="rounded bg-white/15 px-1.5 py-0.5 font-semibold">E</kbd> inspect{' '}
+                  {nearbyObject.label.toLowerCase()}
+                </>
+              ) : (
+                'W to move · A / D to turn · mouse to look · hold Space to fly · Esc to stop'
+              )}
+            </p>
+          ) : null}
 
-      {controlled && !focused ? (
-        <p className="absolute bottom-24 left-1/2 -translate-x-1/2 rounded-full bg-black/55 px-4 py-2 text-xs text-white/75 backdrop-blur-md">
-          {nearGuitar ? (
-            <>
-              <kbd className="rounded bg-white/15 px-1.5 py-0.5 font-semibold">E</kbd>{' '}
-              {musicOpen ? 'close the guitar' : 'play the guitar'}
-            </>
-          ) : nearbyObject ? (
-            <>
-              <kbd className="rounded bg-white/15 px-1.5 py-0.5 font-semibold">E</kbd> inspect{' '}
-              {nearbyObject.label.toLowerCase()}
-            </>
-          ) : (
-            'W to move · A / D to turn · mouse to look · hold Space to fly · Esc to stop'
-          )}
-        </p>
-      ) : null}
+          {!controlled ? <Guide /> : null}
+          <MessageNote />
 
-      <button
-        type="button"
-        onClick={toggleMuted}
-        aria-pressed={!muted}
-        className="pointer-events-auto absolute right-4 top-4 rounded-full bg-black/55 p-2.5 text-white/70 backdrop-blur-md transition-colors hover:text-white"
-        aria-label={muted ? 'Turn room sound on' : 'Turn room sound off'}
-      >
-        {muted ? (
-          <VolumeX className="size-4" aria-hidden="true" />
-        ) : (
-          <Volume2 className="size-4" aria-hidden="true" />
-        )}
-      </button>
-
-      <nav
-        aria-label="Objects in the room"
-        className="pointer-events-auto absolute bottom-4 left-1/2 flex max-w-[95vw] -translate-x-1/2 gap-1.5 overflow-x-auto rounded-full bg-black/55 p-1.5 backdrop-blur-md"
-      >
-        {roomObjects.map((entry) => (
           <button
-            key={entry.id}
             type="button"
-            onClick={(event) => {
-              returnTo.current = event.currentTarget;
-              focus(entry.id);
-            }}
-            aria-current={focused === entry.id ? 'true' : undefined}
-            className={cn(
-              'relative shrink-0 rounded-full px-3.5 py-2 text-xs font-medium transition-colors',
-              focused === entry.id
-                ? 'bg-white text-black'
-                : 'text-white/70 hover:bg-white/10 hover:text-white'
-            )}
+            onClick={toggleMuted}
+            aria-pressed={!muted}
+            className="pointer-events-auto absolute right-4 top-4 rounded-full bg-black/55 p-2.5 text-white/70 backdrop-blur-md transition-colors hover:text-white"
+            aria-label={muted ? 'Turn room sound on' : 'Turn room sound off'}
           >
-            {entry.label}
-            {discovered.includes(entry.id) && focused !== entry.id ? (
-              <span
-                className="absolute right-1.5 top-1.5 size-1 rounded-full bg-emerald-400"
-                aria-hidden="true"
-              />
-            ) : null}
+            {muted ? (
+              <VolumeX className="size-4" aria-hidden="true" />
+            ) : (
+              <Volume2 className="size-4" aria-hidden="true" />
+            )}
           </button>
-        ))}
-      </nav>
+        </>
+      )}
 
       {object ? (
         <div
@@ -211,7 +191,7 @@ export function Overlay() {
           aria-modal="false"
           aria-labelledby="room-panel-title"
           tabIndex={-1}
-          className="pointer-events-auto absolute inset-x-4 bottom-20 mx-auto max-w-md rounded-2xl border border-white/10 bg-black/70 p-5 text-white backdrop-blur-xl outline-none sm:inset-x-auto sm:right-8 sm:top-1/2 sm:-translate-y-1/2"
+          className="pointer-events-auto absolute inset-x-4 bottom-6 mx-auto max-w-md rounded-2xl border border-white/10 bg-black/70 p-5 text-white backdrop-blur-xl outline-none sm:inset-x-auto sm:right-8 sm:top-1/2 sm:-translate-y-1/2"
         >
           <button
             type="button"
@@ -225,13 +205,13 @@ export function Overlay() {
           <p className="font-mono text-[11px] uppercase tracking-[0.22em] text-sky-300">
             {object.panel.kicker}
           </p>
-          <h2 id="room-panel-title" className="mt-1.5 font-display text-xl font-semibold">
+          <h2 id="room-panel-title" className="mt-1.5 pr-6 font-display text-xl font-semibold">
             {object.panel.title}
           </h2>
           <p className="mt-2 text-sm leading-relaxed text-white/70">{object.panel.body}</p>
 
           {object.panel.items.length > 0 ? (
-            <ul className="mt-3 space-y-1.5 text-sm text-white/70">
+            <ul className="mt-3 max-h-[38vh] space-y-1.5 overflow-y-auto text-sm text-white/70">
               {object.panel.items.map((item) => (
                 <li key={item} className="flex gap-2">
                   <span
@@ -244,7 +224,7 @@ export function Overlay() {
             </ul>
           ) : null}
 
-          {object.id === 'lamp' ? (
+          {object.panel.action === 'lamp' ? (
             <button
               type="button"
               onClick={() => {
@@ -258,6 +238,16 @@ export function Overlay() {
             </button>
           ) : null}
 
+          {object.panel.action === 'message' ? (
+            <button
+              type="button"
+              onClick={() => setMessageOpen(!messageOpen)}
+              className="mt-4 rounded-full bg-white px-4 py-2 text-sm font-medium text-black transition-opacity hover:opacity-90"
+            >
+              {messageOpen ? 'Close the note' : 'Write me a note'}
+            </button>
+          ) : null}
+
           {object.panel.link ? (
             <a
               href={object.panel.link.href}
@@ -266,7 +256,7 @@ export function Overlay() {
               // does not accept, and a bare `download` attribute would name the
               // saved file after the URL instead of the person.
               {...(object.panel.link.download ? { download: object.panel.link.download } : {})}
-              className="mt-4 inline-block text-sm font-medium text-sky-300 underline underline-offset-4 hover:text-sky-200"
+              className="mt-4 block text-sm font-medium text-sky-300 underline underline-offset-4 hover:text-sky-200"
             >
               {object.panel.link.label} →
             </a>

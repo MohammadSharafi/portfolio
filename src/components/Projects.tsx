@@ -107,15 +107,25 @@ export function Projects() {
                 <div className="flex flex-1 flex-col gap-4 p-6">
                   <div>
                     <h3 className="font-display text-lg font-semibold">
-                      <a
-                        href={project.repo}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="after:absolute after:inset-0 after:content-['']"
-                      >
-                        {project.title}
-                      </a>
+                      {/* Only a link when there is somewhere honest to send
+                        people. A closed-source project keeps its title as
+                        plain text and says who owns the code instead. */}
+                      {project.repo ? (
+                        <a
+                          href={project.repo}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="after:absolute after:inset-0 after:content-['']"
+                        >
+                          {project.title}
+                        </a>
+                      ) : (
+                        project.title
+                      )}
                     </h3>
+                    {project.closed ? (
+                      <p className="mt-1 text-xs text-muted-foreground/70">{project.closed}</p>
+                    ) : null}
                     <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
                       {project.summary}
                     </p>

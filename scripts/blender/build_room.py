@@ -205,7 +205,7 @@ RUG_SPAN = (3.88, 3.48)
 
 # Meshes that get no share of the lightmap.
 #
-# The Toronto skyline is 7,541 m² of building faces — more surface than
+# The skyline is 7,541 m² of building faces — more surface than
 # everything else in the scene put together — and Blender packs a bake atlas in
 # proportion to area. Left in, it claimed 94% of a 4096 px atlas and the desk
 # got 0.1%, about a 130 px patch stretched across the whole desktop. That, and
@@ -215,7 +215,7 @@ RUG_SPAN = (3.88, 3.48)
 # and sky are emissive already, and its towers are dark night silhouettes that
 # read correctly as flat colour. Baked lighting on a distant night skyline is
 # spend with no return.
-BAKE_EXCLUDE = re.compile(r"^(ix_window|cn_tower|sky|lake|sky_occluder\w*)(\.\d+)?$")
+BAKE_EXCLUDE = re.compile(r"^(ix_window|sky_mast|sky|lake|sky_occluder\w*)(\.\d+)?$")
 
 # The smallest share of the atlas any object may claim, as a fraction of the
 # linear size the largest object gets. Packing strictly by surface area is right
@@ -266,7 +266,7 @@ CHAIR_X = KEY_X
 # How high the walls run.
 #
 # Far higher than a room, and deliberately so: they are also what stops the
-# camera seeing the Toronto skyline standing in the void beside the room. Cut
+# camera seeing the skyline standing in the void beside the room. Cut
 # to a realistic 2.7 m, the establishing shot showed the sky plane's edge as a
 # hard diagonal across the top-left corner. The height is doing two jobs and
 # only one of them is obvious, which is exactly the sort of thing that gets
@@ -1164,9 +1164,9 @@ def _wall_with_opening(wall_mat: bpy.types.Material) -> bpy.types.Object:
     return wall
 
 
-def build_toronto() -> list[bpy.types.Object]:
+def build_skyline() -> list[bpy.types.Object]:
     """
-    The view through the window: Toronto at night, from high up.
+    The view through the window: a city at night, from high up.
 
     Built at real distance rather than as a backdrop card, so it parallaxes as
     the camera moves. The whole thing sits inside the window's view cone, which
@@ -1247,23 +1247,25 @@ def build_toronto() -> list[bpy.types.Object]:
         bevel=0,
     )
 
-    # The CN Tower. Unmistakable, and the one object that fixes the city.
-    # Scaled and placed so the pod lands inside the visible band rather than
-    # above it — a landmark whose recognisable part is cropped out is not a
-    # landmark.
+    # One tall mast with an aircraft beacon, to break the skyline's top edge.
+    #
+    # This used to be a scale model of the CN Tower — pod, upper deck, mast —
+    # which made the view unmistakably one city, and the room is not making a
+    # claim about which one. A slender tower with a red beacon is what almost
+    # every skyline has and what no skyline is identified by, so the silhouette
+    # keeps the vertical accent it needs and loses the geography it did not.
     tx, ty = 3.4, -30.0
-    cn: list[bpy.types.Object] = [
-        cylinder("cn_shaft", 0.62, 22.0, (tx, ty, GROUND + 11.0), tower_mat, vertices=12),
-        cylinder("cn_pod", 1.9, 1.7, (tx, ty, GROUND + 21.4), tower_mat, vertices=16),
-        cylinder("cn_pod_lit", 1.96, 0.5, (tx, ty, GROUND + 21.7), lit_mat, vertices=16),
-        cylinder("cn_upper", 1.05, 1.9, (tx, ty, GROUND + 23.6), tower_mat, vertices=14),
-        cylinder("cn_mast", 0.2, 9.0, (tx, ty, GROUND + 29.0), tower_mat, vertices=8),
+    mast_parts: list[bpy.types.Object] = [
+        cylinder("mast_shaft", 0.55, 24.0, (tx, ty, GROUND + 12.0), tower_mat, vertices=12),
+        cylinder("mast_collar", 0.95, 1.4, (tx, ty, GROUND + 20.6), tower_mat, vertices=14),
+        cylinder("mast_collar_lit", 1.0, 0.35, (tx, ty, GROUND + 20.9), lit_mat, vertices=14),
+        cylinder("mast_spire", 0.18, 7.5, (tx, ty, GROUND + 27.5), tower_mat, vertices=8),
     ]
     beacon = cylinder(
-        "cn_beacon", 0.24, 0.24, (tx, ty, GROUND + 33.7),
+        "mast_beacon", 0.22, 0.22, (tx, ty, GROUND + 31.4),
         material("beacon", "red", roughness=0.3, emission=18.0), vertices=8,
     )
-    parts.append(join("cn_tower", cn + [beacon]))
+    parts.append(join("sky_mast", mast_parts + [beacon]))
 
     # The towers, in three depth layers. Layering is what the plan asks for and
     # what stops a backdrop giving itself away the moment the camera moves.
@@ -1963,7 +1965,14 @@ def build_laptop() -> list[bpy.types.Object]:
     lid_screen.parent = lid
     lid_screen.matrix_parent_inverse = lid.matrix_world.inverted()
 
-    return [lid, lid_screen, join("laptop_base", parts_base)]
+    # The base carries the prefix too. It did not, and the consequence was
+    # invisible in every screenshot and obvious the moment anyone used the
+    # room: the lid and the screen were `ix_laptop_*` and the body was plain
+    # `laptop_base`, so clicking the largest, most obviously clickable part of
+    # the laptop — the half sitting on the desk with the keyboard in it — did
+    # nothing at all. `toObjectId` strips trailing segments, so `ix_laptop_base`
+    # resolves to `laptop` exactly as the lid does.
+    return [lid, lid_screen, join("ix_laptop_base", parts_base)]
 
 
 def _cell_uvs(obj: bpy.types.Object, column: int, row: int, columns: int, rows: int) -> None:
@@ -3104,7 +3113,7 @@ def build_server_rack() -> list[bpy.types.Object]:
 
 def build_window() -> list[bpy.types.Object]:
     """
-    The window onto Toronto. The view itself is `build_toronto` — a separate
+    The window onto the city. The view itself is `build_skyline` — a separate
     object, so the runtime can cross-fade it between times of day.
     """
     frame_mat = material("win_frame", "paper", roughness=0.5)
@@ -3137,7 +3146,14 @@ def build_window() -> list[bpy.types.Object]:
         # the sill for nothing.
         pane.visible_shadow = False
         parts.append(pane)
-    return [join("window_frame", parts)]
+    # The frame is the window, as far as the room is concerned. `ix_window` is
+    # currently worn by the skyline 26 m outside — which does make the view
+    # clickable through the glass, but means the frame itself was inert and
+    # that the object's measured bounding box is a hundred metres of city. The
+    # frame is now interactive in its own right; `framing.ts` carries an
+    # explicit box for the opening so the camera stop is composed on the
+    # window rather than on the district behind it.
+    return [join("ix_window_frame", parts)]
 
 
 def build_curtains() -> list[bpy.types.Object]:
@@ -5647,7 +5663,7 @@ def build_all() -> None:
     build_whiteboard()
     build_server_rack()
     build_window()
-    build_toronto()
+    build_skyline()
     build_certificates()
     build_chair_and_plant()
     build_lounge()

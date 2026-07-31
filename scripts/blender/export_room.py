@@ -339,7 +339,7 @@ AIM_TOLERANCE = 0.25
 # tolerance wide enough to cover this one would be wide enough to hide the next
 # genuine mistake.
 AIM_EXEMPT = {
-    "window": "ix_window is the Toronto skyline 26 m outside; the stop frames the opening",
+    "window": "ix_window is the skyline 26 m outside; the stop frames the opening",
 }
 
 

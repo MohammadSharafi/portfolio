@@ -1,8 +1,8 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
-import { MathUtils, Raycaster, Vector3 } from 'three';
+import { MathUtils, Mesh, Raycaster, Vector3, type BufferGeometry, type Object3D } from 'three';
 import { useEngine } from './store';
-import { HOME_STOP, roomObjectById, type CameraStop } from '../data/objects';
+import { HOME_STOP, resolveStops, roomObjectById } from '../data/objects';
 import { characterState } from './characterState';
 import { look, updateLook } from './lookControl';
 
@@ -42,8 +42,17 @@ const COLLISION_PAD = 0.035;
 export function CameraRig({ reducedMotion }: { reducedMotion: boolean }) {
   const camera = useThree((state) => state.camera);
   const scene = useThree((state) => state.scene);
+  const size = useThree((state) => state.size);
   const focused = useEngine((state) => state.focused);
   const controlled = useEngine((state) => state.controlled);
+
+  // Stops are solved from each object's measured box against the *live* aspect
+  // ratio, so the same registry frames correctly on a desktop monitor and on a
+  // phone held upright. Rounded before it becomes a dependency: a resize drags
+  // through hundreds of intermediate widths, and re-solving fifteen boxes on
+  // every one of them would be work nobody sees.
+  const aspect = Math.round((size.width / Math.max(1, size.height)) * 20) / 20;
+  const stops = useMemo(() => resolveStops(aspect), [aspect]);
 
   const position = useRef(new Vector3(...HOME_STOP.position));
   const target = useRef(new Vector3(...HOME_STOP.target));
@@ -57,17 +66,56 @@ export function CameraRig({ reducedMotion }: { reducedMotion: boolean }) {
   const lookDir = useRef(new Vector3());
   const toCamera = useRef(new Vector3());
   const caster = useRef(new Raycaster());
+  const blockerCache = useRef<Object3D[]>([]);
+
+  /**
+   * What the camera can actually be stopped by.
+   *
+   * Rebuilt when the visitor takes control rather than every frame, and
+   * filtered by size: a ray looking for something to duck behind does not need
+   * to consider the pencil, the keycaps, or the forty-odd book spines on the
+   * shelf. Anything under 12 cm on its longest side is skipped, which removes
+   * most of the room's mesh count and none of its walls.
+   *
+   * Objects that opt out of raycasting keep their exemption — the robot's own
+   * body sets `raycast` to a no-op so the camera cannot jam against the thing
+   * it is following.
+   */
+  useEffect(() => {
+    if (!controlled) {
+      blockerCache.current = [];
+      return;
+    }
+    const found: Object3D[] = [];
+    const size = new Vector3();
+    scene.traverse((node) => {
+      const mesh = node as Object3D & { isMesh?: boolean; geometry?: BufferGeometry };
+      if (!mesh.isMesh || !mesh.geometry) return;
+      // Anything that has replaced the default raycast has opted out of being
+      // hit — the robot's own meshes do exactly this so the camera cannot jam
+      // against the thing it is following. Comparing against the prototype is
+      // how that opt-out is detected without the two files sharing a sentinel.
+      if (node.raycast !== Mesh.prototype.raycast) return;
+      if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
+      mesh.geometry.boundingBox?.getSize(size);
+      // World scale is 1 throughout this model, so local extents are metres.
+      if (Math.max(size.x, size.y, size.z) < 0.12) return;
+      found.push(node);
+    });
+    blockerCache.current = found;
+  }, [controlled, scene]);
 
   useEffect(() => {
     if (controlled && !focused) return;
-    const stop: CameraStop = focused ? (roomObjectById.get(focused)?.stop ?? HOME_STOP) : HOME_STOP;
+    const object = focused ? roomObjectById.get(focused) : undefined;
+    const stop = (focused && stops.get(focused)) || HOME_STOP;
     goalPosition.current.set(...stop.position);
     goalTarget.current.set(...stop.target);
     // `duration` is authored per object as "how long this move should feel".
     // Converting it to a rate keeps the smoothing frame-rate independent while
     // still letting a lean-in be quicker than a trip across the room.
-    rate.current = 3.2 / (stop.duration ?? 1.4);
-  }, [focused, controlled]);
+    rate.current = 3.2 / (object?.duration ?? HOME_STOP.duration);
+  }, [focused, controlled, stops]);
 
   useEffect(() => {
     if (reducedMotion) return;
@@ -121,11 +169,22 @@ export function CameraRig({ reducedMotion }: { reducedMotion: boolean }) {
       // in the way pulls it in rather than letting it pass through — the
       // desk, a monitor's back, a wall, the shelf it just flew into. The
       // robot is excluded because its own meshes have raycasting disabled.
-      caster.current.set(pivot.current, toCamera.current);
-      caster.current.far = distance;
-      const hits = caster.current.intersectObjects(scene.children, true);
-      if (hits.length > 0 && hits[0]!.distance < reach) {
-        reach = Math.max(0.12, hits[0]!.distance - COLLISION_PAD);
+      //
+      // Cast against a pre-flattened list rather than `scene.children, true`.
+      // The recursive form re-walks the entire graph every frame — 250-odd
+      // nodes, sixty times a second, allocating as it goes — to test a ray
+      // that can only ever be stopped by something big. `blockers` is that
+      // list, gathered once and filtered to objects with real bulk, which is
+      // the difference between a frame budget spent on the room and one spent
+      // on rediscovering where the room is.
+      const blockers = blockerCache.current;
+      if (blockers.length > 0) {
+        caster.current.set(pivot.current, toCamera.current);
+        caster.current.far = distance;
+        const hits = caster.current.intersectObjects(blockers, false);
+        if (hits.length > 0 && hits[0]!.distance < reach) {
+          reach = Math.max(0.12, hits[0]!.distance - COLLISION_PAD);
+        }
       }
 
       goalPosition.current.copy(pivot.current).addScaledVector(toCamera.current, reach);

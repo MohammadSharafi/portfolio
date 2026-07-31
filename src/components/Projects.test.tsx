@@ -8,7 +8,7 @@ describe('<Projects />', () => {
   it('lists every project before any filter is applied', () => {
     render(<Projects />);
     projects.forEach((project) => {
-      expect(screen.getByRole('link', { name: project.title })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: project.title })).toBeInTheDocument();
     });
   });
 
@@ -23,13 +23,13 @@ describe('<Projects />', () => {
     const others = projects.filter((p) => p.category !== 'Mobile');
 
     mobile.forEach((project) => {
-      expect(screen.getByRole('link', { name: project.title })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: project.title })).toBeInTheDocument();
     });
 
     // Filtered-out cards stay mounted until their exit animation finishes.
     await waitFor(() => {
       others.forEach((project) => {
-        expect(screen.queryByRole('link', { name: project.title })).not.toBeInTheDocument();
+        expect(screen.queryByRole('heading', { name: project.title })).not.toBeInTheDocument();
       });
     });
   });

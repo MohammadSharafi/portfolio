@@ -41,8 +41,15 @@ describe('projects', () => {
     });
   });
 
-  it('links every project to a GitHub repository over https', () => {
+  it('links every project to a real repository, or says why it cannot', () => {
+    // A profile listing is not a repository. Pointing a "source" link at one
+    // is the kind of small dishonesty this site is built to avoid, so a
+    // project either has a specific repo or states who owns the code.
     projects.forEach((project) => {
+      if (project.repo === undefined) {
+        expect(project.closed, `${project.slug} has neither a repo nor a reason`).toBeTruthy();
+        return;
+      }
       expect(project.repo).toMatch(/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+$/);
     });
   });

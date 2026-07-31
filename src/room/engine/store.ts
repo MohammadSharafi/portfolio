@@ -38,6 +38,18 @@ interface EngineState extends SaveState {
   nearGuitar: boolean;
   /** True while the guitar's track list is open. */
   musicOpen: boolean;
+  /** True while the room index (the list of everything there is to find) is
+   *  open. Replaces the old bottom rail, which spent a permanent strip of the
+   *  frame on fifteen buttons a visitor reads once. */
+  indexOpen: boolean;
+  /** True while the note composer is open. */
+  messageOpen: boolean;
+  /** How much of the guide the visitor has been through. `null` means they
+   *  have never seen it; a number is the step they reached. Persisted, so a
+   *  returning visitor is not taught the controls again. */
+  guideStep: number | null;
+  /** True once the room has finished loading and been dismissed into. */
+  entered: boolean;
   /** Drives the window's outside world and the room's ambient colour. */
   timeOfDay: 'day' | 'dusk' | 'night';
   muted: boolean;
@@ -49,6 +61,10 @@ interface EngineState extends SaveState {
   setNearby: (id: ObjectId | null) => void;
   setNearGuitar: (value: boolean) => void;
   setMusicOpen: (value: boolean) => void;
+  setIndexOpen: (value: boolean) => void;
+  setMessageOpen: (value: boolean) => void;
+  setGuideStep: (value: number | null) => void;
+  enter: () => void;
   focus: (id: ObjectId) => void;
   unfocus: () => void;
   hover: (id: ObjectId | null) => void;
@@ -78,6 +94,10 @@ export const useEngine = create<EngineState>()(
       nearby: null,
       nearGuitar: false,
       musicOpen: false,
+      indexOpen: false,
+      messageOpen: false,
+      guideStep: null,
+      entered: false,
       timeOfDay: 'night',
       muted: true,
       progress: 0,
@@ -93,6 +113,14 @@ export const useEngine = create<EngineState>()(
           set({ nearGuitar: value, musicOpen: value && get().musicOpen });
       },
       setMusicOpen: (value) => set({ musicOpen: value }),
+      setIndexOpen: (value) => set({ indexOpen: value }),
+      setMessageOpen: (value) => set({ messageOpen: value }),
+      setGuideStep: (value) => set({ guideStep: value }),
+
+      // Entering counts a visit. Doing it here rather than on mount means the
+      // number tracks people who actually went in, not tabs that were opened
+      // and closed while the room was still loading.
+      enter: () => set({ entered: true, phase: 'exploring', visits: get().visits + 1 }),
 
       focus: (id) => {
         const { discovered } = get();
@@ -139,6 +167,9 @@ export const useEngine = create<EngineState>()(
         lampOn: state.lampOn,
         timeOfDay: state.timeOfDay,
         muted: state.muted,
+        // Persisted so a returning visitor is not walked through the controls
+        // a second time. It is the one piece of onboarding state worth keeping.
+        guideStep: state.guideStep,
       }),
     }
   )

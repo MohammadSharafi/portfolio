@@ -9,6 +9,7 @@ import {
   ShaderMaterial,
 } from 'three';
 import { useEngine } from '../engine/store';
+import { quality } from '../engine/quality';
 import { updateWind, wind } from './wind';
 
 /**
@@ -29,7 +30,17 @@ import { updateWind, wind } from './wind';
  * shaft of lamplight catches them and nowhere else, which is exactly where a
  * real room shows them. Camera parallax comes free: they are true 3D points.
  */
-const COUNT = 1800;
+/**
+ * How many motes, by what the machine can afford.
+ *
+ * The vertex work is trivial — the expense is fill: every particle is a
+ * transparent sprite composited over the whole frame, and on an integrated GPU
+ * 1,800 of them is a measurable share of the budget for an effect that is, by
+ * design, almost invisible. Cutting the count does not change the look nearly
+ * as much as it changes the cost, because what sells dust is that motes are
+ * scattered and lit only near a source, not that there are thousands of them.
+ */
+const COUNT = quality().dust;
 
 // Room bounds the cloud wraps within (three.js space).
 const BOUNDS = { x: 6.2, y: 2.45, z: 4.9 };

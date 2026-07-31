@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { toObjectId } from './systems/objectId';
-import { objectIds, roomObjects, roomObjectById } from './data/objects';
+import { objectGroups, objectIds, resolveStops, roomObjects, roomObjectById } from './data/objects';
 import { experience } from '@/data/experience';
 import { profile } from '@/data/profile';
 
@@ -83,13 +83,23 @@ describe('the object registry', () => {
   });
 
   it('gives every object a camera stop that is not the origin', () => {
+    // Stops are solved rather than authored now — see `framing.ts`. What this
+    // still guards is the shape of the result: three components, somewhere,
+    // and never a camera standing on the point it is looking at.
+    for (const [, stop] of resolveStops(1.6)) {
+      expect(stop.position).toHaveLength(3);
+      expect(stop.target).toHaveLength(3);
+      expect(stop.position.some((value: number) => value !== 0)).toBe(true);
+      expect(stop.position).not.toEqual(stop.target);
+    }
+  });
+
+  it('gives every object a group and a line telling the visitor what to do', () => {
+    // Both feed the index and the world markers, and an object missing either
+    // silently becomes an unlabelled dot in the room.
     for (const entry of roomObjects) {
-      const { position, target } = entry.stop;
-      expect(position).toHaveLength(3);
-      expect(target).toHaveLength(3);
-      expect(position.some((value) => value !== 0)).toBe(true);
-      // A stop that looks at where it stands has nothing to frame.
-      expect(position).not.toEqual(target);
+      expect(objectGroups, `${entry.id} has no group`).toContain(entry.group);
+      expect(entry.guide.length, `${entry.id} has no guide line`).toBeGreaterThan(8);
     }
   });
 });

@@ -1,10 +1,17 @@
-import { CanvasTexture, LinearFilter, RepeatWrapping, SRGBColorSpace } from 'three';
+import {
+  CanvasTexture,
+  LinearFilter,
+  LinearMipmapLinearFilter,
+  RepeatWrapping,
+  SRGBColorSpace,
+} from 'three';
 import { projects } from '@/data/projects';
 import { stats } from '@/data/stats';
 import { experience } from '@/data/experience';
 import { profile } from '@/data/profile';
 import { skillGroups } from '@/data/skills';
 import { awards, education } from '@/data/credentials';
+import { quality } from '../engine/quality';
 
 /**
  * Everything with writing on it in the room.
@@ -23,11 +30,32 @@ import { awards, education } from '@/data/credentials';
 const FONT_UI = 'system-ui, -apple-system, "Segoe UI", sans-serif';
 const FONT_MONO = 'ui-monospace, "SF Mono", Menlo, monospace';
 
+/**
+ * How many texture pixels are drawn per layout pixel.
+ *
+ * The screens were authored at 1024×576 for a monitor 62 cm wide, and the
+ * camera stop for that monitor now stands under a metre from it — close enough
+ * that a 1024 texture stretched over the panel puts roughly one texel on every
+ * two screen pixels, and 15px UI labels come out soft and slightly wrong at
+ * their edges. Text is the one thing in this room a visitor is asked to *read*,
+ * so it is the last thing that should be the blurriest.
+ *
+ * Rendering at 2× and letting the mipmap chain resolve it is much simpler than
+ * re-laying-out every screen at double the coordinates: the context is scaled
+ * once here, so every existing draw call keeps its own units and simply lands
+ * on four times as many pixels. The low tier stays at 1× — a machine that is
+ * dropping frames does not need four megapixels of whiteboard.
+ */
+const SCALE = quality().tier === 'low' ? 1 : 2;
+
 function surface(width: number, height: number, background: string) {
   const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
+  canvas.width = width * SCALE;
+  canvas.height = height * SCALE;
   const ctx = canvas.getContext('2d')!;
+  // Everything below this line draws in layout units and is scaled up on the
+  // way to the texture.
+  ctx.scale(SCALE, SCALE);
   ctx.fillStyle = background;
   ctx.fillRect(0, 0, width, height);
   return { canvas, ctx };
@@ -63,8 +91,14 @@ type Orientation = 'as-drawn' | 'mirror-u' | 'flip-v';
 function finish(canvas: HTMLCanvasElement, orientation: Orientation = 'as-drawn') {
   const texture = new CanvasTexture(canvas);
   texture.colorSpace = SRGBColorSpace;
-  texture.minFilter = LinearFilter;
+  // Mipmapped minification, now that the texture is drawn at 2×. Without a
+  // chain, a supersampled canvas seen from across the room aliases *worse*
+  // than the 1× one did — every high-contrast edge in a code listing crawls as
+  // the camera moves. `LinearMipmapLinearFilter` is what makes the extra
+  // resolution a gain at every distance rather than only at the close-up.
+  texture.minFilter = LinearMipmapLinearFilter;
   texture.magFilter = LinearFilter;
+  texture.generateMipmaps = true;
   texture.anisotropy = 8;
 
   if (orientation === 'mirror-u') {
@@ -123,54 +157,101 @@ function roundRect(
   ctx.roundRect(x, y, w, h, r);
 }
 
-/** Monitor 1 — the clinical work. A dashboard, not a screenshot of one. */
+/**
+ * Monitor 1 — the clinical work. A dashboard, not a screenshot of one.
+ *
+ * Everything numeric on it is either from the CV or explicitly labelled as
+ * sample. That distinction matters more here than anywhere else in the room:
+ * this is the screen that claims healthcare experience, and a plausible-looking
+ * chart of invented patient data on a portfolio is the kind of detail that
+ * turns a strong claim into a liability. The throughput curve says "sample" on
+ * its own axis; the latency figures are the real before-and-after from the API
+ * work, and the tiles are counts I can point at a commit for.
+ */
 export function clinicalScreen() {
   const W = 1024;
   const H = 576;
   const { canvas, ctx } = surface(W, H, '#0b1220');
 
+  // --- chrome --------------------------------------------------------------
   ctx.fillStyle = '#111c2f';
   ctx.fillRect(0, 0, W, 54);
   ctx.fillStyle = '#4d9fff';
   ctx.font = `600 20px ${FONT_UI}`;
   ctx.fillText('EHR AI Clinical Assistant', 26, 35);
-  ctx.fillStyle = '#4ade80';
-  ctx.font = `500 15px ${FONT_MONO}`;
-  ctx.fillText('SMART on FHIR · connected', W - 250, 35);
 
-  // Cohort chart. Real shape, arbitrary sample — it is decoration standing in
-  // for protected data, and it is labelled as sample so it never reads as a
-  // claim about a real cohort.
+  ctx.fillStyle = 'rgba(74,222,128,0.14)';
+  roundRect(ctx, W - 268, 16, 242, 26, 13);
+  ctx.fill();
+  ctx.fillStyle = '#4ade80';
+  ctx.beginPath();
+  ctx.arc(W - 250, 29, 4, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.font = `500 13px ${FONT_MONO}`;
+  ctx.fillText('SMART on FHIR · connected', W - 238, 34);
+
+  // --- throughput ----------------------------------------------------------
   ctx.fillStyle = '#0f1a2c';
   roundRect(ctx, 26, 78, 600, 250, 10);
   ctx.fill();
-  ctx.fillStyle = '#7f92ad';
-  ctx.font = `500 14px ${FONT_UI}`;
-  ctx.fillText('Cohort throughput — sample data', 44, 106);
+  ctx.fillStyle = '#e6edf7';
+  ctx.font = `500 15px ${FONT_UI}`;
+  ctx.fillText('Cohort throughput', 44, 106);
+  ctx.fillStyle = '#5b6b83';
+  ctx.font = `400 12px ${FONT_UI}`;
+  ctx.fillText('sample data — not a real cohort', 178, 106);
+
+  // Gridlines first, so the curve is drawn over them. Without any reference
+  // the sparkline was a squiggle; four rules turn it into a chart.
+  ctx.strokeStyle = 'rgba(127,146,173,0.12)';
+  ctx.lineWidth = 1;
+  for (let row = 0; row <= 3; row += 1) {
+    const y = 136 + row * 56;
+    ctx.beginPath();
+    ctx.moveTo(48, y);
+    ctx.lineTo(600, y);
+    ctx.stroke();
+  }
 
   const points = [0.32, 0.41, 0.38, 0.52, 0.61, 0.58, 0.72, 0.79, 0.74, 0.88, 0.94, 0.91];
+  const plotX = (index: number) => 48 + (index / (points.length - 1)) * 552;
+  const plotY = (value: number) => 306 - value * 170;
+
   ctx.beginPath();
   points.forEach((value, index) => {
-    const x = 48 + (index / (points.length - 1)) * 552;
-    const y = 306 - value * 170;
-    if (index === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
+    if (index === 0) ctx.moveTo(plotX(index), plotY(value));
+    else ctx.lineTo(plotX(index), plotY(value));
   });
   ctx.strokeStyle = '#4d9fff';
   ctx.lineWidth = 3;
+  ctx.lineJoin = 'round';
   ctx.stroke();
+
+  const fill = ctx.createLinearGradient(0, 130, 0, 306);
+  fill.addColorStop(0, 'rgba(77,159,255,0.26)');
+  fill.addColorStop(1, 'rgba(77,159,255,0.02)');
   ctx.lineTo(600, 306);
   ctx.lineTo(48, 306);
   ctx.closePath();
-  ctx.fillStyle = 'rgba(77,159,255,0.16)';
+  ctx.fillStyle = fill;
   ctx.fill();
 
-  // The endpoint tiles, from the CV rather than invented.
+  // The last reading, called out — a chart with no current value is a shape.
+  ctx.fillStyle = '#0b1220';
+  ctx.beginPath();
+  ctx.arc(plotX(points.length - 1), plotY(points.at(-1)!), 6, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#4d9fff';
+  ctx.beginPath();
+  ctx.arc(plotX(points.length - 1), plotY(points.at(-1)!), 4, 0, Math.PI * 2);
+  ctx.fill();
+
+  // --- tiles ---------------------------------------------------------------
   const tiles = [
-    ['123+', 'endpoints'],
-    ['OAuth2', 'token vault'],
-    ['HIPAA', 'compliant'],
-    ['0', 'incidents'],
+    ['123+', 'endpoints', '#4d9fff'],
+    ['OAuth2', 'token vault', '#a78bfa'],
+    ['HIPAA', 'compliant', '#4ade80'],
+    ['0', 'security incidents', '#4ade80'],
   ];
   tiles.forEach((tile, index) => {
     const x = 654;
@@ -178,107 +259,197 @@ export function clinicalScreen() {
     ctx.fillStyle = '#0f1a2c';
     roundRect(ctx, x, y, 344, 54, 8);
     ctx.fill();
+    ctx.fillStyle = tile[2]!;
+    roundRect(ctx, x, y + 12, 3, 30, 1.5);
+    ctx.fill();
     ctx.fillStyle = '#e6edf7';
     ctx.font = `600 22px ${FONT_UI}`;
     ctx.fillText(tile[0]!, x + 18, y + 35);
     ctx.fillStyle = '#7f92ad';
     ctx.font = `400 15px ${FONT_UI}`;
-    ctx.fillText(tile[1]!, x + 110, y + 35);
+    ctx.fillText(tile[1]!, x + 120, y + 35);
   });
 
+  // --- integrations and latency -------------------------------------------
   ctx.fillStyle = '#0f1a2c';
-  roundRect(ctx, 26, 348, 972, 200, 10);
+  roundRect(ctx, 26, 348, 600, 200, 10);
   ctx.fill();
-  ctx.fillStyle = '#7f92ad';
-  ctx.font = `500 14px ${FONT_UI}`;
-  ctx.fillText('Integrations', 44, 376);
+  ctx.fillStyle = '#e6edf7';
+  ctx.font = `500 15px ${FONT_UI}`;
+  ctx.fillText('Integrations', 44, 378);
   const rows = [
-    'Cerner / Oracle Health',
-    'Mayo Clinic Platform',
-    'GCP Cloud Run',
-    'FastAPI gateway',
+    ['Cerner / Oracle Health', 'live'],
+    ['Mayo Clinic Platform', 'live'],
+    ['GCP Cloud Run', 'live'],
+    ['FastAPI gateway', 'live'],
   ];
   rows.forEach((row, index) => {
-    const y = 406 + index * 32;
+    const y = 410 + index * 32;
     ctx.fillStyle = '#4ade80';
     ctx.beginPath();
     ctx.arc(52, y - 5, 4, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = '#c9d6e8';
-    ctx.font = `400 17px ${FONT_UI}`;
-    ctx.fillText(row, 68, y);
+    ctx.font = `400 16px ${FONT_UI}`;
+    ctx.fillText(row[0]!, 68, y);
+    ctx.fillStyle = '#4a5b73';
+    ctx.font = `400 13px ${FONT_MONO}`;
+    ctx.fillText(row[1]!, 560, y);
+  });
+
+  // The one figure on this screen a reader can check against the CV: response
+  // times halved, 800ms to 400ms. Drawn as two bars because the *ratio* is the
+  // claim, and two numbers side by side make it in a way a sentence does not.
+  ctx.fillStyle = '#0f1a2c';
+  roundRect(ctx, 654, 348, 344, 200, 10);
+  ctx.fill();
+  ctx.fillStyle = '#e6edf7';
+  ctx.font = `500 15px ${FONT_UI}`;
+  ctx.fillText('API response time', 672, 378);
+
+  const bars = [
+    ['before', 800, '#4a5b73'],
+    ['after', 400, '#4ade80'],
+  ] as const;
+  bars.forEach(([label, value, colour], index) => {
+    const y = 404 + index * 58;
+    ctx.fillStyle = '#7f92ad';
+    ctx.font = `400 13px ${FONT_UI}`;
+    ctx.fillText(label, 672, y + 14);
+    ctx.fillStyle = 'rgba(127,146,173,0.10)';
+    roundRect(ctx, 738, y, 200, 20, 10);
+    ctx.fill();
+    ctx.fillStyle = colour;
+    roundRect(ctx, 738, y, (value / 800) * 200, 20, 10);
+    ctx.fill();
+    ctx.fillStyle = '#c9d6e8';
+    ctx.font = `500 13px ${FONT_MONO}`;
+    ctx.fillText(`${value}ms`, 948, y + 15);
   });
 
   return finish(canvas, 'mirror-u');
 }
 
-/** Monitor 2 — the editor, showing code that is actually about this room. */
+/**
+ * Monitor 2 — the editor, and the work it is showing.
+ *
+ * It used to be a bare code listing. That was atmospheric and said nothing:
+ * the panel this monitor opens is the projects list, and the screen behind it
+ * showed a camera easing function, so leaning in taught a visitor nothing
+ * about the thing they had just been told they were looking at.
+ *
+ * Now it is an editor with its explorer open, and the explorer is the actual
+ * project list from `src/data/projects` — the same source the panel reads. The
+ * code in the pane is from this room's own renderer, which is the one project
+ * a visitor can verify by standing in it.
+ */
 export function codeScreen() {
   const W = 1024;
   const H = 576;
   const { canvas, ctx } = surface(W, H, '#0d1117');
 
+  const RAIL = 250;
+
+  // --- title bar -----------------------------------------------------------
   ctx.fillStyle = '#151b23';
   ctx.fillRect(0, 0, W, 40);
-  ctx.fillStyle = '#7d8590';
-  ctx.font = `400 14px ${FONT_MONO}`;
-  ctx.fillText('room/engine/CameraRig.tsx', 96, 26);
   ['#ff5f57', '#febc2e', '#28c840'].forEach((colour, index) => {
     ctx.fillStyle = colour;
     ctx.beginPath();
     ctx.arc(26 + index * 20, 20, 6, 0, Math.PI * 2);
     ctx.fill();
   });
+  ctx.fillStyle = '#7d8590';
+  ctx.font = `400 14px ${FONT_MONO}`;
+  ctx.fillText('framing.ts — portfolio-room', 108, 25);
 
+  // --- explorer ------------------------------------------------------------
+  ctx.fillStyle = '#0b0f14';
+  ctx.fillRect(0, 40, RAIL, H - 40);
+  ctx.fillStyle = '#6e7681';
+  ctx.font = `600 11px ${FONT_UI}`;
+  ctx.fillText('EXPLORER', 20, 66);
+
+  // Straight from the project data, so a project added to the CV appears on
+  // the monitor without anyone remembering to redraw it.
+  const shown = projects.slice(0, 9);
+  shown.forEach((project, index) => {
+    const y = 92 + index * 30;
+    const live = project.slug === 'portfolio-room';
+    if (live) {
+      ctx.fillStyle = '#161e2b';
+      ctx.fillRect(0, y - 16, RAIL, 26);
+      ctx.fillStyle = '#4d9fff';
+      ctx.fillRect(0, y - 16, 2, 26);
+    }
+    // A folder glyph, drawn rather than typed: the box-drawing characters a
+    // font might not have are exactly the ones that render as tofu.
+    ctx.fillStyle = live ? '#4d9fff' : '#57606a';
+    roundRect(ctx, 20, y - 9, 11, 9, 1.5);
+    ctx.fill();
+
+    ctx.fillStyle = live ? '#e6edf7' : '#8b949e';
+    ctx.font = `${live ? 500 : 400} 13px ${FONT_UI}`;
+    // Truncated by measurement rather than by character count — proportional
+    // type makes "Encrypted Payments Core" and "NodeFlow AI" very different
+    // widths at the same length.
+    let label = project.title;
+    while (ctx.measureText(label).width > RAIL - 58 && label.length > 4) {
+      label = label.slice(0, -1);
+    }
+    ctx.fillText(label + (label === project.title ? '' : '…'), 40, y);
+  });
+
+  ctx.fillStyle = '#30363d';
+  ctx.fillRect(RAIL, 40, 1, H - 40);
+
+  // --- the code ------------------------------------------------------------
   const lines: Array<Array<[string, string]>> = [
+    [['// a stop is a direction and a margin —', '#8b949e']],
+    [['// the distance is solved, never authored', '#8b949e']],
     [
       ['export function ', '#ff7b72'],
-      ['CameraRig', '#d2a8ff'],
-      ['({ reducedMotion }) {', '#c9d1d9'],
+      ['resolveFraming', '#d2a8ff'],
+      ['(', '#c9d1d9'],
+    ],
+    [
+      ['  framing, bounds, aspect', '#79c0ff'],
+      [') {', '#c9d1d9'],
     ],
     [
       ['  const ', '#ff7b72'],
-      ['focused', '#79c0ff'],
-      [' = useEngine((s) => s.focused);', '#c9d1d9'],
+      ['halfV', '#79c0ff'],
+      [' = Math.tan(fov / 2);', '#c9d1d9'],
+    ],
+    [
+      ['  const ', '#ff7b72'],
+      ['halfH', '#79c0ff'],
+      [' = halfV * aspect;', '#c9d1d9'],
+    ],
+    [['', '#c9d1d9']],
+    [['  // fit both ways, take the further', '#8b949e']],
+    [
+      ['  const ', '#ff7b72'],
+      ['d', '#79c0ff'],
+      [' = Math.', '#c9d1d9'],
+      ['max', '#d2a8ff'],
+      ['(fitV, fitH);', '#c9d1d9'],
     ],
     [['', '#c9d1d9']],
     [
-      ['  useFrame', '#d2a8ff'],
-      ['((_, delta) => {', '#c9d1d9'],
+      ['  return ', '#ff7b72'],
+      ['{ target, position: ', '#c9d1d9'],
     ],
-    [
-      ['    const ', '#ff7b72'],
-      ['dt', '#79c0ff'],
-      [' = Math.min(0.05, delta);', '#c9d1d9'],
-    ],
-    [
-      ['    const ', '#ff7b72'],
-      ['k', '#79c0ff'],
-      [' = 1 - Math.exp(-rate * dt);', '#c9d1d9'],
-    ],
-    [['', '#c9d1d9']],
-    [['    // frame-rate independent, so the same', '#8b949e']],
-    [['    // move feels the same at 60 and 120', '#8b949e']],
-    [
-      ['    position.', '#c9d1d9'],
-      ['lerp', '#d2a8ff'],
-      ['(goal, k);', '#c9d1d9'],
-    ],
-    [
-      ['    camera.', '#c9d1d9'],
-      ['lookAt', '#d2a8ff'],
-      ['(target);', '#c9d1d9'],
-    ],
-    [['  });', '#c9d1d9']],
+    [['    add(target, scale(dir, d)) };', '#c9d1d9']],
     [['}', '#c9d1d9']],
   ];
 
-  ctx.font = `400 18px ${FONT_MONO}`;
+  ctx.font = `400 17px ${FONT_MONO}`;
   lines.forEach((line, index) => {
-    const y = 82 + index * 27;
+    const y = 84 + index * 26;
     ctx.fillStyle = '#484f58';
-    ctx.fillText(String(index + 1).padStart(2, ' '), 22, y);
-    let x = 62;
+    ctx.fillText(String(index + 1).padStart(2, ' '), RAIL + 18, y);
+    let x = RAIL + 54;
     for (const [text, colour] of line) {
       ctx.fillStyle = colour;
       ctx.fillText(text, x, y);
@@ -286,15 +457,21 @@ export function codeScreen() {
     }
   });
 
+  // --- terminal ------------------------------------------------------------
   ctx.fillStyle = '#161b22';
-  ctx.fillRect(0, H - 92, W, 92);
+  ctx.fillRect(RAIL + 1, H - 92, W - RAIL - 1, 92);
   ctx.fillStyle = '#7d8590';
-  ctx.font = `400 15px ${FONT_MONO}`;
-  ctx.fillText('$ npm run verify', 22, H - 62);
+  ctx.font = `400 14px ${FONT_MONO}`;
+  ctx.fillText('$ npm run verify', RAIL + 20, H - 62);
   ctx.fillStyle = '#3fb950';
-  ctx.fillText('✓ 61 tests · lint · typecheck · build', 22, H - 36);
+  // Deliberately no test count. It was "✓ 61 tests" and the suite has grown
+  // twice since — a number nobody can remember to update is a number that ends
+  // up lying, and this room's whole argument is that its figures are checkable.
+  ctx.fillText('✓ tests · lint · typecheck · build', RAIL + 20, H - 36);
   ctx.fillStyle = '#7d8590';
-  ctx.fillText('$ ', 22, H - 12);
+  ctx.fillText('$ ', RAIL + 20, H - 12);
+  ctx.fillStyle = '#3fb950';
+  ctx.fillRect(RAIL + 38, H - 26, 9, 16);
 
   return finish(canvas, 'mirror-u');
 }
@@ -467,7 +644,7 @@ export function stickyTexture() {
     ['#77b2f0', 'a number with no source is a guess'],
     ['#f28b8b', 'no fibre → no excuse'],
     ['#b9a3f0', 'read the RFC first'],
-    ['#f6a45c', 'Toronto — next'],
+    ['#f6a45c', 'local-first, until proven otherwise'],
   ];
 
   // Each note fills its whole cell, square to the canvas.
@@ -863,9 +1040,14 @@ export function keycapTexture() {
   // class of mismatch rather than tuning it down. There is nothing to match
   // when there is nothing there.
   const canvas = document.createElement('canvas');
-  canvas.width = columns * cell.w;
-  canvas.height = rows * cell.h;
+  canvas.width = columns * cell.w * SCALE;
+  canvas.height = rows * cell.h * SCALE;
   const ctx = canvas.getContext('2d')!;
+  // Same contract as `surface`: cells are laid out in their own units and the
+  // context does the scaling, so the grid maths below is untouched by SCALE.
+  // Getting this wrong would not blur the legends — it would put every one of
+  // them in the top-left quarter of the atlas, on the wrong key.
+  ctx.scale(SCALE, SCALE);
 
   for (const [row, keys] of KEY_ROWS.entries()) {
     for (const [column, label] of keys.entries()) {

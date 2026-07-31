@@ -130,6 +130,34 @@ export function RoomModel({
       if (id) node.userData.objectId = id;
     });
 
+    // The room does not move, so stop asking it every frame whether it has.
+    //
+    // three.js recomposes an object's local matrix from its position, rotation
+    // and scale on every render unless told not to. For a room of ~190 static
+    // meshes that is 190 matrix compositions and 190 world-matrix
+    // multiplications per frame, sixty times a second, to arrive at exactly
+    // the numbers it arrived at last time. Turning it off makes the transform
+    // a one-time cost.
+    //
+    // The exceptions are the things that genuinely move, and they are listed
+    // rather than detected because getting this wrong has a nasty failure
+    // mode: the object simply stops animating, silently, with no error and no
+    // visual clue beyond "the lid used to shut". `Animations` drives the
+    // laptop lid and the steam; the props are re-parented into Rapier bodies
+    // by `Props` before this runs but are matched anyway, in case that order
+    // ever changes; and the wind is a vertex shader, which moves geometry
+    // without touching a transform at all.
+    const ANIMATED = /^(ix_laptop_lid|ix_laptop_display|steam_|ix_mug|ix_pencil|ix_mouse)/;
+    root.traverse((node: Object3D) => {
+      if (node === root || ANIMATED.test(node.name)) return;
+      // A parent that still updates will recompute its children's world
+      // matrices regardless, so a static node under an animated one is left
+      // alone rather than half-frozen.
+      if (node.parent && node.parent !== root && ANIMATED.test(node.parent.name)) return;
+      node.updateMatrix();
+      node.matrixAutoUpdate = false;
+    });
+
     return root;
   }, [scene, baked, lit, intensity, aged, wear]);
 
