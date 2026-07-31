@@ -52,7 +52,7 @@ function Exposure({ baked }: { baked: boolean }) {
   // but "night" was costing more legibility than it was buying atmosphere —
   // whole corners were below what the tone curve can separate, and a portfolio
   // whose contents are hard to make out has spent its mood badly.
-  gl.toneMappingExposure = baked ? 2.35 : 1.5;
+  gl.toneMappingExposure = baked ? 3.25 : 1.95;
   return null;
 }
 
@@ -208,7 +208,7 @@ function Scene({
         indoors at night reflects dark walls, a warm lamp and two bright
         monitors, not a blue sky — and handing it the sky put a faint cold cast
         on every metal and every gloss in the room. */}
-      <SceneEnvironment intensity={baked ? 0.35 : 0.3} interior={baked} />
+      <SceneEnvironment intensity={baked ? 0.7 : 0.5} interior={baked} />
 
       {/* The rest of the rig is the lit room's business. A baked room carries
         its own direct and bounced light, so re-lighting it would double every
@@ -513,11 +513,38 @@ function Scene({
         </>
       )}
 
+      {/* A floor under the shadows, on the path that had no lights at all.
+        This is the piece that was missing. Every previous attempt at "make the
+        room brighter" raised the ambient and hemisphere terms — and both of
+        those live inside `baked ? null : (…)`, so on the baked path, which is
+        what a visitor actually sees, they did nothing whatsoever. The bake owns
+        all the light, and the only ways to change it are exposure, the
+        lightmap's own gain, and this.
+
+        Very dim, and deliberately colourless-cool: its whole job is to put a
+        floor under the places the path tracer resolved as near-black, so that a
+        corner reads as a dark corner rather than as a hole. Any more and it
+        starts competing with the bake, which would flatten the shadows the bake
+        exists to produce. */}
+      {baked ? (
+        <>
+          <ambientLight color="#252c3d" intensity={0.62} />
+          <hemisphereLight args={['#2f3850', '#54402f', 0.46]} />
+        </>
+      ) : null}
+
       <RoomModel
         url={url}
         lightmap={lightmap}
         aging={aging}
-        intensity={intensity}
+        // Graded above what the bake computed. The stamp's own number is the
+        // physically correct factor that restores the rendered irradiance —
+        // and this room is a night scene, so "correct" lands darker than a
+        // portfolio can afford. Multiplying the lightmap lifts the lit
+        // surfaces without touching the emissives, which is why it is a better
+        // first move than exposure: screens and strips do not take a lightmap,
+        // so they stay where they were instead of clipping.
+        intensity={intensity * (baked ? 1.55 : 1)}
         onReady={setRoot}
       />
 

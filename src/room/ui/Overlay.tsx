@@ -68,9 +68,16 @@ export function Overlay() {
     return () => window.removeEventListener('keydown', onKey);
   }, [focused, unfocus]);
 
+  // Gated on `entered`, and that gate is the whole reason sound-on-by-default
+  // works at all. Browsers refuse to start an AudioContext without a user
+  // gesture; running this on mount would build the graph before anyone had
+  // clicked anything, leave it suspended, and produce silence with a speaker
+  // icon claiming otherwise. "Step inside" is a real click, so waiting for it
+  // means the context starts allowed.
   useEffect(() => {
+    if (!entered) return;
     roomAudio.setMuted(muted);
-  }, [muted]);
+  }, [muted, entered]);
 
   useEffect(() => () => roomAudio.dispose(), []);
 

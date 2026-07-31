@@ -99,7 +99,7 @@ export const useEngine = create<EngineState>()(
       guideStep: null,
       entered: false,
       timeOfDay: 'night',
-      muted: true,
+      muted: false,
       progress: 0,
 
       setPhase: (phase) => set({ phase }),
@@ -157,6 +157,21 @@ export const useEngine = create<EngineState>()(
     }),
     {
       name: 'room-save-v1',
+      // Bumped when the room's sound went from off-by-default to on.
+      //
+      // A returning visitor carries a persisted `muted: true` that predates the
+      // change, so without a migration the new default would reach nobody who
+      // had ever loaded the site — which is the worst of both worlds: changed
+      // for new visitors, silently not changed for the people most likely to
+      // come back. The migration only touches `muted`; discoveries, secrets and
+      // visit count survive, which is why this is a version bump rather than a
+      // new storage key.
+      version: 1,
+      migrate: (persisted, from) => {
+        const state = (persisted ?? {}) as Partial<SaveState> & { muted?: boolean };
+        if (from < 1) return { ...state, muted: false };
+        return state;
+      },
       // Only the save state survives a reload. Persisting `focused` or `phase`
       // would drop a returning visitor into a camera push-in with no memory of
       // how they got there.
