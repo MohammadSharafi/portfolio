@@ -4,6 +4,7 @@ import { useEngine } from '../engine/store';
 import { roomObjects } from '../data/objects';
 import { boundsFor } from '../data/framing';
 import { quality } from '../engine/quality';
+import { isTouch } from '../engine/touchInput';
 
 /**
  * Labels that live in the room rather than over it.
@@ -63,10 +64,13 @@ export function Markers() {
     []
   );
 
-  // `Html` is a DOM node per marker with its transform written every frame.
-  // A dozen is nothing on a desktop and is real work on a phone, where the
-  // markers are also least useful — there is no hover there to reveal them.
-  if (quality().tier === 'low') return null;
+  // `Html` is a DOM node per marker with its transform written every frame,
+  // which is real work on a phone — and they are kept there anyway, because
+  // the reasoning that dropped them was wrong twice over. There is no hover on
+  // a touchscreen, so a marker is not a *lesser* affordance there, it is the
+  // only one: without it the room is a picture with no indication that any of
+  // it responds. Seven transforms is a price worth paying for that.
+  if (quality().tier === 'low' && !isTouch) return null;
   // Hidden only while a panel is open, where they would sit on top of the
   // thing the visitor has already chosen to look at.
   if (!entered || focused !== null) return null;
@@ -107,7 +111,8 @@ export function Markers() {
             }}
             onPointerOver={() => hover(pin.id)}
             onPointerOut={() => hover(null)}
-            className="group flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-full border border-white/20 bg-black/70 py-1 pl-1 pr-2.5 backdrop-blur-sm transition-colors hover:border-emerald-300/60 hover:bg-black/85"
+            data-room-ui
+            className="group flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-full border border-white/20 bg-black/70 py-1.5 pl-1.5 pr-3 backdrop-blur-sm transition-colors hover:border-emerald-300/60 hover:bg-black/85"
           >
             <span className="relative flex size-2.5 shrink-0 items-center justify-center">
               <span className="absolute size-2.5 animate-ping rounded-full bg-emerald-300/40" />
@@ -115,16 +120,21 @@ export function Markers() {
             </span>
             <span className="text-[11px] font-medium leading-none text-white/85">{pin.label}</span>
             {/* The instruction, revealed on approach rather than shouted. A
-              room with a dozen sentences floating in it is unreadable. */}
-            <span
-              className={
-                hovered === pin.id
-                  ? 'max-w-[13rem] overflow-hidden text-[11px] leading-none text-white/50 transition-all duration-300'
-                  : 'max-w-0 overflow-hidden text-[11px] leading-none text-white/50 transition-all duration-300'
-              }
-            >
-              <span className="pl-1.5">{pin.guide}</span>
-            </span>
+              room with a dozen sentences floating in it is unreadable.
+              Suppressed entirely on touch, where there is no hover to reveal
+              it with — a permanently open one would be that unreadable room,
+              and the panel a tap opens carries the same words anyway. */}
+            {isTouch ? null : (
+              <span
+                className={
+                  hovered === pin.id
+                    ? 'max-w-[13rem] overflow-hidden text-[11px] leading-none text-white/50 transition-all duration-300'
+                    : 'max-w-0 overflow-hidden text-[11px] leading-none text-white/50 transition-all duration-300'
+                }
+              >
+                <span className="pl-1.5">{pin.guide}</span>
+              </span>
+            )}
           </button>
         </Html>
       ))}

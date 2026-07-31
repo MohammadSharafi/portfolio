@@ -18,7 +18,8 @@ import {
 } from 'three';
 import { useEngine } from '../engine/store';
 import { characterState } from '../engine/characterState';
-import { aimLook, resetLook, splitLook } from '../engine/lookControl';
+import { aimLook, aimLookBy, resetLook, splitLook } from '../engine/lookControl';
+import { isTouch, resetTouchInput, touchInput } from '../engine/touchInput';
 import { roomAudio } from '../engine/audio';
 import type { ObjectId } from '../data/objects';
 
@@ -424,10 +425,62 @@ export function Character({ root }: { root: Object3D }) {
 
   useEffect(() => {
     characterState.active = controlled;
+    // A thumb still on the stick when the visitor taps "Stop walking" would
+    // otherwise leave `drive` latched and the robot walking on its own the
+    // next time control is handed back.
+    if (!controlled) resetTouchInput();
   }, [controlled]);
 
   useEffect(() => {
     if (!controlled) return;
+
+    // A mouse aims by where it rests; a thumb aims by dragging.
+    //
+    // The absolute mapping is right for a pointer that has a position even
+    // when nobody is touching anything, and catastrophic for one that does
+    // not: on a touchscreen the first tap anywhere would snap the view to
+    // whatever angle that corner of the screen encodes. So touch gets deltas,
+    // and only while a finger is actually down.
+    if (isTouch) {
+      let last: { x: number; y: number } | null = null;
+      let id: number | null = null;
+
+      const down = (event: PointerEvent) => {
+        // Only drags on the canvas itself steer the view. Anything with a
+        // control under it — the stick, the buttons, a panel — owns its own
+        // gesture, and `closest` is what keeps a thumb on the stick from also
+        // swinging the camera.
+        if ((event.target as HTMLElement | null)?.closest('[data-room-ui]')) return;
+        id = event.pointerId;
+        last = { x: event.clientX, y: event.clientY };
+      };
+      const move = (event: PointerEvent) => {
+        if (last === null || event.pointerId !== id) return;
+        aimLookBy(
+          (event.clientX - last.x) / window.innerWidth,
+          (event.clientY - last.y) / window.innerHeight
+        );
+        last = { x: event.clientX, y: event.clientY };
+      };
+      const end = (event: PointerEvent) => {
+        if (event.pointerId === id) {
+          last = null;
+          id = null;
+        }
+      };
+
+      window.addEventListener('pointerdown', down, { passive: true });
+      window.addEventListener('pointermove', move, { passive: true });
+      window.addEventListener('pointerup', end, { passive: true });
+      window.addEventListener('pointercancel', end, { passive: true });
+      return () => {
+        window.removeEventListener('pointerdown', down);
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', end);
+        window.removeEventListener('pointercancel', end);
+      };
+    }
+
     const onMove = (event: PointerEvent) => {
       pointer.current.x = (event.clientX / window.innerWidth) * 2 - 1;
       pointer.current.y = (event.clientY / window.innerHeight) * 2 - 1;
@@ -459,6 +512,15 @@ export function Character({ root }: { root: Object3D }) {
       if (keys.has('a') || keys.has('arrowleft')) steer += 1;
       if (keys.has('d') || keys.has('arrowright')) steer -= 1;
       wantThrust = keys.has(' ');
+
+      // The stick, folded in beside the keys rather than replacing them.
+      // Both write the same intent, so a touchscreen laptop can use either
+      // without the two fighting, and nothing downstream of this block has to
+      // learn that touch exists. Clamped because a key and a thumb pushed the
+      // same way must not add up to double speed.
+      drive = MathUtils.clamp(drive + touchInput.drive, -1, 1);
+      steer = MathUtils.clamp(steer + touchInput.steer, -1, 1);
+      wantThrust = wantThrust || touchInput.thrust;
     }
 
     heading.current += steer * TURN_SPEED * dt * (drive < 0 ? -1 : 1);

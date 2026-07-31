@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { characterState } from '../engine/characterState';
 import { useEngine } from '../engine/store';
+import { isTouch } from '../engine/touchInput';
 
 /**
  * The room from above, and how to drive it.
@@ -147,7 +148,16 @@ export function Minimap() {
   }, []);
 
   return (
-    <div className="pointer-events-none absolute right-4 top-16 w-[200px] overflow-hidden rounded-2xl border border-white/10 bg-black/65 backdrop-blur-md">
+    <div
+      className={
+        // Narrower on a phone, and the key legend goes entirely: it lists a
+        // keyboard nobody there has, and on a 375 px screen the full panel is
+        // over half the width — a map that covers the room it is mapping.
+        isTouch
+          ? 'pointer-events-none absolute right-3 top-16 w-[132px] overflow-hidden rounded-xl border border-white/10 bg-black/60 backdrop-blur-md'
+          : 'pointer-events-none absolute right-4 top-16 w-[200px] overflow-hidden rounded-2xl border border-white/10 bg-black/65 backdrop-blur-md'
+      }
+    >
       <div className="px-3 pb-1 pt-2.5">
         <p className="font-mono text-[0.55rem] uppercase tracking-[0.24em] text-white/30">
           The room
@@ -267,13 +277,15 @@ export function Minimap() {
         </p>
       </div>
 
-      <dl className="space-y-1 border-t border-white/10 px-3 py-2.5 text-[0.6rem] leading-tight text-white/45">
-        <Row keys="W / S" what="move · Shift to hurry" />
-        <Row keys="A / D" what="turn" />
-        <Row keys="Space" what="hold to fly" />
-        <Row keys="Mouse" what="look around" />
-        <Row keys="E" what="inspect · play guitar" />
-      </dl>
+      {isTouch ? null : (
+        <dl className="space-y-1 border-t border-white/10 px-3 py-2.5 text-[0.6rem] leading-tight text-white/45">
+          <Row keys="W / S" what="move · Shift to hurry" />
+          <Row keys="A / D" what="turn" />
+          <Row keys="Space" what="hold to fly" />
+          <Row keys="Mouse" what="look around" />
+          <Row keys="E" what="inspect · play guitar" />
+        </dl>
+      )}
     </div>
   );
 }

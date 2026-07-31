@@ -3,6 +3,7 @@ import { MousePointerClick, Footprints, Compass, Music4, X } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react';
 import { useEngine } from '../engine/store';
 import { cn } from '@/lib/utils';
+import { isTouch } from '../engine/touchInput';
 
 /**
  * How anyone is supposed to know what this is.
@@ -27,6 +28,10 @@ interface Step {
   title: string;
   body: string;
   keys?: readonly string[];
+  /** What this step says on a touchscreen, where the body's talk of holding
+   *  Space is simply untrue. Falls back to the keyboard copy when absent. */
+  touchBody?: string;
+  touchKeys?: readonly string[];
 }
 
 const STEPS: readonly Step[] = [
@@ -34,24 +39,35 @@ const STEPS: readonly Step[] = [
     icon: MousePointerClick,
     title: 'Everything here is clickable',
     body: 'The monitors, the CV standing on the desk, the whiteboard, the shelf. Click one and the camera moves to it and tells you what it is. There is no scrolling and no menu to learn.',
+    touchBody:
+      'The monitors, the CV standing on the desk, the whiteboard, the shelf. Tap one — or tap any of the labels floating in the room — and the camera moves to it and tells you what it is.',
   },
   {
     icon: Footprints,
     title: 'Or walk it yourself',
     body: 'Take the little robot on the desk and drive it around the room. It is knee-high to a coffee cup, which is the point — the desk looks like a building from down there.',
+    touchBody:
+      'Take the little robot and drive it around the room with the stick, bottom left. Drag anywhere else to look around. It is knee-high to a coffee cup, which is the point — the desk looks like a building from down there.',
     keys: ['W', 'A', 'D', 'Shift'],
+    touchKeys: ['Left stick', 'Drag to look'],
   },
   {
     icon: Compass,
     title: 'It flies, too',
     body: 'Hold Space and the thrusters lift it. Fuel drains while they burn and refills on the ground, so a flight is a trip you plan rather than a hover. Land on the desk, the sofa, the shelves.',
+    touchBody:
+      'Hold the Fly button and the thrusters lift it. Fuel drains while they burn and refills on the ground, so a flight is a trip you plan rather than a hover. Land on the desk, the sofa, the shelves.',
     keys: ['Space'],
+    touchKeys: ['Fly'],
   },
   {
     icon: Music4,
     title: 'The guitar plays',
     body: 'Walk up to the guitar by the wall and press E. It has a real playlist, and the music keeps going while you explore the rest of the room.',
+    touchBody:
+      'Drive up to the guitar by the wall and tap Play when the button appears. It has a real playlist, and the music keeps going while you explore the rest of the room.',
     keys: ['E'],
+    touchKeys: ['Play'],
   },
 ];
 
@@ -110,10 +126,12 @@ export function Guide() {
           </span>
           <div className="min-w-0 flex-1">
             <h2 className="pr-6 font-display text-base font-semibold text-white">{step.title}</h2>
-            <p className="mt-1.5 text-sm leading-relaxed text-white/60">{step.body}</p>
-            {step.keys ? (
+            <p className="mt-1.5 text-sm leading-relaxed text-white/60">
+              {isTouch ? (step.touchBody ?? step.body) : step.body}
+            </p>
+            {(isTouch ? (step.touchKeys ?? step.keys) : step.keys) ? (
               <p className="mt-3 flex flex-wrap gap-1.5">
-                {step.keys.map((key) => (
+                {(isTouch ? (step.touchKeys ?? step.keys) : step.keys)!.map((key) => (
                   <kbd
                     key={key}
                     className="rounded-md border border-white/15 bg-white/10 px-2 py-1 font-mono text-[0.7rem] font-medium text-white/80"

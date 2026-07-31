@@ -6,6 +6,8 @@ import { Minimap } from './Minimap';
 import { RoomIndex } from './RoomIndex';
 import { Guide, GuideButton } from './Guide';
 import { MessageNote } from './MessageNote';
+import { TouchControls } from './TouchControls';
+import { isTouch } from '../engine/touchInput';
 import {
   isPlaying,
   loadTracks,
@@ -125,13 +127,18 @@ export function Overlay() {
         loading screen is chrome over nothing. */}
       {!entered ? null : (
         <>
-          <p className="absolute left-1/2 top-6 -translate-x-1/2 text-xs uppercase tracking-[0.25em] text-white/45">
-            {hovered ? (roomObjectById.get(hovered)?.hint ?? '') : 'Click anything in the room'}
-          </p>
+          {/* Hidden while driving, and on any narrow screen where it would
+            run straight through the buttons either side of it. It is a hint
+            about clicking; a visitor holding a stick is past needing it. */}
+          {controlled ? null : (
+            <p className="pointer-events-none absolute left-1/2 top-6 hidden -translate-x-1/2 text-center text-xs uppercase tracking-[0.25em] text-white/45 sm:block">
+              {hovered ? (roomObjectById.get(hovered)?.hint ?? '') : 'Click anything in the room'}
+            </p>
+          )}
 
           {/* Top-left: the two ways in, and the way to ask what this is. */}
           {!focused ? (
-            <div className="absolute left-4 top-4 flex flex-col items-start gap-2">
+            <div data-room-ui className="absolute left-4 top-4 flex flex-col items-start gap-2">
               <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
@@ -141,7 +148,7 @@ export function Overlay() {
                 >
                   {controlled ? 'Stop walking' : 'Walk the room'}
                 </button>
-                <GuideButton />
+                {isTouch && controlled ? null : <GuideButton />}
               </div>
               {!controlled ? <RoomIndex /> : null}
             </div>
@@ -154,7 +161,11 @@ export function Overlay() {
           {controlled && !focused ? <FuelGauge /> : null}
           {controlled && !focused ? <GuitarMusic /> : null}
 
-          {controlled && !focused ? (
+          {/* The key legend is a keyboard's legend, so it only appears where
+            there is a keyboard. On touch the same information is the shape of
+            the controls themselves — a stick is a stick — and the strip would
+            sit exactly where the left thumb goes. */}
+          {controlled && !focused && !isTouch ? (
             <p className="absolute bottom-24 left-1/2 -translate-x-1/2 rounded-full bg-black/55 px-4 py-2 text-xs text-white/75 backdrop-blur-md">
               {nearGuitar ? (
                 <>
@@ -172,6 +183,8 @@ export function Overlay() {
             </p>
           ) : null}
 
+          <TouchControls />
+
           {!controlled ? <Guide /> : null}
           <MessageNote />
 
@@ -182,6 +195,7 @@ export function Overlay() {
       {object ? (
         <div
           ref={panelRef}
+          data-room-ui
           role="dialog"
           aria-modal="false"
           aria-labelledby="room-panel-title"
@@ -366,7 +380,13 @@ function FuelGauge() {
   }, []);
 
   return (
-    <div className="absolute bottom-32 left-1/2 -translate-x-1/2">
+    <div
+      className={
+        isTouch
+          ? 'absolute bottom-4 left-1/2 -translate-x-1/2'
+          : 'absolute bottom-32 left-1/2 -translate-x-1/2'
+      }
+    >
       <div className="h-1 w-32 overflow-hidden rounded-full bg-white/15">
         <div ref={fill} className="h-full rounded-full transition-colors duration-200" />
       </div>

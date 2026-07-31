@@ -71,6 +71,31 @@ export function aimLook(x: number, y: number): void {
   target.pitch = pitch >= 0 ? pitch * pitchUp : pitch * pitchDown;
 }
 
+/**
+ * Aim by a *relative* amount, in normalised screen units.
+ *
+ * The absolute form above is right for a mouse and wrong for a thumb. A mouse
+ * has a resting position on screen that the view can be a function of; a touch
+ * has no position at all until it lands, so mapping the landing point straight
+ * to an angle flings the view across the room the instant a finger touches the
+ * glass. Dragging is the gesture people already expect for looking around, and
+ * a drag is a delta.
+ *
+ * The target is accumulated and clamped rather than derived, so the view stays
+ * where the last drag left it — which is also what makes one-handed play
+ * possible: aim once, then drive with the other thumb.
+ */
+export function aimLookBy(dx: number, dy: number): void {
+  const { yawRange, pitchUp, pitchDown, sensitivity } = lookConfig;
+  // 2.4 turns a comfortable thumb-swipe — roughly a third of the screen — into
+  // most of the available range. Below about 2 the visitor runs out of screen
+  // before they run out of room to look at.
+  const gain = 2.4 * sensitivity;
+  target.yaw = MathUtils.clamp(target.yaw - dx * gain * yawRange, -yawRange, yawRange);
+  const pitch = MathUtils.clamp(target.pitch - dy * gain * pitchUp, -pitchDown, pitchUp);
+  target.pitch = pitch;
+}
+
 /** Ease the live angles toward the aim. Call once per frame, before anything
  * reads `look`. */
 export function updateLook(dt: number): void {
