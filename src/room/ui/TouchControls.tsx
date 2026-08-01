@@ -26,8 +26,12 @@ import { roomObjectById } from '../data/objects';
  * the same reason the minimap's marker is.
  */
 
-/** How far the knob travels, in pixels, before the axis reads full. */
-const RADIUS = 46;
+/** How far the knob travels, in pixels, before the axis reads full.
+ *
+ * Shrunk with the control it lives in. The travel and the base are two halves
+ * of one number: a thumb that can push the knob past the ring is a thumb the
+ * stick has stopped tracking honestly. */
+const RADIUS = 34;
 /** Below this fraction of the radius, the stick reads as centred. A thumb
  *  resting on a stick is never quite still, and without a dead zone the robot
  *  creeps. */
@@ -59,7 +63,7 @@ export function TouchControls() {
       {/* Actions, right thumb. */}
       <div
         data-room-ui
-        className="pointer-events-auto absolute bottom-8 right-6 flex touch-none select-none flex-col items-center gap-3"
+        className="pointer-events-auto absolute bottom-6 right-4 flex touch-none select-none flex-col items-center gap-2.5"
         style={{ touchAction: 'none' }}
       >
         {/* Shown only when there is something to do, so the button never
@@ -71,10 +75,10 @@ export function TouchControls() {
               event.preventDefault();
               act();
             }}
-            className="flex size-[68px] flex-col items-center justify-center gap-0.5 rounded-full border border-emerald-300/50 bg-emerald-400/20 text-emerald-100 backdrop-blur-md active:bg-emerald-400/35"
+            className="flex size-[54px] flex-col items-center justify-center gap-0.5 rounded-full border border-emerald-300/50 bg-emerald-400/20 text-emerald-100 backdrop-blur-md active:bg-emerald-400/35"
           >
-            <Hand className="size-5" aria-hidden="true" />
-            <span className="text-[10px] font-medium leading-none">
+            <Hand className="size-4" aria-hidden="true" />
+            <span className="text-[9px] font-medium leading-none">
               {nearGuitar ? (musicOpen ? 'Close' : 'Play') : 'Open'}
             </span>
           </button>
@@ -99,10 +103,10 @@ export function TouchControls() {
           onPointerLeave={() => {
             touchInput.thrust = false;
           }}
-          className="flex size-[84px] flex-col items-center justify-center gap-1 rounded-full border border-white/20 bg-white/10 text-white/85 backdrop-blur-md active:border-amber-300/60 active:bg-amber-400/25"
+          className="flex size-[64px] flex-col items-center justify-center gap-0.5 rounded-full border border-white/20 bg-white/10 text-white/85 backdrop-blur-md active:border-amber-300/60 active:bg-amber-400/25"
         >
-          <Flame className="size-6" aria-hidden="true" />
-          <span className="text-[10px] font-medium leading-none">Fly</span>
+          <Flame className="size-5" aria-hidden="true" />
+          <span className="text-[9px] font-medium leading-none">Fly</span>
         </button>
       </div>
     </>
@@ -215,14 +219,14 @@ function Stick() {
     <div
       ref={base}
       data-room-ui
-      className="pointer-events-auto absolute bottom-8 left-6 size-[124px] touch-none select-none rounded-full border border-white/15 bg-black/35 backdrop-blur-sm"
+      className="pointer-events-auto absolute bottom-6 left-4 size-[92px] touch-none select-none rounded-full border border-white/15 bg-black/35 backdrop-blur-sm"
       style={{ touchAction: 'none' }}
       aria-hidden="true"
     >
       <div className="absolute inset-0 flex items-center justify-center">
         <div
           ref={knob}
-          className="size-[54px] rounded-full border border-white/25 bg-white/20 shadow-lg backdrop-blur-md"
+          className="size-[40px] rounded-full border border-white/25 bg-white/20 shadow-lg backdrop-blur-md"
         />
       </div>
     </div>

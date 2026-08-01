@@ -154,19 +154,27 @@ export function Minimap() {
         // keyboard nobody there has, and on a 375 px screen the full panel is
         // over half the width — a map that covers the room it is mapping.
         isTouch
-          ? 'pointer-events-none absolute right-3 top-16 w-[132px] overflow-hidden rounded-xl border border-white/10 bg-black/60 backdrop-blur-md'
+          ? 'pointer-events-none absolute right-2.5 top-14 w-[104px] overflow-hidden rounded-lg border border-white/10 bg-black/60 backdrop-blur-md'
           : 'pointer-events-none absolute right-4 top-16 w-[200px] overflow-hidden rounded-2xl border border-white/10 bg-black/65 backdrop-blur-md'
       }
     >
-      <div className="px-3 pb-1 pt-2.5">
-        <p className="font-mono text-[0.55rem] uppercase tracking-[0.24em] text-white/30">
-          The room
-        </p>
-      </div>
+      {/* The title is the first thing to go on a phone: the panel is plainly
+        a plan of the room, and two lines of chrome around a 104 px map is
+        more frame than picture. */}
+      {isTouch ? null : (
+        <div className="px-3 pb-1 pt-2.5">
+          <p className="font-mono text-[0.55rem] uppercase tracking-[0.24em] text-white/30">
+            The room
+          </p>
+        </div>
+      )}
 
       <svg
         viewBox={`0 0 ${W} ${H}`}
-        className="w-full px-1"
+        // A little air at the top on touch, where the title that used to
+        // provide it has been dropped and the plan otherwise sits flush
+        // against the panel's own edge.
+        className={isTouch ? 'w-full px-1 pt-1.5' : 'w-full px-1'}
         role="img"
         aria-label="Plan of the room showing where you are"
       >
@@ -271,8 +279,14 @@ export function Minimap() {
         />
       </svg>
 
-      <div className="px-3 pb-2 pt-1">
-        <p className="truncate text-[0.68rem] text-white/55">
+      <div className={isTouch ? 'px-2 pb-1.5 pt-1' : 'px-3 pb-2 pt-1'}>
+        <p
+          className={
+            isTouch
+              ? 'truncate text-[0.6rem] text-white/55'
+              : 'truncate text-[0.68rem] text-white/55'
+          }
+        >
           Nearest: <span ref={nearest} className="text-white/80" />
         </p>
       </div>

@@ -109,8 +109,8 @@ export function Guide() {
   const last = index === STEPS.length - 1;
 
   return (
-    <div className="pointer-events-auto absolute bottom-6 left-1/2 w-[min(30rem,calc(100vw-2rem))] -translate-x-1/2">
-      <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-black/75 p-5 backdrop-blur-xl">
+    <div className="pointer-events-auto absolute bottom-4 left-1/2 w-[min(30rem,calc(100vw-1.5rem))] -translate-x-1/2 sm:bottom-6">
+      <div className="relative overflow-hidden rounded-xl border border-white/10 bg-black/80 p-4 backdrop-blur-xl sm:rounded-2xl sm:p-5">
         <button
           type="button"
           onClick={() => setGuideStep(STEPS.length)}
@@ -120,13 +120,15 @@ export function Guide() {
           <X className="size-3.5" aria-hidden="true" />
         </button>
 
-        <div className="flex gap-4">
-          <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl bg-white/10 text-sky-300">
+        <div className="flex gap-3 sm:gap-4">
+          <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg bg-white/10 text-sky-300 sm:size-9 sm:rounded-xl">
             <Icon className="size-4.5" aria-hidden="true" />
           </span>
           <div className="min-w-0 flex-1">
-            <h2 className="pr-6 font-display text-base font-semibold text-white">{step.title}</h2>
-            <p className="mt-1.5 text-sm leading-relaxed text-white/60">
+            <h2 className="pr-6 font-display text-[15px] font-semibold text-white sm:text-base">
+              {step.title}
+            </h2>
+            <p className="mt-1.5 text-[13px] leading-relaxed text-white/60 sm:text-sm">
               {isTouch ? (step.touchBody ?? step.body) : step.body}
             </p>
             {(isTouch ? (step.touchKeys ?? step.keys) : step.keys) ? (
@@ -144,7 +146,7 @@ export function Guide() {
           </div>
         </div>
 
-        <div className="mt-5 flex items-center justify-between">
+        <div className="mt-4 flex items-center justify-between sm:mt-5">
           <div className="flex gap-1.5" aria-hidden="true">
             {STEPS.map((entry, i) => (
               <span

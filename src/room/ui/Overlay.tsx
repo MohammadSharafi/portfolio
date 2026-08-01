@@ -138,13 +138,24 @@ export function Overlay() {
 
           {/* Top-left: the two ways in, and the way to ask what this is. */}
           {!focused ? (
-            <div data-room-ui className="absolute left-4 top-4 flex flex-col items-start gap-2">
+            <div
+              data-room-ui
+              className={
+                isTouch
+                  ? 'absolute left-3 top-3 flex flex-col items-start gap-1.5'
+                  : 'absolute left-4 top-4 flex flex-col items-start gap-2'
+              }
+            >
               <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
                   onClick={() => setControlled(!controlled)}
                   aria-pressed={controlled}
-                  className="pointer-events-auto rounded-full bg-black/55 px-3.5 py-2 text-xs font-medium text-white/70 backdrop-blur-md transition-colors hover:text-white"
+                  className={
+                    isTouch
+                      ? 'pointer-events-auto rounded-full bg-black/55 px-3 py-1.5 text-[11px] font-medium text-white/75 backdrop-blur-md'
+                      : 'pointer-events-auto rounded-full bg-black/55 px-3.5 py-2 text-xs font-medium text-white/70 backdrop-blur-md transition-colors hover:text-white'
+                  }
                 >
                   {controlled ? 'Stop walking' : 'Walk the room'}
                 </button>
@@ -200,7 +211,7 @@ export function Overlay() {
           aria-modal="false"
           aria-labelledby="room-panel-title"
           tabIndex={-1}
-          className="pointer-events-auto absolute inset-x-4 bottom-6 mx-auto max-w-md rounded-2xl border border-white/10 bg-black/70 p-5 text-white backdrop-blur-xl outline-none sm:inset-x-auto sm:right-8 sm:top-1/2 sm:-translate-y-1/2"
+          className="pointer-events-auto absolute inset-x-3 bottom-3 mx-auto max-w-md rounded-xl border border-white/10 bg-black/75 p-4 text-white backdrop-blur-xl outline-none sm:inset-x-auto sm:bottom-6 sm:right-8 sm:top-1/2 sm:max-w-md sm:-translate-y-1/2 sm:rounded-2xl sm:p-5"
         >
           <button
             type="button"
@@ -214,13 +225,18 @@ export function Overlay() {
           <p className="font-mono text-[11px] uppercase tracking-[0.22em] text-sky-300">
             {object.panel.kicker}
           </p>
-          <h2 id="room-panel-title" className="mt-1.5 pr-6 font-display text-xl font-semibold">
+          <h2
+            id="room-panel-title"
+            className="mt-1.5 pr-6 font-display text-lg font-semibold sm:text-xl"
+          >
             {object.panel.title}
           </h2>
-          <p className="mt-2 text-sm leading-relaxed text-white/70">{object.panel.body}</p>
+          <p className="mt-2 text-[13px] leading-relaxed text-white/70 sm:text-sm">
+            {object.panel.body}
+          </p>
 
           {object.panel.items.length > 0 ? (
-            <ul className="mt-3 max-h-[38vh] space-y-1.5 overflow-y-auto text-sm text-white/70">
+            <ul className="mt-3 max-h-[30vh] space-y-1.5 overflow-y-auto text-[13px] text-white/70 sm:max-h-[38vh] sm:text-sm">
               {object.panel.items.map((item) => (
                 <li key={item} className="flex gap-2">
                   <span
@@ -303,7 +319,13 @@ function SoundControl({ muted, toggleMuted }: { muted: boolean; toggleMuted: () 
 
   if (playing) {
     return (
-      <div className="pointer-events-auto absolute right-4 top-4 flex items-center gap-2 rounded-full bg-black/60 py-1.5 pl-3 pr-1.5 backdrop-blur-md">
+      <div
+        className={
+          isTouch
+            ? 'pointer-events-auto absolute right-3 top-3 flex items-center gap-1.5 rounded-full bg-black/60 py-1 pl-2.5 pr-1 backdrop-blur-md'
+            : 'pointer-events-auto absolute right-4 top-4 flex items-center gap-2 rounded-full bg-black/60 py-1.5 pl-3 pr-1.5 backdrop-blur-md'
+        }
+      >
         {/* Three bars that only move while the audio does — the cheapest
           possible "this is the thing making the noise". */}
         <span className="flex h-3.5 items-end gap-0.5" aria-hidden="true">
@@ -318,7 +340,13 @@ function SoundControl({ muted, toggleMuted }: { muted: boolean; toggleMuted: () 
             />
           ))}
         </span>
-        <span className="max-w-[9rem] truncate text-xs font-medium text-white/85">
+        <span
+          className={
+            isTouch
+              ? 'max-w-[5.5rem] truncate text-[11px] font-medium text-white/85'
+              : 'max-w-[9rem] truncate text-xs font-medium text-white/85'
+          }
+        >
           {playing.title}
         </span>
         <button
@@ -338,7 +366,11 @@ function SoundControl({ muted, toggleMuted }: { muted: boolean; toggleMuted: () 
       type="button"
       onClick={toggleMuted}
       aria-pressed={!muted}
-      className="pointer-events-auto absolute right-4 top-4 rounded-full bg-black/55 p-2.5 text-white/70 backdrop-blur-md transition-colors hover:text-white"
+      className={
+        isTouch
+          ? 'pointer-events-auto absolute right-3 top-3 rounded-full bg-black/55 p-2 text-white/70 backdrop-blur-md'
+          : 'pointer-events-auto absolute right-4 top-4 rounded-full bg-black/55 p-2.5 text-white/70 backdrop-blur-md transition-colors hover:text-white'
+      }
       aria-label={muted ? 'Turn room sound on' : 'Turn room sound off'}
     >
       {muted ? (

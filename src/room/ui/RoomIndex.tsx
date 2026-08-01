@@ -88,7 +88,7 @@ export function RoomIndex() {
         <div
           id="room-index"
           ref={panelRef}
-          className="pointer-events-auto absolute left-4 top-28 max-h-[calc(100vh-9rem)] w-[min(20rem,calc(100vw-2rem))] overflow-y-auto rounded-2xl border border-white/10 bg-black/75 p-4 backdrop-blur-xl"
+          className="pointer-events-auto absolute left-3 top-24 max-h-[calc(100vh-8rem)] w-[min(20rem,calc(100vw-1.5rem))] overflow-y-auto rounded-xl border border-white/10 bg-black/80 p-3 backdrop-blur-xl sm:left-4 sm:top-28 sm:rounded-2xl sm:p-4"
         >
           <div className="mb-3 flex items-start justify-between gap-3">
             <div>

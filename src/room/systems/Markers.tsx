@@ -92,7 +92,10 @@ export function Markers() {
           // follow camera forty centimetres behind a robot the height of a
           // coffee cup. Carrying the wide-shot number into walk mode made the
           // desk labels taller than the desk.
-          distanceFactor={controlled ? 2.1 : 6}
+          // Three sizes, because the room is viewed from three distances.
+          // A phone is the tightest of them: the same label that reads well on
+          // a 1280 px window is a banner across a 375 px one.
+          distanceFactor={controlled ? (isTouch ? 1.5 : 2.1) : isTouch ? 4 : 6}
           zIndexRange={[20, 0]}
           // Cheap: no occlusion render target, no raycast per frame. The room
           // is seen from outside its walls, so nothing is ever behind them.
@@ -168,7 +171,7 @@ function GuitarMarker({ controlled, near }: { controlled: boolean; near: boolean
     <Html
       position={GUITAR_AT}
       center
-      distanceFactor={controlled ? 2.1 : 6}
+      distanceFactor={controlled ? (isTouch ? 1.5 : 2.1) : isTouch ? 4 : 6}
       zIndexRange={[20, 0]}
       occlude={false}
     >
