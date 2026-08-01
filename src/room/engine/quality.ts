@@ -45,18 +45,35 @@ export interface QualitySettings {
   bloomMipmap: boolean;
   /** Anti-aliasing in the WebGL context. */
   antialias: boolean;
+  /** Load the half-size lightmap and aging atlas, where they exist. */
+  halfTextures: boolean;
+  /** The vignette — a full-screen pass, and the first framing effect a phone
+   *  can do without. */
+  vignette: boolean;
 }
 
 const PRESETS: Record<Tier, Omit<QualitySettings, 'tier'>> = {
   low: {
     dpr: [0.75, 1],
-    dust: 380,
+    // 180, down from 380. Dust is transparent fill over the whole frame and a
+    // phone's fill rate is the thing it has least of — and the effect survives
+    // the cut, because what sells dust is that motes catch the light near a
+    // source, not that there are hundreds of them.
+    dust: 180,
     shadowMap: 512,
     shadowCasters: 1,
     ao: false,
     lensArtefacts: false,
     bloomMipmap: false,
     antialias: false,
+    // Half-size lighting atlases: 21 MB of GPU texture instead of 83. See
+    // `useRoomAsset`.
+    halfTextures: true,
+    // The vignette goes too. It is one cheap multiply on a desktop and a
+    // full-screen pass on a tile-based mobile GPU, which is a different kind
+    // of cheap — and it is the effect a phone screen, usually held in bright
+    // light with its own contrast curve, shows least of.
+    vignette: false,
   },
   medium: {
     dpr: [1, 1.5],
@@ -67,6 +84,8 @@ const PRESETS: Record<Tier, Omit<QualitySettings, 'tier'>> = {
     lensArtefacts: true,
     bloomMipmap: true,
     antialias: true,
+    halfTextures: false,
+    vignette: true,
   },
   high: {
     dpr: [1, 2],
@@ -77,6 +96,8 @@ const PRESETS: Record<Tier, Omit<QualitySettings, 'tier'>> = {
     lensArtefacts: true,
     bloomMipmap: true,
     antialias: true,
+    halfTextures: false,
+    vignette: true,
   },
 };
 

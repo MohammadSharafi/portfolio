@@ -335,3 +335,22 @@
     height: 100%;
   }
 }
+
+/*
+  The room takes the whole viewport and all of its gestures.
+ 
+  Set on the document rather than only on the canvas, because pull-to-refresh
+  and overscroll are decided by the *scrolling* element — a `touch-action` on a
+  child cannot stop the page above it from rubber-banding. Scoped to the class
+  the room adds, so the written fallback page still scrolls normally.
+ */
+html.room-open,
+html.room-open body {
+  overscroll-behavior: none;
+  overflow: hidden;
+  /* iOS Safari ignores `overscroll-behavior` on the body, and honours a fixed
+     position instead. Harmless everywhere else. */
+  position: fixed;
+  inset: 0;
+  width: 100%;
+}

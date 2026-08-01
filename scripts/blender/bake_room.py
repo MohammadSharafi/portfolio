@@ -37,6 +37,7 @@ import json
 import math
 import os
 import sys
+from pathlib import Path
 import time
 from datetime import datetime, timezone
 
@@ -618,6 +619,25 @@ def main() -> None:
     # and normal maps — that is the entire point of a lightmap over a combined
     # bake, and pointing base colour at the atlas would throw them away again.
     stamp_source(scale)
+
+    # Half-size copies for the low tier, regenerated with every bake.
+    #
+    # Not optional and not a separate step anyone has to remember: a stale
+    # half-size lightmap is the worst failure this pipeline can produce,
+    # because it is invisible on the machine doing the baking. The desktop
+    # loads the full atlas and looks correct; only phones get the old lighting,
+    # and only phones show it. Tying it to the bake is the only arrangement
+    # where the two cannot drift.
+    try:
+        import subprocess
+
+        subprocess.run(
+            [sys.executable, str(Path(__file__).resolve().parent.parent / "downscale_textures.py")],
+            check=False,
+        )
+    except Exception as exc:  # pragma: no cover - never worth failing a bake over
+        print(f"[bake_room] half-size textures not written: {exc}", file=sys.stderr)
+
     print("[bake_room] done — room.glb plus the lightmap are what the site loads")
 
 

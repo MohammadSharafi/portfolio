@@ -1,4 +1,4 @@
-import { Suspense, useState, type ReactElement } from 'react';
+import { Suspense, useEffect, useState, type ReactElement } from 'react';
 import { Canvas, useThree } from '@react-three/fiber';
 import { AdaptiveDpr, Preload } from '@react-three/drei';
 import {
@@ -52,7 +52,7 @@ function Exposure({ baked }: { baked: boolean }) {
   // but "night" was costing more legibility than it was buying atmosphere —
   // whole corners were below what the tone curve can separate, and a portfolio
   // whose contents are hard to make out has spent its mood badly.
-  gl.toneMappingExposure = baked ? 3.25 : 1.95;
+  gl.toneMappingExposure = baked ? 3.7 : 2.2;
   return null;
 }
 
@@ -162,10 +162,14 @@ function Post({ baked }: { baked: boolean }) {
   }
 
   /* A vignette is a lens artefact, and a lens darkens the image it forms
-     rather than the light entering it. Kept at every tier: one cheap multiply,
-     and without it the frame's edges lift and it stops reading as a
-     photograph. */
-  effects.push(<Vignette key="vignette" eskil={false} offset={0.28} darkness={0.72} />);
+     rather than the light entering it. One cheap multiply on a desktop — and a
+     whole full-screen pass on a tile-based mobile GPU, which is a different
+     kind of cheap. It is also the effect a phone shows least of, held in
+     daylight with its own contrast curve over the top, so the low tier does
+     without and loses almost nothing it was getting. */
+  if (settings.vignette) {
+    effects.push(<Vignette key="vignette" eskil={false} offset={0.28} darkness={0.72} />);
+  }
 
   return <EffectComposer enableNormalPass={false}>{effects}</EffectComposer>;
 }
@@ -208,7 +212,7 @@ function Scene({
         indoors at night reflects dark walls, a warm lamp and two bright
         monitors, not a blue sky — and handing it the sky put a faint cold cast
         on every metal and every gloss in the room. */}
-      <SceneEnvironment intensity={baked ? 0.7 : 0.5} interior={baked} />
+      <SceneEnvironment intensity={baked ? 0.85 : 0.6} interior={baked} />
 
       {/* The rest of the rig is the lit room's business. A baked room carries
         its own direct and bounced light, so re-lighting it would double every
@@ -528,8 +532,8 @@ function Scene({
         exists to produce. */}
       {baked ? (
         <>
-          <ambientLight color="#252c3d" intensity={0.62} />
-          <hemisphereLight args={['#2f3850', '#54402f', 0.46]} />
+          <ambientLight color="#283043" intensity={0.78} />
+          <hemisphereLight args={['#333d57', '#5d4834', 0.58]} />
         </>
       ) : null}
 
@@ -544,7 +548,7 @@ function Scene({
         // surfaces without touching the emissives, which is why it is a better
         // first move than exposure: screens and strips do not take a lightmap,
         // so they stay where they were instead of clipping.
-        intensity={intensity * (baked ? 1.55 : 1)}
+        intensity={intensity * (baked ? 1.8 : 1)}
         onReady={setRoot}
       />
 
@@ -583,8 +587,25 @@ export function RoomExperience() {
   const asset = useRoomAsset();
   const settings = quality();
 
+  // Claimed on the document for as long as the room is mounted, and given back
+  // when it is not. See `globals.css` — pull-to-refresh belongs to the
+  // scrolling element, so no amount of `touch-action` on the canvas can stop
+  // a drag near the top of the screen from reloading the page instead of
+  // turning the camera.
+  useEffect(() => {
+    document.documentElement.classList.add('room-open');
+    return () => document.documentElement.classList.remove('room-open');
+  }, []);
+
   return (
-    <div className="fixed inset-0 bg-[#05070c]">
+    // `touch-none` and `overscroll-none` are not polish, they are what makes
+    // looking around possible at all on a phone. Dragging across a full-screen
+    // canvas is, to a mobile browser, a scroll gesture: it triggers
+    // pull-to-refresh at the top, rubber-banding at the edges, and a
+    // double-tap zoom if the visitor taps two objects quickly. Every one of
+    // those fires *instead of* the camera moving, so the room reads as
+    // unresponsive exactly when someone is trying hardest to use it.
+    <div className="fixed inset-0 touch-none select-none overscroll-none bg-[#05070c]">
       <Canvas
         // Decorative: everything it renders is also a button in the overlay.
         aria-hidden="true"
