@@ -2,7 +2,13 @@ import { useEffect, useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { MathUtils, Mesh, Raycaster, Vector3, type BufferGeometry, type Object3D } from 'three';
 import { useEngine } from './store';
-import { HOME_STOP, resolveStops, roomObjectById } from '../data/objects';
+import {
+  HOME_DURATION,
+  HOME_STOP,
+  resolveHome,
+  resolveStops,
+  roomObjectById,
+} from '../data/objects';
 import { characterState } from './characterState';
 import { look, updateLook } from './lookControl';
 
@@ -53,6 +59,23 @@ export function CameraRig({ reducedMotion }: { reducedMotion: boolean }) {
   // every one of them would be work nobody sees.
   const aspect = Math.round((size.width / Math.max(1, size.height)) * 20) / 20;
   const stops = useMemo(() => resolveStops(aspect), [aspect]);
+  const home = useMemo(() => resolveHome(aspect), [aspect]);
+
+  /**
+   * How much further back the follow camera sits on a narrow screen.
+   *
+   * The orbit distance was chosen against a wide viewport, and the vertical
+   * field of view is fixed — so the horizontal one collapses with the aspect
+   * ratio, and on a phone held upright the same 42 cm behind the robot shows a
+   * quarter of the width it shows on a monitor. The chair fills the frame and
+   * the room disappears behind it.
+   *
+   * Widening the lens instead would be the wrong fix: the field of view is
+   * shared with every authored stop in the room, and opening it up would
+   * distort all of them to solve a problem that belongs to one. Backing off
+   * costs nothing but a little distance.
+   */
+  const reachScale = Math.min(1.85, Math.max(1, 1.55 / Math.max(0.4, aspect)));
 
   const position = useRef(new Vector3(...HOME_STOP.position));
   const target = useRef(new Vector3(...HOME_STOP.target));
@@ -108,14 +131,14 @@ export function CameraRig({ reducedMotion }: { reducedMotion: boolean }) {
   useEffect(() => {
     if (controlled && !focused) return;
     const object = focused ? roomObjectById.get(focused) : undefined;
-    const stop = (focused && stops.get(focused)) || HOME_STOP;
+    const stop = (focused && stops.get(focused)) || home;
     goalPosition.current.set(...stop.position);
     goalTarget.current.set(...stop.target);
     // `duration` is authored per object as "how long this move should feel".
     // Converting it to a rate keeps the smoothing frame-rate independent while
     // still letting a lean-in be quicker than a trip across the room.
-    rate.current = 3.2 / (object?.duration ?? HOME_STOP.duration);
-  }, [focused, controlled, stops]);
+    rate.current = 3.2 / (object?.duration ?? HOME_DURATION);
+  }, [focused, controlled, stops, home]);
 
   useEffect(() => {
     if (reducedMotion) return;
@@ -142,7 +165,7 @@ export function CameraRig({ reducedMotion }: { reducedMotion: boolean }) {
       // to the player, which is the point — the camera is not limited to
       // what a neck can do.
       const altitude = MathUtils.clamp((characterState.position.y - 0.02) / 1.6, 0, 1);
-      const distance = BASE_DISTANCE + altitude * ALTITUDE_PULL;
+      const distance = (BASE_DISTANCE + altitude * ALTITUDE_PULL) * reachScale;
       const azimuth = characterState.heading + look.yaw;
 
       pivot.current.set(

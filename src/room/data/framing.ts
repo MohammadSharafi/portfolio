@@ -43,6 +43,17 @@ export interface Framing {
   /** Never come closer than this, whatever the solve says. Stops a tiny
    *  subject from putting the near plane inside the desk. */
   minDistance?: number;
+  /**
+   * Whether to compose off-centre to leave room for the panel.
+   *
+   * True for every object, because focusing one opens a panel over the frame.
+   * False for the establishing shot, which opens nothing — and where applying
+   * the bias anyway was silently miscomposing the room's first impression:
+   * the frame slid aside by a fraction of a *distance*, and at ten metres out
+   * that is metres of pan, so the shot drifted off the room it was framing and
+   * cropped the whole lounge end on a narrow screen.
+   */
+  biased?: boolean;
 }
 
 export interface ResolvedStop {
@@ -113,7 +124,7 @@ export function resolveFraming(
   // shifted afterwards. Shifting alone would have pushed big subjects like the
   // whiteboard half out of frame.
   const wide = safeAspect >= 1;
-  const bias = wide ? PANEL_BIAS.wide : PANEL_BIAS.narrow;
+  const bias = framing.biased === false ? 0 : wide ? PANEL_BIAS.wide : PANEL_BIAS.narrow;
   const usable = 1 - bias;
 
   // How far back the subject has to sit to fit each way, plus its own depth so

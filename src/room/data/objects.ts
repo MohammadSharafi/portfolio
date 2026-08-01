@@ -417,16 +417,72 @@ export function resolveStops(aspect: number): Map<ObjectId, ResolvedStop> {
   );
 }
 
-/** Where the camera rests when nothing is focused. */
 /**
  * The establishing shot.
  *
- * Still hand-composed, and it should be: it frames the whole room rather than
- * one object, so there is no box to solve against — this is a photograph of a
- * set, chosen for what it says about the space.
+ * It used to be a hand-composed pair of vectors, on the reasoning that it
+ * frames the whole room rather than one object and so has no box to solve
+ * against. That was wrong twice. There *is* a box — the room is a thing with
+ * extents like anything else — and a fixed position frames it correctly at
+ * exactly one aspect ratio. Composed on a wide monitor and opened on a phone
+ * held upright, where the horizontal field of view collapses to a quarter of
+ * its desktop width, the shot cropped the shelf and the window straight off
+ * the sides: the visitor's first sight of the room was a slice of it.
+ *
+ * So it is solved like every other stop, from the same direction the hand-
+ * composed version looked along, and it now pulls back on a narrow screen by
+ * exactly as much as the narrower frame requires.
  */
+const ROOM_BOX = {
+  min: [-3.3, 0, -2.6],
+  max: [3.2, 2.55, 2.6],
+  center: [-0.05, 1.28, 0],
+  size: [6.5, 2.55, 5.2],
+} as const;
+
+/** The angle the room is seen from — the direction of the original shot,
+ *  kept exactly, so only the distance changes with the viewport. */
+const HOME_FROM: Vec3 = [6.57, 3.65, -7.4];
+const HOME_OFFSET: Vec3 = [-0.17, -0.23, 0.85];
+
+export const HOME_DURATION = 1.8;
+
+/**
+ * The establishing shot, solved for one viewport shape.
+ *
+ * The margin is the interesting part, and it is where a principle gives out.
+ * Every other stop can simply back off until its subject fits, because every
+ * other subject is smaller than the room. The room is 6.5 m wide and 2.5 m
+ * tall, and a phone held upright is the opposite shape — fitting that width
+ * honestly puts the camera 25 m away and renders a doll's house floating in a
+ * tall empty frame. Fitting the height instead crops both ends off.
+ *
+ * There is no distance that satisfies both, so this picks: crop, and crop
+ * towards the middle, where the desk and the lounge are. A phone sees about
+ * three-quarters of the room's width and the ends slide past as the visitor
+ * looks around, which is how a room is seen from a doorway anyway. The margin
+ * is under 1 on every screen for the same reason — a shot that fits the whole
+ * diagonal reads as a model of a room rather than a room.
+ */
+export function resolveHome(aspect: number): ResolvedStop {
+  return resolveFraming(
+    {
+      from: HOME_FROM,
+      margin: aspect < 1 ? 1.0 : 0.82,
+      offset: HOME_OFFSET,
+      bounds: ROOM_BOX,
+      // Nothing opens over the establishing shot, so nothing should be made
+      // room for. See `Framing.biased`.
+      biased: false,
+    },
+    ROOM_BOX,
+    aspect
+  );
+}
+
+/** The wide-screen answer, for the initial camera and anything that needs a
+ *  stop before a viewport is known. */
 export const HOME_STOP: { position: Vec3; target: Vec3; duration: number } = {
-  position: [6.35, 4.7, -6.55],
-  target: [-0.22, 1.05, 0.85],
-  duration: 1.8,
+  ...resolveHome(1.78),
+  duration: HOME_DURATION,
 };
