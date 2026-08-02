@@ -105,7 +105,18 @@ export function MessageNote() {
   if (!open) return null;
 
   return (
-    <div className="pointer-events-auto absolute inset-x-4 bottom-6 mx-auto max-w-sm rounded-2xl border border-white/10 bg-black/80 p-5 backdrop-blur-xl sm:inset-x-auto sm:left-8 sm:top-1/2 sm:-translate-y-1/2">
+    /* A panel cannot be anchored to the top *and* the bottom.
+
+       Both `bottom-6` and `sm:top-1/2` were set, so above the breakpoint the
+       box had two vertical anchors. CSS resolves that by stretching it to span
+       the gap — and the content is taller than the gap, so the submit button
+       and the line under it rendered *outside* the card, over the room. Every
+       field worked; it simply looked broken, which from the outside is the
+       same thing.
+
+       `sm:bottom-auto` releases the bottom anchor, so the height goes back to
+       being the content's and `top-1/2` plus the translate centres it. */
+    <div className="pointer-events-auto absolute inset-x-4 bottom-6 mx-auto max-w-sm rounded-2xl border border-white/10 bg-black/80 p-5 backdrop-blur-xl sm:inset-x-auto sm:bottom-auto sm:left-8 sm:top-1/2 sm:-translate-y-1/2">
       <button
         type="button"
         onClick={() => setOpen(false)}

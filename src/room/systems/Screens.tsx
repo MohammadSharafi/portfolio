@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { Mesh, MeshBasicMaterial, MeshStandardMaterial, type Object3D, type Texture } from 'three';
+import {
+  Color,
+  Mesh,
+  MeshBasicMaterial,
+  MeshStandardMaterial,
+  type Object3D,
+  type Texture,
+} from 'three';
 import {
   bookSpineTexture,
   certificateTexture,
@@ -222,7 +229,17 @@ export function Screens({ root }: { root: Object3D }) {
         ? new MeshBasicMaterial({
             map: texture,
             toneMapped: true,
-            color: SCREEN_LEVEL,
+            // `setScalar`, and it has to be — this is what turned every screen
+            // in the room off.
+            //
+            // `color` accepts a `Color`, or a number that it reads as *hex*.
+            // Handed 0.62 it called `setHex(Math.floor(0.62))`, which is
+            // `setHex(0)`, which is black — and a map multiplies its colour, so
+            // all three screens rendered as their texture times zero. It failed
+            // silently and it failed identically to a monitor being switched
+            // off, so for weeks the room looked like a desk with dead displays
+            // rather than like a bug.
+            color: new Color().setScalar(SCREEN_LEVEL),
             transparent: false,
           })
         : new MeshStandardMaterial({ map: texture, roughness: 0.92, metalness: 0 });

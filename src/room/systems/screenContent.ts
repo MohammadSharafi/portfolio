@@ -1058,19 +1058,26 @@ export function keycapTexture() {
 
       ctx.save();
       ctx.translate(cx, cy);
-      // Rotated half a turn, per cell.
+      // Flipped vertically, per cell — not rotated.
       //
-      // `_cell_uvs` already inverts V so that row 0 is the top row of the
-      // image, and the quads address U along world +X while the typist reads
-      // along -X. Those two together are a 180° turn, not a mirror, which is
-      // worth distinguishing because the two look alike on letters and not at
-      // all on digits: drawn straight, `9` came out as `6` and the brackets
-      // swapped both their shapes and their places. A mirror does neither.
+      // This was `scale(-1, -1)`, a half turn, on the reasoning that two
+      // inversions compound: `_cell_uvs` inverts V so row 0 is the top row of
+      // the image, and the quads address U along world +X while the typist
+      // reads along -X. One of those two is not real. The quads do not reverse
+      // U, so the only inversion to cancel is V, and cancelling a vertical flip
+      // with a half turn leaves a horizontal mirror behind — which is exactly
+      // what the keyboard showed: every legend upright and backwards, `R` as
+      // `Я`.
       //
-      // Applied inside the cell rather than to the texture, because negating U
-      // across a grid atlas maps cell 0 to cell 14 and every key would show a
-      // different key's letter.
-      ctx.scale(-1, -1);
+      // The lesson is that mirrored and rotated look alike on letters, which is
+      // why the original bug was diagnosed as a rotation. They differ on
+      // *digits*: a half turn puts `9` where `6` should read, a mirror does
+      // not. Check a number before trusting a letter.
+      //
+      // Applied inside the cell rather than to the texture, because negating V
+      // across a grid atlas maps row 0 to row 5 and every key would show a
+      // different row's legend.
+      ctx.scale(1, -1);
 
       // Sub-pixel legends on modifiers, full size on the alphanumerics. A real
       // cap does the same thing for the same reason — "shift" does not fit at

@@ -211,7 +211,12 @@ export function Overlay() {
           aria-modal="false"
           aria-labelledby="room-panel-title"
           tabIndex={-1}
-          className="pointer-events-auto absolute inset-x-3 bottom-3 mx-auto max-w-md rounded-xl border border-white/10 bg-black/75 p-4 text-white backdrop-blur-xl outline-none sm:inset-x-auto sm:bottom-6 sm:right-8 sm:top-1/2 sm:max-w-md sm:-translate-y-1/2 sm:rounded-2xl sm:p-5"
+          // `sm:bottom-auto`, for the same reason as the note panel: anchored
+          // to both top and bottom, the box stretches to span the gap instead
+          // of sizing to its content. Here it did not overflow — the item list
+          // has its own max height — it just left a tall empty pool under the
+          // text, which read as a panel that had failed to fill itself.
+          className="pointer-events-auto absolute inset-x-3 bottom-3 mx-auto max-w-md rounded-xl border border-white/10 bg-black/75 p-4 text-white backdrop-blur-xl outline-none sm:inset-x-auto sm:bottom-auto sm:right-8 sm:top-1/2 sm:max-w-md sm:-translate-y-1/2 sm:rounded-2xl sm:p-5"
         >
           <button
             type="button"
