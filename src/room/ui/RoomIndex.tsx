@@ -73,7 +73,7 @@ export function RoomIndex() {
         onClick={() => setOpen(!open)}
         aria-expanded={open}
         aria-controls="room-index"
-        className="pointer-events-auto flex items-center gap-2 rounded-full bg-black/55 px-3.5 py-2 text-xs font-medium text-white/70 backdrop-blur-md transition-colors hover:text-white"
+        className="pointer-events-auto flex items-center gap-2 rounded-full bg-black/75 px-3.5 py-2 text-xs font-medium text-white/70 transition-colors hover:text-white"
       >
         <LayoutGrid className="size-3.5" aria-hidden="true" />
         What&rsquo;s in here

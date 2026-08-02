@@ -467,7 +467,7 @@ function GuitarMusic() {
   if (!open) return null;
 
   return (
-    <div className="pointer-events-auto absolute bottom-36 left-1/2 w-72 -translate-x-1/2 rounded-2xl border border-white/10 bg-black/70 p-4 backdrop-blur-md">
+    <div className="pointer-events-auto absolute bottom-36 left-1/2 w-72 -translate-x-1/2 rounded-2xl border border-white/10 bg-black/85 p-4">
       <p className="mb-3 text-[0.65rem] uppercase tracking-[0.25em] text-emerald-300/80">
         The guitar
       </p>

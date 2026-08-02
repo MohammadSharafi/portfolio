@@ -192,7 +192,7 @@ export function GuideButton() {
     <button
       type="button"
       onClick={() => setGuideStep(open ? STEPS.length : 0)}
-      className="pointer-events-auto rounded-full bg-black/55 px-3 py-2 text-xs font-medium text-white/70 backdrop-blur-md transition-colors hover:text-white"
+      className="pointer-events-auto rounded-full bg-black/75 px-3 py-2 text-xs font-medium text-white/70 transition-colors hover:text-white"
     >
       {open ? 'Hide guide' : 'How this works'}
     </button>
