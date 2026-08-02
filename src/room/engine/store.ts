@@ -42,8 +42,6 @@ interface EngineState extends SaveState {
    *  open. Replaces the old bottom rail, which spent a permanent strip of the
    *  frame on fifteen buttons a visitor reads once. */
   indexOpen: boolean;
-  /** True while the note composer is open. */
-  messageOpen: boolean;
   /** How much of the guide the visitor has been through. `null` means they
    *  have never seen it; a number is the step they reached. Persisted, so a
    *  returning visitor is not taught the controls again. */
@@ -62,7 +60,6 @@ interface EngineState extends SaveState {
   setNearGuitar: (value: boolean) => void;
   setMusicOpen: (value: boolean) => void;
   setIndexOpen: (value: boolean) => void;
-  setMessageOpen: (value: boolean) => void;
   setGuideStep: (value: number | null) => void;
   enter: () => void;
   focus: (id: ObjectId) => void;
@@ -95,7 +92,6 @@ export const useEngine = create<EngineState>()(
       nearGuitar: false,
       musicOpen: false,
       indexOpen: false,
-      messageOpen: false,
       guideStep: null,
       entered: false,
       timeOfDay: 'night',
@@ -114,7 +110,6 @@ export const useEngine = create<EngineState>()(
       },
       setMusicOpen: (value) => set({ musicOpen: value }),
       setIndexOpen: (value) => set({ indexOpen: value }),
-      setMessageOpen: (value) => set({ messageOpen: value }),
       setGuideStep: (value) => set({ guideStep: value }),
 
       // Entering counts a visit. Doing it here rather than on mount means the

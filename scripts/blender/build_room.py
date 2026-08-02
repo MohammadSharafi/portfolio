@@ -1782,9 +1782,21 @@ def build_laptop() -> list[bpy.types.Object]:
     # toward whoever is sitting there, and the turn also puts its lid across the
     # sightline rather than edge-on to it.
     lx, ly = -0.56, DESK_FRONT - 0.33
-    deck_top = DESK_TOP + 0.022
+    deck_top = DESK_TOP + 0.0185
 
-    base = cube("laptop_base", (0.35, 0.245, 0.012), (lx, ly, DESK_TOP + 0.006), body)
+    # 10 mm at the back, wedged down to about 6 at the front.
+    #
+    # It was a flat 12 mm slab, and from the desk — which is where the robot
+    # sees it from, and the angle that prompted this — a laptop is almost
+    # entirely its own edge. A constant-thickness edge is the silhouette of a
+    # 2010 machine, and no amount of detail on the deck above it fixes what the
+    # profile says. Every thin laptop is a wedge; giving it one costs four
+    # vertices and changes the shape more than the whole keyboard does.
+    base = cube("laptop_base", (0.35, 0.245, 0.010), (lx, ly, DESK_TOP + 0.005), body)
+    for vertex in base.data.vertices:
+        # +y is the front lip, nearest whoever is sitting down.
+        if vertex.co.y > 0 and vertex.co.z > 0:
+            vertex.co.z -= 0.0022
 
     # The deck is a recessed well with real keys in it, not a painted-on
     # rectangle. A laptop is seen from above more than from any other angle, so
@@ -1882,7 +1894,7 @@ def build_laptop() -> list[bpy.types.Object]:
     )
     # Hinge barrel and four rubber feet.
     parts_base.append(
-        cylinder("laptop_hinge", 0.005, 0.20, (lx, ly - 0.121, DESK_TOP + 0.008), material("hinge", "dark_metal", roughness=0.45),
+        cylinder("laptop_hinge", 0.0045, 0.20, (lx, ly - 0.121, DESK_TOP + 0.007), material("hinge", "dark_metal", roughness=0.45),
                  vertices=12, rotation=(0, math.radians(90), 0))
     )
     for fx in (-0.145, 0.145):
@@ -1899,7 +1911,10 @@ def build_laptop() -> list[bpy.types.Object]:
     # 8 mm of aluminium at that scale is a plank; the recline matters for the
     # same reason, because a screen sitting nearly vertical has no visible
     # top face and loses the wedge silhouette that says "open laptop".
-    lid = cube("ix_laptop_lid_body", (0.35, 0.006, 0.235), (lx, DESK_FRONT - 0.42, DESK_TOP + 0.13), body)
+    # 4.5 mm, down from 6. Same argument as the base: seen from the desk the
+    # lid is a vertical line, and its thickness is the whole of what that line
+    # says about the machine.
+    lid = cube("ix_laptop_lid_body", (0.35, 0.0045, 0.235), (lx, DESK_FRONT - 0.42, DESK_TOP + 0.13), body)
     # A 1.5 cm bezel rather than 3 cm. Screens have got to the edge of their
     # lids since about 2018 and a fat border is the first thing that dates one.
     lid_screen = plane(
@@ -2285,15 +2300,28 @@ def build_keyboard_and_props() -> list[bpy.types.Object]:
     # be sliding on. Moving four corners of a box costs nothing and leaves
     # the base dead flat.
     mx, my = 0.15, DESK_FRONT - 0.13
-    shell = cube("ix_mouse", (0.062, 0.105, 0.032), (mx, my, DESK_TOP + 0.016), body_mat, bevel=0)
+    # 40 mm tall, up from 32, and crowned rather than merely tapered.
+    #
+    # At 32 mm over a 105 mm body this read as a lozenge lying on the mat —
+    # long, low and shapeless. A mouse is defined by its *crown*: it rises
+    # steeply from the front, peaks about two thirds back under the palm, and
+    # falls away at the tail. Tapering only the far end gave it a wedge, which
+    # is not the same silhouette and is why it kept looking like a bar of soap.
+    shell = cube("ix_mouse", (0.064, 0.105, 0.040), (mx, my, DESK_TOP + 0.020), body_mat, bevel=0)
     for vertex in shell.data.vertices:
-        # -y is the far end, where the cable leaves and the hand does not
-        # rest: narrower across, and dropped to about a third of the height.
+        # -y is the far end, where the cable leaves and the hand does not rest:
+        # narrower across, and dropped to about a third of the height.
         if vertex.co.y < 0:
             vertex.co.x *= 0.56
             if vertex.co.z > 0:
-                vertex.co.z *= 0.30
-    smooth(shell, 2, crease=0.22)
+                vertex.co.z *= 0.28
+        else:
+            # The palm end keeps its width but pulls in slightly at the very
+            # back, so the body is an egg rather than a box with one end shaved.
+            if vertex.co.z > 0:
+                vertex.co.z *= 0.92
+            vertex.co.x *= 0.93
+    smooth(shell, 2, crease=0.18)
 
     # The split between the buttons, and the wheel in it.
     #

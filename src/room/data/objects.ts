@@ -46,7 +46,7 @@ export const objectGroups = ['Work', 'Craft', 'Story', 'The room'] as const;
 export type ObjectGroup = (typeof objectGroups)[number];
 
 /** Things a panel can do beyond showing text. */
-export type PanelAction = 'lamp' | 'message' | 'cv';
+export type PanelAction = 'lamp' | 'cv';
 
 export interface RoomObject {
   id: ObjectId;
@@ -185,18 +185,18 @@ export const roomObjects: readonly RoomObject[] = [
     id: 'notebook',
     label: 'Notebook',
     group: 'Story',
-    hint: 'Leave me a note',
-    guide: 'Write me a message — it opens your mail, already filled in.',
+    hint: 'How to reach me',
+    guide: 'The address, and the fastest way to use it.',
     // Lies flat on the desk, so it is looked down at rather than across. A
     // stop composed level with the desk would show its edge and nothing else.
     framing: { from: [0.08, 0.92, -1], margin: 1.35, minDistance: 0.34 },
     duration: 1.0,
     panel: {
       kicker: 'Say hello',
-      title: 'Leave a note',
-      body: 'The open page on the desk. Write a line here and it opens your own mail client with the message ready to send — nothing is posted anywhere, and there is no form on my side collecting it.',
+      title: 'The open page',
+      body: 'There was a little compose form on this page for a while. It has gone: a form that only ever built a mailto is a worse version of an email address, and it asked people to fill in three fields to do what one tap already does.',
       items: [],
-      action: 'message',
+      link: { href: `mailto:${profile.email}`, label: profile.email },
     },
   },
   {
@@ -390,9 +390,8 @@ export const roomObjects: readonly RoomObject[] = [
     panel: {
       kicker: 'Contact',
       title: 'Get in touch',
-      body: `${profile.availability}. Email is the fastest way to reach me, and it reaches me directly.`,
+      body: `${profile.availability}. Email is the fastest way to reach me, and it reaches me directly — no form in between, and nothing collecting anything on my side.`,
       items: [],
-      action: 'message',
       link: { href: `mailto:${profile.email}`, label: profile.email },
     },
   },

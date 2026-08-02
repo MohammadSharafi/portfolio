@@ -5,7 +5,6 @@ import { characterState } from '../engine/characterState';
 import { Minimap } from './Minimap';
 import { RoomIndex } from './RoomIndex';
 import { Guide, GuideButton } from './Guide';
-import { MessageNote } from './MessageNote';
 import { TouchControls } from './TouchControls';
 import { isTouch } from '../engine/touchInput';
 import {
@@ -51,8 +50,6 @@ export function Overlay() {
   const nearGuitar = useEngine((state) => state.nearGuitar);
   const musicOpen = useEngine((state) => state.musicOpen);
   const entered = useEngine((state) => state.entered);
-  const messageOpen = useEngine((state) => state.messageOpen);
-  const setMessageOpen = useEngine((state) => state.setMessageOpen);
   const nearbyObject = nearby ? roomObjectById.get(nearby) : undefined;
 
   const panelRef = useRef<HTMLDivElement>(null);
@@ -197,7 +194,6 @@ export function Overlay() {
           <TouchControls />
 
           {!controlled ? <Guide /> : null}
-          <MessageNote />
 
           <SoundControl muted={muted} toggleMuted={toggleMuted} />
         </>
@@ -265,16 +261,6 @@ export function Overlay() {
               className="mt-4 rounded-full bg-white px-4 py-2 text-sm font-medium text-black transition-opacity hover:opacity-90"
             >
               {lampOn ? 'Switch the lamp off' : 'Switch the lamp on'}
-            </button>
-          ) : null}
-
-          {object.panel.action === 'message' ? (
-            <button
-              type="button"
-              onClick={() => setMessageOpen(!messageOpen)}
-              className="mt-4 rounded-full bg-white px-4 py-2 text-sm font-medium text-black transition-opacity hover:opacity-90"
-            >
-              {messageOpen ? 'Close the note' : 'Write me a note'}
             </button>
           ) : null}
 
