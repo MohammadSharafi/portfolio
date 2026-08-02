@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
 """Compose the social card from a Cycles render of the room.
 
-The card is the advertisement. A link to this site is shared into a feed as a
-1200×630 rectangle, and for most people that rectangle *is* the site — it
-decides whether anyone clicks at all. The previous card was a clean text
-treatment: name, role, a line about the work, six technology chips. Everything
-true, and it described a portfolio page. It said nothing about the one thing
-that makes this link worth opening, which is that the portfolio is a room you
-can walk around.
+A link to this site is shared into a feed as a 1200×630 rectangle, and for most
+people that rectangle *is* the site — it decides whether anyone clicks at all.
+The first version of it was a clean text treatment: name, role, a line about the
+work, six technology chips. Everything true, and it described a portfolio page.
+It said nothing about the one thing that makes the link worth opening, which is
+that the portfolio is a room you can walk around.
 
-So the room is the card, and the words sit on it.
+So the room is the card, and nothing is written on it. The platform prints the
+title and the description beside the thumbnail as real text; anything painted
+into the picture as well is the same sentence twice, and the second copy cannot
+be selected, translated or read aloud. What is left is a photograph of the
+place, which is the honest advertisement for it.
 
 Composed here rather than screenshotted from the running site for the same
 reason `render_hero.py` exists at all: the browser's room is a real-time
@@ -34,53 +37,24 @@ OUT = ROOT / "public" / "og-image.png"
 
 WIDTH, HEIGHT = 1200, 630
 
-# Facebook and LinkedIn both crop toward the centre at some sizes, and X's
-# summary_large_image is a wider ratio again — so nothing that must be read is
-# allowed within this much of any edge.
-SAFE = 56
-
-NAME = "Mohammad Sharafi"
-ROLE = "Software Engineer"
-LINE = "A portfolio you can walk around."
-# Kept short enough to finish inside the scrim. The longer version ran past
-# the gradient's falloff and its last words landed on the lit monitors, which
-# is the one place on this card where light type cannot be read.
-SUB = "Procedural Blender room · React Three Fiber"
-
-
-def font(size: int, bold: bool = False):
-    """The best available system face at a size, falling back to Pillow's own.
-
-    Deliberately forgiving: a missing font must produce a plainer card, never a
-    crash and never a card with no words on it.
-    """
-    from PIL import ImageFont
-
-    candidates = (
-        [
-            "/System/Library/Fonts/SFNSDisplay-Bold.otf",
-            "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-        ]
-        if bold
-        else [
-            "/System/Library/Fonts/SFNSDisplay.otf",
-            "/System/Library/Fonts/Supplemental/Arial.ttf",
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        ]
-    )
-    for path in candidates:
-        if Path(path).exists():
-            try:
-                return ImageFont.truetype(path, size)
-            except OSError:
-                continue
-    return ImageFont.load_default()
+# What used to be drawn here, and is not any more: a PORTFOLIO eyebrow, the
+# name, the role, a tagline, a stack list, and an availability pill in the
+# bottom corner. Also the gradient scrim behind them, which existed only so
+# white type would hold against the lit monitors and with nothing to protect
+# was just dimming a third of the picture.
+#
+# The pill is worth its own note, because it was the worst of them. A link
+# preview is scraped once and then travels on its own — into a DM, a group
+# chat, someone's saved links — and no platform lets you edit one after it has
+# been cached. "Open to senior engineering roles" was therefore burned into an
+# image with an unbounded lifetime, and it was the last thing the card said
+# before the reader reached the link. The room says it in the contact panel
+# instead, where it is current and where someone went looking for it.
 
 
 def main() -> int:
     try:
-        from PIL import Image, ImageDraw
+        from PIL import Image
     except ImportError:
         print("Pillow is required:  pip install Pillow", file=sys.stderr)
         return 1
@@ -107,65 +81,18 @@ def main() -> int:
     top = max(0, (room.height - HEIGHT) // 2 - round(room.height * 0.04))
     card = room.crop((left, top, left + WIDTH, top + HEIGHT))
 
-    # Lifted before anything is drawn on it.
+    # The render is a night interior and physically correct, which at thumbnail
+    # size in a feed reads as a dark smudge — the card has to survive being
+    # glanced at on a phone in daylight, scrolling past.
     #
-    # The render is a night interior and physically correct, which at
-    # thumbnail size in a feed reads as a dark smudge — the card has to survive
-    # being glanced at on a phone in daylight, scrolling past. A flat veil over
-    # the top was the first attempt and did the opposite of what was wanted: it
-    # dimmed the entire photograph to buy contrast behind the text, so the room
-    # went muddy everywhere to solve a problem that only exists in the left
-    # third. Brightening the picture and scrimming only where the words go
-    # keeps the room bright and the type legible.
+    # Gentler than it was. The old numbers were set to keep white type legible
+    # over lit monitors; with no type on the card, the only job left is stopping
+    # the room going muddy at thumbnail size, and overdoing it costs the night
+    # exactly the mood that makes anyone click.
     from PIL import ImageEnhance
 
-    card = ImageEnhance.Brightness(card).enhance(1.32)
-    card = ImageEnhance.Contrast(card).enhance(1.06)
-
-    # A scrim, heaviest at the left where the words go and gone by mid-frame.
-    #
-    # Drawn as its own gradient rather than a flat overlay because a flat one
-    # dims the whole photograph to make one corner readable — the room ends up
-    # muddy everywhere to solve a problem that exists in a third of the card.
-    scrim = Image.new("L", (WIDTH, 1))
-    for x in range(WIDTH):
-        t = x / WIDTH
-        # Opaque to about 40%, then falling away fast.
-        value = 232 if t < 0.06 else max(0, int(232 * (1 - ((t - 0.06) / 0.58) ** 1.4)))
-        scrim.putpixel((x, 0), value)
-    mask = scrim.resize((WIDTH, HEIGHT))
-    card = Image.composite(Image.new("RGB", (WIDTH, HEIGHT), (6, 8, 14)), card, mask)
-
-
-
-    draw = ImageDraw.Draw(card)
-    x = SAFE + 8
-    y = 150
-
-    draw.text((x, y), "PORTFOLIO", font=font(20, bold=True), fill=(122, 138, 168))
-    y += 52
-
-    draw.text((x, y), NAME, font=font(74, bold=True), fill=(247, 249, 252))
-    y += 92
-
-    draw.text((x, y), ROLE, font=font(30), fill=(150, 166, 196))
-    y += 58
-
-    draw.text((x, y), LINE, font=font(34, bold=True), fill=(226, 234, 246))
-    y += 52
-
-    draw.text((x, y), SUB, font=font(20), fill=(132, 148, 176))
-
-    # No availability pill.
-    #
-    # It used to sit bottom left, where a reader's eye lands last, and that
-    # placement was the tell: the card is the first thing anyone sees of this
-    # work, and the last thing it said was that the author wants a job. A link
-    # preview is scraped once and then travels — into a DM, a group chat,
-    # someone's saved links — long after the status stops being true, and there
-    # is no way to edit it once a platform has cached it. The room can say this
-    # in the contact panel, where it is current and where someone has chosen to
-    # go looking.
+    card = ImageEnhance.Brightness(card).enhance(1.24)
+    card = ImageEnhance.Contrast(card).enhance(1.04)
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
     card.save(OUT, optimize=True)
