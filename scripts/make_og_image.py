@@ -156,16 +156,16 @@ def main() -> int:
 
     draw.text((x, y), SUB, font=font(20), fill=(132, 148, 176))
 
-    # The availability pill, bottom left, where a reader's eye lands last.
-    pill_y = HEIGHT - SAFE - 40
-    label = "Open to senior engineering roles"
-    pill_font = font(20)
-    text_w = draw.textlength(label, font=pill_font)
-    draw.rounded_rectangle(
-        (x, pill_y, x + text_w + 62, pill_y + 40), radius=20, fill=(18, 24, 36)
-    )
-    draw.ellipse((x + 20, pill_y + 16, x + 30, pill_y + 26), fill=(52, 211, 153))
-    draw.text((x + 40, pill_y + 10), label, font=pill_font, fill=(198, 210, 230))
+    # No availability pill.
+    #
+    # It used to sit bottom left, where a reader's eye lands last, and that
+    # placement was the tell: the card is the first thing anyone sees of this
+    # work, and the last thing it said was that the author wants a job. A link
+    # preview is scraped once and then travels — into a DM, a group chat,
+    # someone's saved links — long after the status stops being true, and there
+    # is no way to edit it once a platform has cached it. The room can say this
+    # in the contact panel, where it is current and where someone has chosen to
+    # go looking.
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
     card.save(OUT, optimize=True)

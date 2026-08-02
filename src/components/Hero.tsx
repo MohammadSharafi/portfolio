@@ -200,14 +200,6 @@ export function Hero({ room }: { room: ReturnType<typeof useRoom> }) {
             }}
             className={cn('space-y-7', copyOpacity === 0 && 'pointer-events-none')}
           >
-            <p className="glass inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm">
-              <span className="relative flex size-2">
-                <span className="animate-pulse-ring absolute inline-flex size-full rounded-full bg-success" />
-                <span className="relative inline-flex size-2 rounded-full bg-success" />
-              </span>
-              {profile.availability}
-            </p>
-
             <div className="space-y-3">
               <h1 className="font-display text-4xl font-bold leading-[1.1] sm:text-6xl lg:text-7xl">
                 {profile.firstName} <span className="text-gradient">{profile.lastName}</span>
