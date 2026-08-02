@@ -628,15 +628,39 @@ def main() -> None:
     # loads the full atlas and looks correct; only phones get the old lighting,
     # and only phones show it. Tying it to the bake is the only arrangement
     # where the two cannot drift.
-    try:
-        import subprocess
+    # Run with a *system* python, not Blender's, and say out loud what happened.
+    #
+    # The first version of this used `sys.executable`, which inside Blender is
+    # its own bundled interpreter — and that one has no Pillow. The downscale
+    # script printed "Pillow is not installed", exited 0, and `check=False`
+    # meant the bake never noticed. So the safeguard written specifically to
+    # stop the mobile textures going stale sat there going through the motions
+    # while they went stale, which is worse than not having it: it also removed
+    # the reason to check by hand.
+    #
+    # Hence both changes. A real python is preferred over Blender's, and the
+    # outcome is printed either way — a step that can quietly do nothing is a
+    # step that eventually does nothing.
+    import shutil
+    import subprocess
 
-        subprocess.run(
-            [sys.executable, str(Path(__file__).resolve().parent.parent / "downscale_textures.py")],
-            check=False,
+    script = Path(__file__).resolve().parent.parent / "downscale_textures.py"
+    runner = shutil.which("python3") or shutil.which("python") or sys.executable
+    try:
+        done = subprocess.run(
+            [runner, str(script)], check=False, capture_output=True, text=True, timeout=300
         )
+        wrote = "wrote" in (done.stdout or "")
+        print((done.stdout or "").strip() or "[downscale] no output")
+        if not wrote:
+            print(
+                "[bake_room] WARNING: the half-size textures were NOT regenerated, so "
+                "phones will load the previous bake's lighting. Fix with:\n"
+                f"    pip install Pillow && python3 {script}",
+                file=sys.stderr,
+            )
     except Exception as exc:  # pragma: no cover - never worth failing a bake over
-        print(f"[bake_room] half-size textures not written: {exc}", file=sys.stderr)
+        print(f"[bake_room] WARNING: half-size textures not written: {exc}", file=sys.stderr)
 
     print("[bake_room] done — room.glb plus the lightmap are what the site loads")
 

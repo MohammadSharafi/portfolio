@@ -52,7 +52,13 @@ function Exposure({ baked }: { baked: boolean }) {
   // but "night" was costing more legibility than it was buying atmosphere —
   // whole corners were below what the tone curve can separate, and a portfolio
   // whose contents are hard to make out has spent its mood badly.
-  gl.toneMappingExposure = baked ? 3.7 : 2.2;
+  //
+  // The two numbers are not one number. Every brightness pass here has been
+  // aimed at the baked path, and the fallback kept getting dragged up with it
+  // until it reached 2.2 and blew out — pale lavender walls, no shadows, the
+  // opposite of the room. It has its own lights and its own grade, and this is
+  // it: bright enough to match the bake's *legibility*, not its exposure.
+  gl.toneMappingExposure = baked ? 3.7 : 1.8;
   return null;
 }
 
