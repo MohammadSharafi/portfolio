@@ -345,7 +345,7 @@ export const roomObjects: readonly RoomObject[] = [
       items: [
         `The desk itself is in ${profile.location} · ${profile.timezone}`,
         'Remote throughout, with U.S. overlap most days',
-        'The glass is transmissive, so the room reflects in it at grazing angles',
+        'The pane carries a reflection probe of the room, so it catches the lamps at grazing angles',
       ],
     },
   },

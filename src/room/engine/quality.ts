@@ -88,7 +88,22 @@ const PRESETS: Record<Tier, Omit<QualitySettings, 'tier'>> = {
     vignette: true,
   },
   high: {
-    dpr: [1, 2],
+    // 1.75, down from 2 — and the change is worth more than it looks.
+    //
+    // A ratio of 2 on a Retina display is four times the fragment work of 1,
+    // and this room spends most of a frame on fragments: six full-screen passes
+    // over every pixel, on top of a scene whose own shading is the expensive
+    // part. Dropping to 1.75 is a quarter of that work returned for a
+    // difference in sharpness that does not survive being described, let alone
+    // seen — the display is still being given more pixels than it has CSS ones.
+    //
+    // It matters here because `high` is not the narrow band of fast desktops it
+    // sounds like. `'apple m'` matches every Mac Apple has shipped since 2020,
+    // so a fanless Air and an M3 Max are handed the same budget, and both of
+    // them are usually driving a Retina panel. The ceiling has to be a ratio
+    // the *modest* end of the tier can hold; `AdaptiveResolution` takes it
+    // lower on the machines that still cannot.
+    dpr: [1, 1.75],
     dust: 1800,
     shadowMap: 2048,
     shadowCasters: 5,

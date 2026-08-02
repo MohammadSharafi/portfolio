@@ -133,7 +133,22 @@ export function Overlay() {
             </p>
           )}
 
-          {/* Top-left: the two ways in, and the way to ask what this is. */}
+          {/* Top-left: the two ways in, and the way to ask what this is.
+           *
+           * Nothing that sits over the canvas for the whole session carries a
+           * `backdrop-blur` any more, here or on the minimap or the touch
+           * controls. The usual intuition — that a blurred chip is cheap
+           * because the browser caches the blurred layer — is exactly wrong in
+           * front of a live WebGL surface: a backdrop filter is invalidated
+           * whenever its *backdrop* changes, and this backdrop changes sixty
+           * times a second forever. So every one of them was a per-frame
+           * readback-and-blur of the region behind it, paid on the compositor
+           * where no amount of profiling the render loop would reveal it.
+           *
+           * A more opaque background reads nearly the same over a room this
+           * dark. The blur is kept only on the panels — the index, the guide,
+           * the object card — which are large, deliberate, and the places
+           * where the depth is actually doing design work. */}
           {!focused ? (
             <div
               data-room-ui
@@ -150,8 +165,8 @@ export function Overlay() {
                   aria-pressed={controlled}
                   className={
                     isTouch
-                      ? 'pointer-events-auto rounded-full bg-black/55 px-3 py-1.5 text-[11px] font-medium text-white/75 backdrop-blur-md'
-                      : 'pointer-events-auto rounded-full bg-black/55 px-3.5 py-2 text-xs font-medium text-white/70 backdrop-blur-md transition-colors hover:text-white'
+                      ? 'pointer-events-auto rounded-full bg-black/75 px-3 py-1.5 text-[11px] font-medium text-white/75'
+                      : 'pointer-events-auto rounded-full bg-black/75 px-3.5 py-2 text-xs font-medium text-white/70 transition-colors hover:text-white'
                   }
                 >
                   {controlled ? 'Stop walking' : 'Walk the room'}
@@ -174,7 +189,7 @@ export function Overlay() {
             the controls themselves — a stick is a stick — and the strip would
             sit exactly where the left thumb goes. */}
           {controlled && !focused && !isTouch ? (
-            <p className="absolute bottom-24 left-1/2 -translate-x-1/2 rounded-full bg-black/55 px-4 py-2 text-xs text-white/75 backdrop-blur-md">
+            <p className="absolute bottom-24 left-1/2 -translate-x-1/2 rounded-full bg-black/75 px-4 py-2 text-xs text-white/75">
               {nearGuitar ? (
                 <>
                   <kbd className="rounded bg-white/15 px-1.5 py-0.5 font-semibold">E</kbd>{' '}
@@ -313,8 +328,8 @@ function SoundControl({ muted, toggleMuted }: { muted: boolean; toggleMuted: () 
       <div
         className={
           isTouch
-            ? 'pointer-events-auto absolute right-3 top-3 flex items-center gap-1.5 rounded-full bg-black/60 py-1 pl-2.5 pr-1 backdrop-blur-md'
-            : 'pointer-events-auto absolute right-4 top-4 flex items-center gap-2 rounded-full bg-black/60 py-1.5 pl-3 pr-1.5 backdrop-blur-md'
+            ? 'pointer-events-auto absolute right-3 top-3 flex items-center gap-1.5 rounded-full bg-black/78 py-1 pl-2.5 pr-1'
+            : 'pointer-events-auto absolute right-4 top-4 flex items-center gap-2 rounded-full bg-black/78 py-1.5 pl-3 pr-1.5'
         }
       >
         {/* Three bars that only move while the audio does — the cheapest
@@ -359,8 +374,8 @@ function SoundControl({ muted, toggleMuted }: { muted: boolean; toggleMuted: () 
       aria-pressed={!muted}
       className={
         isTouch
-          ? 'pointer-events-auto absolute right-3 top-3 rounded-full bg-black/55 p-2 text-white/70 backdrop-blur-md'
-          : 'pointer-events-auto absolute right-4 top-4 rounded-full bg-black/55 p-2.5 text-white/70 backdrop-blur-md transition-colors hover:text-white'
+          ? 'pointer-events-auto absolute right-3 top-3 rounded-full bg-black/75 p-2 text-white/70'
+          : 'pointer-events-auto absolute right-4 top-4 rounded-full bg-black/75 p-2.5 text-white/70 transition-colors hover:text-white'
       }
       aria-label={muted ? 'Turn room sound on' : 'Turn room sound off'}
     >

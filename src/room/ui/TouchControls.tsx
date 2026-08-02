@@ -75,7 +75,7 @@ export function TouchControls() {
               event.preventDefault();
               act();
             }}
-            className="flex size-[54px] flex-col items-center justify-center gap-0.5 rounded-full border border-emerald-300/50 bg-emerald-400/20 text-emerald-100 backdrop-blur-md active:bg-emerald-400/35"
+            className="flex size-[54px] flex-col items-center justify-center gap-0.5 rounded-full border border-emerald-300/50 bg-emerald-500/40 text-emerald-100 active:bg-emerald-400/35"
           >
             <Hand className="size-4" aria-hidden="true" />
             <span className="text-[9px] font-medium leading-none">
@@ -103,7 +103,7 @@ export function TouchControls() {
           onPointerLeave={() => {
             touchInput.thrust = false;
           }}
-          className="flex size-[64px] flex-col items-center justify-center gap-0.5 rounded-full border border-white/20 bg-white/10 text-white/85 backdrop-blur-md active:border-amber-300/60 active:bg-amber-400/25"
+          className="flex size-[64px] flex-col items-center justify-center gap-0.5 rounded-full border border-white/20 bg-white/20 text-white/85 active:border-amber-300/60 active:bg-amber-400/25"
         >
           <Flame className="size-5" aria-hidden="true" />
           <span className="text-[9px] font-medium leading-none">Fly</span>
@@ -219,14 +219,14 @@ function Stick() {
     <div
       ref={base}
       data-room-ui
-      className="pointer-events-auto absolute bottom-6 left-4 size-[92px] touch-none select-none rounded-full border border-white/15 bg-black/35 backdrop-blur-sm"
+      className="pointer-events-auto absolute bottom-6 left-4 size-[92px] touch-none select-none rounded-full border border-white/15 bg-black/55"
       style={{ touchAction: 'none' }}
       aria-hidden="true"
     >
       <div className="absolute inset-0 flex items-center justify-center">
         <div
           ref={knob}
-          className="size-[40px] rounded-full border border-white/25 bg-white/20 shadow-lg backdrop-blur-md"
+          className="size-[40px] rounded-full border border-white/25 bg-white/30 shadow-lg"
         />
       </div>
     </div>

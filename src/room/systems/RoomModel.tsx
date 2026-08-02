@@ -1,7 +1,7 @@
 import { useEffect, useMemo } from 'react';
 import { useGLTF, useTexture } from '@react-three/drei';
 import { useStore } from '@react-three/fiber';
-import type { MeshStandardMaterial, Texture } from 'three';
+import type { MeshPhysicalMaterial, MeshStandardMaterial, Texture } from 'three';
 import { Mesh, SRGBColorSpace, type Object3D } from 'three';
 import { useEngine } from '../engine/store';
 import { type ObjectId } from '../data/objects';
@@ -17,6 +17,52 @@ import { applyAging, prepareAgingTexture } from './aging';
  */
 const EMPTY_PIXEL =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+
+/**
+ * Turns real refraction into ordinary transparency.
+ *
+ * Three materials in the room were exported with `transmission: 1` — the
+ * window pane, a tumbler, and the water in it. That is the physically correct
+ * way to describe glass, and it was quietly the most expensive decision in the
+ * whole scene: three.js implements transmission by rendering *the entire opaque
+ * scene a second time* into a separate target, every frame, so that the
+ * transmissive surfaces have something to refract. It then builds a mipmap
+ * chain of that target.
+ *
+ * The room submits around 360 draw calls. Measured, it was issuing about 790 —
+ * and the second batch existed so that a drinking glass on a coffee table could
+ * bend the image behind it. That is the entire scene's CPU cost, doubled, spent
+ * on three objects, two of which are the size of a fist.
+ *
+ * Dropping to `transparent` keeps almost all of it. What transmission buys over
+ * blending is refractive distortion and thickness-tinted absorption — effects
+ * you read at a hand's distance through a curved surface, and this room is
+ * viewed from across itself. What actually sells glass at this range is
+ * specular response and a reflection of the room, and both survive: these stay
+ * `MeshPhysicalMaterial`, they keep their IOR, roughness and environment map,
+ * and only the refraction pass goes.
+ *
+ * Done on every tier, not just the weak ones. A cost this size for a difference
+ * this small is not a trade that becomes correct on faster hardware — it just
+ * becomes affordable, which is not the same thing.
+ */
+function demoteTransmission(material: MeshStandardMaterial) {
+  const physical = material as MeshPhysicalMaterial;
+  if (!(physical.transmission > 0)) return;
+
+  // glTF only writes `opacity` through when the material is alpha-blended, so
+  // the pane — which was opaque with transmission doing the work — arrives at
+  // 1 and has to be given a value. Low, because a window is mostly not there;
+  // the tumbler and the water carry the alpha they were authored with.
+  physical.opacity = physical.opacity < 1 ? physical.opacity : 0.16;
+  physical.transparent = true;
+  physical.transmission = 0;
+
+  // Without this the pane writes depth and hides the skyline behind it, which
+  // is the one thing the window exists to show.
+  physical.depthWrite = false;
+  physical.needsUpdate = true;
+}
 
 export function RoomModel({
   url,
@@ -118,6 +164,8 @@ export function RoomModel({
         // the stamp beside the image.
         material.lightMapIntensity = intensity;
       }
+
+      if (first) demoteTransmission(material);
 
       if (aged && first) {
         // Occlusion at zero when the room is baked: the lightmap is path-traced

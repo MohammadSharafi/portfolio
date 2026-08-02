@@ -154,8 +154,8 @@ export function Minimap() {
         // keyboard nobody there has, and on a 375 px screen the full panel is
         // over half the width — a map that covers the room it is mapping.
         isTouch
-          ? 'pointer-events-none absolute right-2.5 top-14 w-[104px] overflow-hidden rounded-lg border border-white/10 bg-black/60 backdrop-blur-md'
-          : 'pointer-events-none absolute right-4 top-16 w-[200px] overflow-hidden rounded-2xl border border-white/10 bg-black/65 backdrop-blur-md'
+          ? 'pointer-events-none absolute right-2.5 top-14 w-[104px] overflow-hidden rounded-lg border border-white/10 bg-black/80'
+          : 'pointer-events-none absolute right-4 top-16 w-[200px] overflow-hidden rounded-2xl border border-white/10 bg-black/82'
       }
     >
       {/* The title is the first thing to go on a phone: the panel is plainly

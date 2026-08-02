@@ -1,6 +1,6 @@
-import { Suspense, useEffect, useState, type ReactElement } from 'react';
+import { Suspense, useEffect, useRef, useState, type ReactElement, type RefObject } from 'react';
 import { Canvas, useThree } from '@react-three/fiber';
-import { AdaptiveDpr, Preload } from '@react-three/drei';
+import { Preload } from '@react-three/drei';
 import {
   ChromaticAberration,
   EffectComposer,
@@ -10,7 +10,7 @@ import {
   ToneMapping,
   Vignette,
 } from '@react-three/postprocessing';
-import { ToneMappingMode } from 'postprocessing';
+import { ToneMappingMode, type EffectComposer as EffectComposerImpl } from 'postprocessing';
 import { ACESFilmicToneMapping, type Object3D } from 'three';
 import { Physics } from '@react-three/rapier';
 import { RoomModel } from './systems/RoomModel';
@@ -28,6 +28,7 @@ import { useRoomAsset } from './engine/useRoomAsset';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
 import { useEngine } from './engine/store';
 import { quality } from './engine/quality';
+import { AdaptiveResolution } from './engine/AdaptiveResolution';
 
 /**
  * Scene manager: composes the room, its rig and its UI.
@@ -77,6 +78,8 @@ function Exposure({ baked }: { baked: boolean }) {
  */
 function Post({ baked }: { baked: boolean }) {
   const settings = quality();
+  const composer = useRef<EffectComposerImpl>(null);
+  useComposerFollowsDpr(composer);
   const effects: ReactElement[] = [];
 
   /* Ambient occlusion at two very different scales, because the two paths are
@@ -177,7 +180,35 @@ function Post({ baked }: { baked: boolean }) {
     effects.push(<Vignette key="vignette" eskil={false} offset={0.28} darkness={0.72} />);
   }
 
-  return <EffectComposer enableNormalPass={false}>{effects}</EffectComposer>;
+  return (
+    <EffectComposer ref={composer} enableNormalPass={false}>
+      {effects}
+    </EffectComposer>
+  );
+}
+
+/**
+ * Keeps the composer's buffers the same size as the canvas.
+ *
+ * `@react-three/postprocessing` resizes its render targets from R3F's `size`,
+ * which is measured in CSS pixels — so it never learns about a change to the
+ * device pixel ratio. That is fine while the ratio is fixed at mount and wrong
+ * the moment anything moves it, which is exactly what `AdaptiveResolution`
+ * does: the renderer's drawing buffer would shrink while every effect kept
+ * sampling and writing at the old resolution, and the frames that were meant to
+ * get cheaper would arrive scaled and soft instead.
+ *
+ * The underlying `setSize` reads `getDrawingBufferSize`, which does account for
+ * the ratio, so calling it again with the unchanged CSS size is all that is
+ * needed. It no-ops on the renderer and re-allocates the targets.
+ */
+function useComposerFollowsDpr(composer: RefObject<EffectComposerImpl | null>) {
+  const size = useThree((state) => state.size);
+  const dpr = useThree((state) => state.viewport.dpr);
+
+  useEffect(() => {
+    composer.current?.setSize(size.width, size.height);
+  }, [composer, dpr, size.width, size.height]);
 }
 
 function Scene({
@@ -583,7 +614,7 @@ function Scene({
 
       <Post baked={baked} />
 
-      <AdaptiveDpr pixelated />
+      <AdaptiveResolution />
       <Preload all />
     </>
   );

@@ -65,7 +65,10 @@ export function Markers() {
   );
 
   // `Html` is a DOM node per marker with its transform written every frame,
-  // which is real work on a phone — and they are kept there anyway, because
+  // which is real work on a phone — but it is the *cheap* half of what these
+  // used to cost, and the expensive half (a backdrop blur behind each one,
+  // recomputed every frame because the element never stopped moving) is gone.
+  // They are kept here anyway, because
   // the reasoning that dropped them was wrong twice over. There is no hover on
   // a touchscreen, so a marker is not a *lesser* affordance there, it is the
   // only one: without it the room is a picture with no indication that any of
@@ -115,7 +118,20 @@ export function Markers() {
             onPointerOver={() => hover(pin.id)}
             onPointerOut={() => hover(null)}
             data-room-ui
-            className="group flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-full border border-white/20 bg-black/70 py-1.5 pl-1.5 pr-3 backdrop-blur-sm transition-colors hover:border-emerald-300/60 hover:bg-black/85"
+            // No `backdrop-blur`. It reads beautifully and it was the most
+            // expensive thing on the page: a backdrop filter forces the
+            // compositor to copy the region of the canvas behind the element
+            // and blur it, and these elements move every single frame, so the
+            // copy could never be cached. Seven of them meant seven readbacks
+            // of a live WebGL surface per frame — work that lands on the
+            // browser's compositor rather than in the render loop, which is
+            // why it never showed up as a slow `useFrame` and why the room
+            // stuttered rather than simply running at a lower rate.
+            //
+            // A flatter, more opaque background does the same job: the point
+            // is to hold the label legible against a room that is dark in some
+            // places and bright in others, and 80% black does that on its own.
+            className="group flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-full border border-white/20 bg-black/80 py-1.5 pl-1.5 pr-3 transition-colors hover:border-emerald-300/60 hover:bg-black/90"
           >
             <span className="relative flex size-2.5 shrink-0 items-center justify-center">
               <span className="absolute size-2.5 animate-ping rounded-full bg-emerald-300/40" />
@@ -179,8 +195,8 @@ function GuitarMarker({ controlled, near }: { controlled: boolean; near: boolean
         aria-hidden="true"
         className={
           near
-            ? 'flex items-center gap-1.5 whitespace-nowrap rounded-full border border-emerald-300/70 bg-emerald-400/20 py-1 pl-1 pr-2.5 backdrop-blur-sm'
-            : 'flex items-center gap-1.5 whitespace-nowrap rounded-full border border-white/20 bg-black/70 py-1 pl-1 pr-2.5 backdrop-blur-sm'
+            ? 'flex items-center gap-1.5 whitespace-nowrap rounded-full border border-emerald-300/70 bg-emerald-500/35 py-1 pl-1 pr-2.5'
+            : 'flex items-center gap-1.5 whitespace-nowrap rounded-full border border-white/20 bg-black/80 py-1 pl-1 pr-2.5'
         }
       >
         <span className="relative flex size-2.5 shrink-0 items-center justify-center">
