@@ -23,7 +23,19 @@ photograph; the site is the place.
     blender --background --python scripts/blender/render_hero.py -- --view og --width 2400
     python3 scripts/make_og_image.py
 
-Writes public/og-image.png at 1200×630.
+Writes public/og-card-2.png at 1200×630.
+
+## The number in the filename is load-bearing
+
+Every platform caches a link preview against the *image URL*, not its contents.
+Overwriting the file in place changes nothing anyone will see: LinkedIn already
+holds a copy of the old bytes and will keep serving them for days, and there is
+no way to ask it not to. This was learned the direct way — the card was fixed
+twice, deployed and byte-verified in production both times, and the composer
+kept showing the version with the availability pill on it.
+
+So changing the card means changing its name. Bump the suffix here and in the
+two `index.html` meta tags together, and the next scrape has nothing to reuse.
 """
 
 from __future__ import annotations
@@ -33,7 +45,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 RENDER = ROOT / "scripts" / "blender" / "renders" / "og.png"
-OUT = ROOT / "public" / "og-image.png"
+OUT = ROOT / "public" / "og-card-2.png"
 
 WIDTH, HEIGHT = 1200, 630
 

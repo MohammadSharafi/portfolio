@@ -223,13 +223,22 @@ viewport.
 
 ## Regenerating the social preview image
 
-`public/og-image.png` is rendered from `scripts/og-image.html`. To update it,
-edit that file and screenshot it at 1200×630 with any headless browser, e.g.:
+The card is a Cycles render of the room with nothing written on it. `scripts/og-image.html`
+is the retired HTML version and is no longer wired to anything.
 
 ```bash
-chromium --headless --window-size=1200,712 \
-  --screenshot=public/og-image.png scripts/og-image.html
+blender --background --python scripts/blender/render_hero.py -- --view og --width 2400
+python3 scripts/make_og_image.py
 ```
+
+The first command renders `scripts/blender/renders/og.png`; the second crops it to
+1200×630, lifts it for thumbnail legibility and writes `public/og-card-2.png`.
+
+**Rename the output whenever the card changes.** Link previews are cached against the
+image URL, not its contents, so overwriting the file in place is invisible to anyone who
+has already shared the link — LinkedIn will keep serving the copy it took days ago. Bump
+the suffix in `make_og_image.py` and in the `og:image` and `twitter:image` tags in
+`index.html` at the same time.
 
 ## Deployment
 
