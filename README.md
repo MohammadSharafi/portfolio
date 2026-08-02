@@ -223,8 +223,7 @@ viewport.
 
 ## Regenerating the social preview image
 
-The card is a Cycles render of the room with nothing written on it. `scripts/og-image.html`
-is the retired HTML version and is no longer wired to anything.
+The card is a Cycles render of the room with nothing written on it.
 
 ```bash
 blender --background --python scripts/blender/render_hero.py -- --view og --width 2400
