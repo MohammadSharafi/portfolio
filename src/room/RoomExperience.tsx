@@ -181,7 +181,16 @@ function Post({ baked }: { baked: boolean }) {
   }
 
   return (
-    <EffectComposer ref={composer} enableNormalPass={false}>
+    <EffectComposer
+      ref={composer}
+      enableNormalPass={false}
+      // Where this room's anti-aliasing actually comes from. The `antialias`
+      // flag on the canvas below does nothing while a composer is mounted —
+      // the scene is drawn into these targets, not the context's backbuffer —
+      // so the tiers were setting a value that was read by nobody while every
+      // one of them silently ran at the library default of 8.
+      multisampling={settings.multisampling}
+    >
       {effects}
     </EffectComposer>
   );
@@ -651,7 +660,14 @@ export function RoomExperience() {
         // square of this, so a 2× ratio is four times the fragment work of a
         // 1× one. Tiered rather than fixed — see `quality.ts`.
         dpr={settings.dpr}
-        gl={{ antialias: settings.antialias, powerPreference: 'high-performance' }}
+        // `antialias: false` on purpose, on every tier. `Post` mounts an
+        // `EffectComposer`, which renders the scene into its own targets and
+        // presents the result as a full-screen triangle — the context's
+        // backbuffer never receives a triangle that has an edge to smooth.
+        // Asking for a multisampled one anyway allocates it, and on a phone
+        // that is several megabytes of the scarcest memory there is, held for
+        // the life of the page, for nothing. AA lives on the composer.
+        gl={{ antialias: false, powerPreference: 'high-performance' }}
         camera={{
           fov: 34,
           near: 0.1,

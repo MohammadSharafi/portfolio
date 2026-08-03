@@ -1,6 +1,7 @@
 import { useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { quality } from './quality';
+import { ladder } from './resolutionLadder';
 
 /**
  * The room, measuring itself.
@@ -64,19 +65,6 @@ const SLOW_MS = 20;
  *  happened to catch a panel opening or the robot spawning cannot cost the
  *  visitor sharpness for the rest of the session. */
 const STRIKES = 2;
-
-/**
- * The ratios this tier is allowed to use, sharpest first.
- *
- * Multiplicative rather than a fixed list, so it works for a tier whose ceiling
- * is 1.75 and for one whose ceiling is 1. Each rung is roughly 30% less
- * fragment work than the one above it — big enough to actually rescue a frame
- * rate, small enough that no single step is visible as a jump in softness.
- */
-function ladder([min, max]: [number, number]): number[] {
-  const rungs = [1, 0.85, 0.72, 0.6].map((factor) => Math.max(min, +(max * factor).toFixed(3)));
-  return [...new Set(rungs)];
-}
 
 export function AdaptiveResolution() {
   const setDpr = useThree((state) => state.setDpr);

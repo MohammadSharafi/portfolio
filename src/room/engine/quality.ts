@@ -43,8 +43,23 @@ export interface QualitySettings {
   /** Bloom. Kept on everywhere — the room's emissives are meaningless without
    *  it — but the mipmap blur is dropped on low. */
   bloomMipmap: boolean;
-  /** Anti-aliasing in the WebGL context. */
-  antialias: boolean;
+  /**
+   * MSAA samples on the composer's render targets.
+   *
+   * Not the same thing as the canvas's `antialias` flag, which this used to
+   * set and which never did anything: the scene is rendered into
+   * `EffectComposer`'s own buffers, so the WebGL context's multisampled
+   * backbuffer is allocated and then never drawn into. Every tier has been
+   * getting the composer's default of 8 regardless of what it asked for.
+   *
+   * Eight is a lot to hand a phone. MSAA multiplies the cost of every pixel
+   * the depth and colour buffers touch, and bandwidth is the thing a
+   * tile-based mobile GPU has least of — so it was the expensive half of a bad
+   * trade: a third of the resolution, antialiased eight ways. Rendering more
+   * pixels and sampling each of them less is the better deal at every tier,
+   * and dramatically so on a phone.
+   */
+  multisampling: number;
   /** Load the half-size lightmap and aging atlas, where they exist. */
   halfTextures: boolean;
   /** The vignette — a full-screen pass, and the first framing effect a phone
@@ -52,9 +67,27 @@ export interface QualitySettings {
   vignette: boolean;
 }
 
-const PRESETS: Record<Tier, Omit<QualitySettings, 'tier'>> = {
+export const PRESETS: Record<Tier, Omit<QualitySettings, 'tier'>> = {
   low: {
-    dpr: [0.75, 1],
+    // Was [0.75, 1], and that one number was most of why the room looked bad
+    // on a phone.
+    //
+    // A modern handset reports a device pixel ratio of 3. Capping at 1 renders
+    // the room at a third of its linear resolution — a *ninth* of the pixels —
+    // and lets the compositor scale the result up to fill the screen. No
+    // amount of lightmap or material work survives that: every edge in the
+    // frame is reconstructed from a third of the samples it needed, so the
+    // bookshelf reads as a smear and the keycaps stop existing. It is the
+    // difference between watching this room and watching a photograph of it
+    // taken through a screen door.
+    //
+    // Two is a real bet, and it is one worth taking now in a way it was not
+    // before. The phones being sold today are not the phones this floor was
+    // written for; the transmission fix cut the frame's draw calls by 45%; and
+    // `AdaptiveResolution` measures what actually happens and steps down
+    // within a couple of seconds if the bet is wrong. Guessing low permanently
+    // and guessing high correctably are not the same kind of mistake.
+    dpr: [0.9, 2],
     // 180, down from 380. Dust is transparent fill over the whole frame and a
     // phone's fill rate is the thing it has least of — and the effect survives
     // the cut, because what sells dust is that motes catch the light near a
@@ -65,7 +98,11 @@ const PRESETS: Record<Tier, Omit<QualitySettings, 'tier'>> = {
     ao: false,
     lensArtefacts: false,
     bloomMipmap: false,
-    antialias: false,
+    // Two, not the composer's eight. At a ratio of 2 the room already has
+    // four samples per CSS pixel to resolve an edge with; spending eight more
+    // on top is bandwidth a phone does not have, to fix something the extra
+    // resolution has largely already fixed.
+    multisampling: 2,
     // Half-size lighting atlases: 21 MB of GPU texture instead of 83. See
     // `useRoomAsset`.
     halfTextures: true,
@@ -83,7 +120,7 @@ const PRESETS: Record<Tier, Omit<QualitySettings, 'tier'>> = {
     ao: true,
     lensArtefacts: true,
     bloomMipmap: true,
-    antialias: true,
+    multisampling: 4,
     halfTextures: false,
     vignette: true,
   },
@@ -110,7 +147,7 @@ const PRESETS: Record<Tier, Omit<QualitySettings, 'tier'>> = {
     ao: true,
     lensArtefacts: true,
     bloomMipmap: true,
-    antialias: true,
+    multisampling: 8,
     halfTextures: false,
     vignette: true,
   },
